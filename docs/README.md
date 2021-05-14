@@ -102,7 +102,4 @@ time.
 
 ## More reading
 
-The documentation outlines the basic architecture of JSSAT. The aim of writing
-the documentation was to be able to implement JSSAT based on the documentation,
-so you should be able to get a good understanding out of how JSSAT works purely
-from the documentation.
+- [JSSAT Architecture](./architecture.md)
