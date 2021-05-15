@@ -41,8 +41,9 @@ information is inferred from the code and annotated onto the relevant functions.
   automatically generated, being with `%.`, and are followed by numbers (e.g.
   `%.0`).
 
-  Functions are prefixed with `@` to differentiate them from local registers.
-  Anonymous functions are prefixed with `@.`, followed by numbers (e.g. `@.0`).
+  Functions and globals are prefixed with `@`. Anonymous functions are prefixed
+  with `@.`, followed by numbers (e.g. `@.0`). The distinction between `%` and
+  `@` exists to differentiate top level identifiers with local identifiers.
 
 - **Code layout**
 
@@ -72,6 +73,13 @@ information is inferred from the code and annotated onto the relevant functions.
   Any value in a register can be promoted to the GC. This means that the
   lifetime of the value will be exclusively handled by the garbage collector.
   Copying around a GC promoted value is equivalent to copying a pointer.
+
+- **Debug information**
+
+  Any statement and function may be accompanied by debug information, to assist
+  the reader in determining any reasoning behind what the compiler may do. Debug
+  information is written preceding the element (function or statement) with
+  triple hyphens `---`s.
 
 ## Relevance to Javascript
 
