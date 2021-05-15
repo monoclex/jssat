@@ -100,6 +100,8 @@ over what pieces of code are used in order to perform accurate narrowing. In the
 future, there may be partial support for modules but it is unlikely at this
 time.
 
+### Must be compiletime
+
 ## More reading
 
 - [JSSAT Architecture](./architecture.md)

@@ -1,3 +1,5 @@
 # Type System
 
-This will outline how the type system works.
+The type system is what allows [JSSAT IR][jssat-ir] to be so powerful.
+
+[jssat-ir]: ../jssat-ir.md

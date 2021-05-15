@@ -5,11 +5,10 @@ Javascript code, and output various different types of code.
 
 ## Overview
 
-The JSSAT Architecture can be organized into three distinct pieces, but at the
-herat of it all is the JSSAT type system. For detailed information about how
-type information is modelled, propagated, inferred from instructions, and how it
-solves traditionally complicated optimization problems, consider reading about
-the [Type System][type-system] for more information.
+The JSSAT Architecture can be organized into three distinct pieces. At the heart
+of JSSAT is the [JSSAT type system][type-system]. The JSSAT type system allows
+the optimization phases to optimize as well as they do, and cannot exist without
+[JSSAT IR][jssat-ir] being able to assist in cleanly modelling the types.
 
 1.  **Javascript frontend**
 
@@ -60,6 +59,7 @@ the [Type System][type-system] for more information.
     the documentation.
 
 [type-system]: ./type-system
+[jssat-ir]: ./jssat-ir.md
 [swc]: https://github.com/swc-project/swc
 [ast-traversal]: ./ast-traversal.md
 [optimization]: ./optimization
