@@ -81,6 +81,17 @@ information is inferred from the code and annotated onto the relevant functions.
   information is written preceding the element (function or statement) with
   triple hyphens `---`s.
 
+- **References**
+
+  JSSAT IR has the notion of pointers and references in order to reduce the
+  amount of allocation and copying that occurs. These references are on the
+  stack, and similar to LLVM's `alloca`. Allocating memory on the stack is done
+  with the `newptr` operation. No size is needed as that will be computed based
+  on usage. Passing around the register will copy the pointer into the methods
+  that use the pointer. The `getptr` and `setptr` instructions will load the
+  value stored in the pointer into a register, and set the value of a register
+  into the pointer.
+
 ## Relevance to Javascript
 
 JSSAT IR is designed to be a compromise between ease of translation from

@@ -56,10 +56,44 @@ are performed in `@main`, for all programs:
 [script-eval]: https://tc39.es/ecma262/#sec-runtime-semantics-scriptevaluation
 [rt-sem]: https://tc39.es/ecma262/#sec-scripts
 
-## Function Bodies
+## Bodies
 
-In ECMAScript, any item with a [`StatementList`][stmt-list] will be put inside
-its own JSSAT IR function. Debug information will be included to note the
-position in the source code that the statement list begins and ends at.
+In ECMAScript, items with an inner `StatementList` will be put inside its own
+JSSAT IR function. Debug information will be included to note the position in
+the source code that the statement list begins and ends at. The specific bodies
+that satisfy this are the following:
 
-[stmt-list]: https://tc39.es/ecma262/#prod-StatementList
+- Block
+- FunctionBody
+- ConciseBody
+- GeneratorBody
+- AsyncGeneratorBody
+- AsyncFunctionBody
+- AsyncConciseBody
+
+## Generation
+
+JSSAT IR generation occurs by traversing over the AST, beginning with `Script`.
+Each element in the `Script` is recursively traversed over. Then, for every
+instance of runtime semantics specified in the ECMAScript specification, the
+relevant instructions are emitted at compile time to handle such.
+
+### Body Generation
+
+As mentioned in [bodies](#bodies), a JSSAT IR function is emitted per body. The
+template of each body is as follows:
+
+```jssat
+fn @body_name(%environment_record) -> CompletionRecord;
+```
+
+Upon evaluation of a function object, the `[[Call]]` internal method will be set
+to a reference to a function with the following signature:
+
+```jssat
+fn @__call__(%F, %this_argument, %arguments_list) -> CompletionRecord;
+```
+
+Where `%F` is the function object being called, `%this_argument` is the current
+`this` value, and `%arguments_list` is the list of arguments to the function.
+The environment record of the function is
