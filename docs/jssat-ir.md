@@ -360,6 +360,7 @@ with example usage:
   %record = make_primitive.record
   %list = make_primitive.list
   %data = make_primitive.data DataName
+  %int = make_primitive.integer 2
   %char = make_primitive.char '\x65\x00'
   %undef = make_primitive.undefined
   %null = make_primitive.null
@@ -376,6 +377,7 @@ with example usage:
   | Record    | A key value lookup for arbitrary keys and values        |
   | List      | Pointer to a resizable collection of arbitrary elements |
   | Data      | Similar to structs in Rust.                             |
+  | Integer   | Equivalent to `i64`.                                    |
   | Char      | A UTF-16 character, which takes up two bytes.           |
   | Undefined | The ECMAScript `undefined` type                         |
   | Null      | The ECMAScript `null` type                              |
@@ -565,6 +567,130 @@ with example usage:
   reference is valid and points to something. If the return value is `true`, the
   reference is safe to dereference. If the return value is `false`, the
   reference is null and it is UB to dereference the reference.
+
+- **`call`**
+
+  ```
+  fn @a(%a, %b) {
+    ret %a
+  }
+
+  fn @b(%a, %b) {
+    %x = @a
+    %r.0 = call @a, %a, %b
+    %r.1 = call %x, %a, %b
+    ret
+  }
+  ```
+
+  The `call` operation can call a function, whether it be stored in a local or a
+  global. If a register has a function pointer in it, the `call` instruction is
+  capable of calling that as well. The return value of the `call` instruction is
+  the result that the function produces. If there is no value produced by the
+  calling function, this is UB.
+
+- **`math_add.num`**
+
+  ```
+  fn @add(%a, %b) {
+    %sum = math_add.num %a, %b
+    ret %sum
+  }
+  ```
+
+  The `math_add.num` instruction will add two `Number` operands together.
+  Another specialization of this function, `math_add.int` exists to add two
+  integers together. It simply requires that the operands are integers.
+
+- **`math_sub.num`**
+
+  ```
+  fn @sub(%a, %b) {
+    %diff = math_sub.num %a, %b
+    ret %diff
+  }
+  ```
+
+  The `math_sub.num` instruction subtracts two `Number`s. The `math_sub.int`
+  variant will subtract specifically integers.
+
+- **`math_mul.num`**
+
+  ```
+  fn @mult(%a, %b) {
+    %product = math_mul.num %a, %b
+    ret %product
+  }
+  ```
+
+  The `math_mul.num` instruction multiplies two `Number`s together. The
+  `math_mul.int` variant will multiply specifically integers.
+
+- **`math_div.num`**
+
+  ```
+  fn @div(%a, %b) {
+    %quotient = math_div.num %a, %b
+    ret %quotient
+  }
+  ```
+
+  The `math_div.num` instruction divides two `Number`s together. The
+  `math_div.int` variant will divide specifically integers.
+
+- **`math_mod.num`**
+
+  ```
+  fn @mod(%a, %b) {
+    %remainder = math_mod.num %a, %b
+    ret %remainder
+  }
+  ```
+
+  The `math_mod.num` instruction moduluses two `Number`s together. The
+  `math_mod.int` variant will modulus specifically integers.
+
+- **`math_pow.num`**
+
+  Returns first instruction to the power of the second.
+
+- **`eq`**
+
+  ```
+  fn @is_eq(%a, %b) {
+    %r = eq %a, %b
+    ret %r
+  }
+  ```
+
+  The `eq` instruction compares the values of two registers for equality in the
+  cheapest way. If both operands do not have the same type, this should be a
+  compile time error, and at worst, UB. Below shows a table of how equality is
+  performed:
+
+  | Type      | Algorithm          |
+  | :-------- | ------------------ |
+  | Reference | Reference equality |
+  | Record    | Reference equality |
+  | List      | Reference equality |
+  | Data      | Reference equality |
+  | Integer   | Exact equality     |
+  | Char      | Exact equality     |
+  | Undefined | Exact equality     |
+  | Null      | Exact equality     |
+  | Boolean   | Exact equality     |
+  | Number    | Exact equality     |
+  | BigInt    | Exact equality     |
+
+- **`lt`**
+
+  Compares if the first instruction is less than the second. Only accepts the
+  following types: `BigInt`, `Number`, `Char`, `Integer`.
+
+- **`gt`**
+
+  Compares if the first instruction is greater than the second. Only accepts the
+  following types: `BigInt`, `Number`, `Char`, `Integer`.
 
 ## Control Flow
 
