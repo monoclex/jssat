@@ -1,3 +1,5 @@
+#![feature(option_result_contains)]
+
 use swc_common::{
     errors::{ColorConfig, Handler},
     input::StringInput,
@@ -10,6 +12,9 @@ mod ast_traversal;
 mod ir;
 
 fn main() {
+    let example = ir::new();
+    println!("{}", example);
+
     let file_name = std::env::args()
         .into_iter()
         .skip(1)
