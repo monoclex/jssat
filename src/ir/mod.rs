@@ -4,23 +4,39 @@ mod formatting;
 
 pub fn new() -> IR {
     let agent = Identifier(Arc::new(IdentifierData {
+        scope: Scope::Global,
         id: 0,
         name: Some("agent".to_string()),
     }));
 
     let ext = Identifier(Arc::new(IdentifierData {
+        scope: Scope::Global,
         id: 1,
         name: Some("externalfunction".to_string()),
     }));
 
     let a = Identifier(Arc::new(IdentifierData {
+        scope: Scope::Local,
         id: 0,
         name: Some("a".to_string()),
     }));
 
     let a2 = Identifier(Arc::new(IdentifierData {
+        scope: Scope::Local,
         id: 1,
         name: Some("a".to_string()),
+    }));
+
+    let afn = Identifier(Arc::new(IdentifierData {
+        scope: Scope::Global,
+        id: 2,
+        name: Some("afn".to_string()),
+    }));
+
+    let entry = Identifier(Arc::new(IdentifierData {
+        scope: Scope::Local,
+        id: 0,
+        name: Some("entry".to_string()),
     }));
 
     let ir = IR {
@@ -29,16 +45,32 @@ pub fn new() -> IR {
             id: ext,
             parameters: vec![
                 TypedParameter {
-                    register: Register { id: a },
+                    register: Register { id: a.clone() },
                     kind: Type::Any,
                 },
                 TypedParameter {
-                    register: Register { id: a2 },
+                    register: Register { id: a2.clone() },
                     kind: Type::Any,
                 },
             ],
         }],
-        functions: vec![],
+        functions: vec![Function {
+            id: afn,
+            arguments: vec![
+                Parameter {
+                    register: Register { id: a },
+                },
+                Parameter {
+                    register: Register { id: a2 },
+                },
+            ],
+            body: FunctionBody {
+                blocks: vec![FunctionBlock {
+                    id: entry,
+                    instructions: vec![Instruction::Ret],
+                }],
+            },
+        }],
     };
 
     ir
@@ -55,8 +87,20 @@ impl Deref for Identifier {
     }
 }
 
+/// Represents the scope an identifier is in.
+#[derive(Debug, Clone, Copy)]
+pub enum Scope {
+    /// The global scope, `@`.
+    Global,
+    /// The local scope, `%`.
+    Local,
+}
+
 #[derive(Debug)]
 pub struct IdentifierData {
+    // NOTE: scope doesn't *need* to be here, but it is here so we can format
+    //       identifiers without need for state in display
+    scope: Scope,
     id: usize,
     name: Option<String>,
 }
@@ -89,8 +133,13 @@ pub struct TypedParameter {
 #[derive(Debug)]
 pub struct Function {
     id: Identifier,
-    arguments: Vec<Register>,
+    arguments: Vec<Parameter>,
     body: FunctionBody,
+}
+
+#[derive(Debug)]
+pub struct Parameter {
+    register: Register,
 }
 
 #[derive(Debug)]
@@ -110,8 +159,7 @@ pub struct FunctionBody {
 
 #[derive(Debug)]
 pub struct FunctionBlock {
-    id: usize,
-    name: Option<String>,
+    id: Identifier,
     instructions: Vec<Instruction>,
 }
 
