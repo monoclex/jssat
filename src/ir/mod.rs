@@ -1,150 +1,68 @@
-use std::{ops::Deref, sync::Arc};
+// use petgraph::Directed;
+use std::{collections::HashMap, num::NonZeroUsize, sync::Arc};
 
-mod formatting;
+// mod formatting;
 
-pub fn new() -> IR {
-    let agent = Identifier(Arc::new(IdentifierData {
-        scope: Scope::Global,
-        id: 0,
-        name: Some("agent".to_string()),
-    }));
+// pub type ControlFlowGraph = petgraph::graph::DiGraph<BlockId, (), usize>;
+// pub type ValueFlowGraph = petgraph::graph::DiGraph<RegisterId, (), usize>;
 
-    let ext = Identifier(Arc::new(IdentifierData {
-        scope: Scope::Global,
-        id: 1,
-        name: Some("externalfunction".to_string()),
-    }));
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct RegisterId(NonZeroUsize);
 
-    let a = Identifier(Arc::new(IdentifierData {
-        scope: Scope::Local,
-        id: 0,
-        name: Some("a".to_string()),
-    }));
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct BlockId(NonZeroUsize);
 
-    let a2 = Identifier(Arc::new(IdentifierData {
-        scope: Scope::Local,
-        id: 1,
-        name: Some("a".to_string()),
-    }));
-
-    let afn = Identifier(Arc::new(IdentifierData {
-        scope: Scope::Global,
-        id: 2,
-        name: Some("afn".to_string()),
-    }));
-
-    let entry = Identifier(Arc::new(IdentifierData {
-        scope: Scope::Local,
-        id: 0,
-        name: Some("entry".to_string()),
-    }));
-
-    let ir = IR {
-        global_variables: vec![GlobalVariable { id: agent }],
-        external_functions: vec![ExternalFunction {
-            id: ext,
-            parameters: vec![
-                TypedParameter {
-                    register: Register { id: a.clone() },
-                    kind: Type::Any,
-                },
-                TypedParameter {
-                    register: Register { id: a2.clone() },
-                    kind: Type::Any,
-                },
-            ],
-        }],
-        functions: vec![Function {
-            id: afn,
-            arguments: vec![
-                Parameter {
-                    register: Register { id: a },
-                },
-                Parameter {
-                    register: Register { id: a2 },
-                },
-            ],
-            body: FunctionBody {
-                blocks: vec![FunctionBlock {
-                    id: entry,
-                    instructions: vec![Instruction::Ret],
-                }],
-            },
-        }],
-    };
-
-    ir
-}
-
-#[derive(Debug, Clone)]
-pub struct Identifier(Arc<IdentifierData>);
-
-impl Deref for Identifier {
-    type Target = IdentifierData;
-
-    fn deref(&self) -> &Self::Target {
-        &*self.0
-    }
-}
-
-/// Represents the scope an identifier is in.
-#[derive(Debug, Clone, Copy)]
-pub enum Scope {
-    /// The global scope, `@`.
-    Global,
-    /// The local scope, `%`.
-    Local,
-}
-
-#[derive(Debug)]
-pub struct IdentifierData {
-    // NOTE: scope doesn't *need* to be here, but it is here so we can format
-    //       identifiers without need for state in display
-    scope: Scope,
-    id: usize,
-    name: Option<String>,
-}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TopLevelId(NonZeroUsize);
 
 #[derive(Debug)]
 pub struct IR {
-    pub global_variables: Vec<GlobalVariable>,
-    pub external_functions: Vec<ExternalFunction>,
-    pub functions: Vec<Function>,
+    constants: Vec<Constant>,
+    global_variables: Vec<GlobalVariable>,
+    external_functions: Vec<ExternalFunction>,
+    functions: Vec<Function>,
     // TODO: `pub data: Vec<DataDeclaration>`
+    debug_info: IRDebugInfo,
+}
+
+#[derive(Debug)]
+pub struct IRDebugInfo {
+    top_level_names: HashMap<TopLevelId, Box<str>>,
+}
+
+#[derive(Debug)]
+pub struct Constant {
+    id: TopLevelId,
+    payload: Vec<u8>,
 }
 
 #[derive(Debug)]
 pub struct GlobalVariable {
-    id: Identifier,
+    id: TopLevelId,
 }
 
 #[derive(Debug)]
 pub struct ExternalFunction {
-    id: Identifier,
+    id: TopLevelId,
     parameters: Vec<TypedParameter>,
 }
 
 #[derive(Debug)]
 pub struct TypedParameter {
-    register: Register,
+    register: RegisterId,
     kind: Type,
 }
 
 #[derive(Debug)]
 pub struct Function {
-    id: Identifier,
+    id: TopLevelId,
     arguments: Vec<Parameter>,
     body: FunctionBody,
 }
 
 #[derive(Debug)]
 pub struct Parameter {
-    register: Register,
-}
-
-#[derive(Debug)]
-pub struct Register {
-    id: Identifier,
+    register: RegisterId,
 }
 
 #[derive(Debug)]
@@ -159,11 +77,79 @@ pub struct FunctionBody {
 
 #[derive(Debug)]
 pub struct FunctionBlock {
-    id: Identifier,
+    id: BlockId,
     instructions: Vec<Instruction>,
 }
 
 #[derive(Debug)]
+pub enum TypeRecord {
+    Todo,
+}
+
+#[derive(Debug)]
+pub struct BlockImpliesRegister {
+    block: BlockId,
+    implies: RegisterId,
+}
+
+#[derive(Debug)]
 pub enum Instruction {
-    Ret,
+    ECMAScriptAbstractOperation(ECMAScriptAbstractOperation),
+    LoadGlobal(RegisterId /*=*/, TopLevelId),
+    SaveGlobal(TopLevelId /*=*/, RegisterId),
+    RecordGet(RegisterId /*=*/, RegisterId, RecordKey),
+    RecordSet(RegisterId, RecordKey, Value),
+    RefIsEmpty(RegisterId /*=*/, RegisterId),
+    RefDeref(RegisterId /*=*/, RegisterId),
+    MakePrimitive(RegisterId /*=*/, PrimtiveCreationDetails),
+    GcMakeRegion(RegisterId /*=*/),
+    GcEndRegion(RegisterId),
+    GcTracingMarkRoot(RegisterId),
+    GcTracingUnmarkRoot(RegisterId),
+    Call(Option<RegisterId> /*=*/, Callable),
+    Phi(RegisterId /*=*/, Vec<BlockImpliesRegister>),
+    Jmp(BlockId),
+    JmpIf(BlockImpliesRegister, BlockId),
+    Ret(Option<RegisterId>),
+}
+
+#[derive(Debug)]
+pub enum Callable {
+    GlobalFunction(TopLevelId),
+    LocalFunction(RegisterId),
+}
+
+#[derive(Debug)]
+pub enum RecordKey {
+    /// An ECMAScript internal slot. `[[str]]`
+    InternalSlot(&'static str),
+    Register(RegisterId),
+    Constant(TopLevelId),
+}
+
+#[derive(Debug)]
+pub enum Value {
+    Register(RegisterId),
+    Constant(TopLevelId),
+    Number(f64),
+}
+
+#[derive(Debug)]
+pub enum PrimtiveCreationDetails {
+    Record(GarbageCollectionStrategy),
+    List(GarbageCollectionStrategy),
+}
+
+#[derive(Debug)]
+pub enum GarbageCollectionStrategy {
+    Tracing,
+    Region(RegisterId),
+}
+
+#[derive(Debug)]
+pub enum ECMAScriptAbstractOperation {
+    InitializeHostDefinedRealm(RegisterId /*=*/),
+    CreateRealm(RegisterId /*=*/),
+    // CreateIntrinsics(RegisterId),
+    // CreateBuiltinFunction(TopLevelId),
 }

@@ -51,7 +51,7 @@ are performed in `@main`, for all programs:
    Using the script record previously specified, the `Script` is now executed
    according to the [runtime semantics for Scripts][rt-sem].
 
-[init-host-realm]: https://tc39.es/ecma262/#sec-createrealm
+[init-host-realm]: https://tc39.es/ecma262/#sec-initializehostdefinedrealm
 [parse-script]: https://tc39.es/ecma262/#sec-parse-script
 [script-eval]: https://tc39.es/ecma262/#sec-runtime-semantics-scriptevaluation
 [rt-sem]: https://tc39.es/ecma262/#sec-scripts
