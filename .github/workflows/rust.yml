@@ -11,11 +11,11 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [windows-latest, ubuntu-latest]
+        os: [ubuntu-latest]
         include:
-          - os: windows-latest
-            path: ./target/release/jssat.exe
-            name: jssat-windows.exe
+#          - os: windows-latest
+#            path: ./target/release/jssat.exe
+#            name: jssat-windows.exe
           - os: ubuntu-latest
             path: ./target/release/jssat
             name: jssat-linux
