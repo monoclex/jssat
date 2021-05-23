@@ -11,7 +11,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
+        os: [windows-latest, ubuntu-latest]
         include:
           - os: windows-latest
             path: ./target/release/jssat.exe
@@ -19,9 +19,6 @@ jobs:
           - os: ubuntu-latest
             path: ./target/release/jssat
             name: jssat-linux
-          - os: macos-latest
-            path: ./target/release/jssat
-            name: jssat-macos
 
     steps:
     - name: Checkout Source
@@ -31,17 +28,6 @@ jobs:
       if: ${{ matrix.os == 'ubuntu-latest' }}
       run: |
         sudo apt-get install -y llvm-11-dev
-    
-    - name: Install LLVM (Mac)
-      if: ${{ matrix.os == 'macos-latest' }}
-      run: |
-        brew install llvm@11
-        echo 'export PATH="/usr/local/opt/llvm@11/bin:$PATH"' >> /Users/runner/.bash_profile
-      env:
-        LDFLAGS: '-L/usr/local/opt/llvm@11/lib'
-        CPPFLAGS: '-I/usr/local/opt/llvm@11/include'
-        LLVM_SYS_110_PREFIX: '/usr/local/opt/llvm@11'
-        LLVM_CONFIG_PATH: '/usr/local/opt/llvm@11/bin/llvm-config'
 
     - name: Build
       run: cargo build --release --verbose
