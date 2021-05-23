@@ -23,6 +23,14 @@ jobs:
     steps:
     - name: Checkout Source
       uses: actions/checkout@v2
+      
+    - name: Install LLVM (Windows)
+      if: ${{ matrix.os == 'windows-latest' }}
+      run: |
+        cargo install llvmenv
+        llvmenv init
+        llvmenv entries
+        llvmenv build-entry 11.1.0
      
     - name: Install LLVM (Linux)
       if: ${{ matrix.os == 'ubuntu-latest' }}
