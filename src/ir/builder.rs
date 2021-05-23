@@ -56,30 +56,25 @@ impl ProgramBuilder {
 
     pub fn constant(&mut self, name: Name, payload: Vec<u8>) -> ConstantId {
         let id = self.free_id();
+        self.save_name(id, name);
 
         self.ir.constants.push(Constant { id, payload });
-
-        if let Some(name) = name.0 {
-            self.ir.debug_info.top_level_names.insert(id, name);
-        }
 
         ConstantId(id)
     }
 
     pub fn global(&mut self, name: Name) -> GlobalId {
         let id = self.free_id();
+        self.save_name(id, name);
 
         self.ir.global_variables.push(GlobalVariable { id });
-
-        if let Some(name) = name.0 {
-            self.ir.debug_info.top_level_names.insert(id, name);
-        }
 
         GlobalId(id)
     }
 
     pub fn external_function(&mut self, name: Name, param_types: Vec<Type>) -> ExternalFunctionId {
         let id = self.free_id();
+        self.save_name(id, name);
 
         self.ir.external_functions.push(ExternalFunction {
             id,
@@ -98,10 +93,7 @@ impl ProgramBuilder {
         }
 
         let id = self.free_id();
-
-        if let Some(name) = name.0 {
-            self.ir.debug_info.top_level_names.insert(id, name);
-        }
+        self.save_name(id, name);
 
         if is_main {
             self.has_main = true;
@@ -111,7 +103,7 @@ impl ProgramBuilder {
     }
 
     pub fn build(self) -> IR {
-        if self.open_functions.load(Ordering::Relaxed) == 0 {
+        if self.open_functions.load(Ordering::Relaxed) != 0 {
             panic!("attempted to build IR - function builder left without calling 'finish'");
         }
 
@@ -122,6 +114,12 @@ impl ProgramBuilder {
         let id = self.counter;
         self.counter = self.counter.next();
         id
+    }
+
+    fn save_name(&mut self, id: TopLevelId, name: Name) {
+        if let Some(name) = name.0 {
+            self.ir.debug_info.top_level_names.insert(id, name);
+        }
     }
 }
 
@@ -285,7 +283,7 @@ pub enum FnArg {
     Number(f64),
 }
 
-pub fn ex() {
+pub fn ex() -> IR {
     let mut program = ProgramBuilder::new();
     let surrounding_agent = program.global(Name::new("surrounding_agent"));
     let print = program.external_function(Name::new("print"), vec![Type::Any]);
@@ -312,7 +310,5 @@ pub fn ex() {
     print_stub.finish(&mut program);
     main.finish(&mut program);
 
-    let ir = program.build();
-
-    println!("{:?}", ir);
+    program.build()
 }

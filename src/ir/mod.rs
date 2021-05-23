@@ -72,7 +72,7 @@ pub struct Parameter {
     pub register: RegisterId,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type {
     Any,
 }
@@ -124,6 +124,22 @@ pub enum Instruction {
     Jmp(BlockId),
     JmpIf(BlockImpliesRegister, BlockId),
     Ret(Option<RegisterId>),
+}
+
+impl Instruction {
+    pub fn assigned_to(&self) -> Option<RegisterId> {
+        match self {
+            Self::LoadGlobal(to, _)
+            | Self::RecordGet(to, _, _)
+            | Self::RefIsEmpty(to, _)
+            | Self::RefDeref(to, _)
+            | Self::MakePrimitive(to, _)
+            | Self::GcMakeRegion(to)
+            | Self::Phi(to, _) => Some(*to),
+            Self::Call(to, _, _) => *to,
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -195,6 +211,10 @@ impl RegisterId {
     pub fn next(&self) -> Self {
         Self(NonZeroUsize::new(self.0.get() + 1).unwrap())
     }
+
+    pub fn value(&self) -> usize {
+        self.0.get()
+    }
 }
 
 impl BlockId {
@@ -205,6 +225,10 @@ impl BlockId {
     pub fn next(&self) -> Self {
         Self(NonZeroUsize::new(self.0.get() + 1).unwrap())
     }
+
+    pub fn value(&self) -> usize {
+        self.0.get()
+    }
 }
 
 impl TopLevelId {
@@ -214,5 +238,9 @@ impl TopLevelId {
 
     pub fn next(&self) -> Self {
         Self(NonZeroUsize::new(self.0.get() + 1).unwrap())
+    }
+
+    pub fn value(&self) -> usize {
+        self.0.get()
     }
 }

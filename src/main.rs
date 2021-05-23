@@ -8,11 +8,21 @@ use swc_common::{
 };
 use swc_ecmascript::parser::{Parser, Syntax};
 
-mod ast_traversal;
-mod ir;
+pub mod ast_traversal;
+pub mod backend;
+pub mod ir;
+pub mod types;
 
 fn main() {
-    ir::builder::ex();
+    let ir = ir::builder::ex();
+    eprintln!("{:#?}", ir);
+
+    let annotations = types::annotate(&ir);
+    eprintln!("{:#?}", annotations);
+
+    let llvm_ir = backend::build(&ir, &annotations);
+    eprintln!("OUTPUT LLVM IR (use unix pipes to redirect this into a file):");
+    println!("{}", llvm_ir);
 
     let file_name = std::env::args()
         .into_iter()
