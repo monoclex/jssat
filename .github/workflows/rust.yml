@@ -11,12 +11,32 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [windows-latest, ubuntu-latest, macos-latest]
+        include:
+          - os: windows-latest
+            path: ./target/release/jssat.exe
+            name: jssat-windows.exe
+          - os: ubuntu-latest
+            path: ./target/release/jssat
+            name: jssat-linux
+          - os: macos-latest
+            path: ./target/release/jssat
+            name: jssat-macos
 
     steps:
     - name: Checkout Source
       uses: actions/checkout@v2
-      
+     
+    - name: Install LLVM (Linux)
+      if: ${{ matrix.os == 'ubuntu-latest' }}
+      run: |
+        sudo apt-get install -y llvm-11-dev
+    
+    - name: Install LLVM (Mac)
+      if: ${{ matrix.os == 'macos-latest' }}
+      run: |
+        brew install llvm@11
+    
     - name: Build
       run: cargo build --release --verbose
       
@@ -31,5 +51,5 @@ jobs:
     - name: Upload Binary
       uses: actions/upload-artifact@v2.2.2
       with:
-        name: 'jssat-${{ matrix.os }}'
-        path: ./target/release/jssat
+        name: ${{ matrix.name }}
+        path: ${{ matrix.path }}
