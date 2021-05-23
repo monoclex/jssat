@@ -30,7 +30,7 @@ jobs:
         cargo install llvmenv
         llvmenv init
         llvmenv entries
-        llvmenv build-entry 11.1.0
+        llvmenv build-entry 11.0.0
      
     - name: Install LLVM (Linux)
       if: ${{ matrix.os == 'ubuntu-latest' }}
