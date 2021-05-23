@@ -8,13 +8,12 @@ env:
 jobs:
   build:
 
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
 
     steps:
-    - name: Install LLVM
-      run: |
-        sudo apt-get install -y llvm-11-dev liblld-11-dev
-      
     - name: Checkout Source
       uses: actions/checkout@v2
       
@@ -25,11 +24,12 @@ jobs:
       run: cargo test --verbose
       
     - name: Strip Binary
+      if: ${{ matrix.os != "windows-latest" }}
       run: |
         strip ./target/release/jssat
 
     - name: Upload Binary
       uses: actions/upload-artifact@v2.2.2
       with:
-        name: jssat-linux
+        name: 'jssat-${{ matrix.os }}'
         path: ./target/release/jssat
