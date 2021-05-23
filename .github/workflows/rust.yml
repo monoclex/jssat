@@ -35,17 +35,13 @@ jobs:
     - name: Install LLVM (Mac)
       if: ${{ matrix.os == 'macos-latest' }}
       run: |
-        # download
         brew install llvm@11
-        
-        # set variables according to github
         echo 'export PATH="/usr/local/opt/llvm@11/bin:$PATH"' >> /Users/runner/.bash_profile
-        export LDFLAGS="-L/usr/local/opt/llvm@11/lib"
-        export CPPFLAGS="-I/usr/local/opt/llvm@11/include"
-        
-        # set llvm_sys variables
-        export LLVM_SYS_110_PREFIX="/usr/local/opt/llvm@11"
-        export LLVM_CONFIG_PATH="${LLVM_SYS_110_PREFIX}/bin/llvm-config"
+      env:
+        LDFLAGS: '-L/usr/local/opt/llvm@11/lib'
+        CPPFLAGS: '-I/usr/local/opt/llvm@11/include'
+        LLVM_SYS_110_PREFIX: '/usr/local/opt/llvm@11'
+        LLVM_CONFIG_PATH: '/usr/local/opt/llvm@11/bin/llvm-config'
 
     - name: Build
       run: cargo build --release --verbose
