@@ -12,6 +12,8 @@ mod ast_traversal;
 mod ir;
 
 fn main() {
+    ir::builder::ex();
+
     let file_name = std::env::args()
         .into_iter()
         .skip(1)

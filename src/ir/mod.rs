@@ -2,6 +2,7 @@
 use std::{collections::HashMap, num::NonZeroUsize, sync::Arc};
 
 // mod formatting;
+pub mod builder;
 
 // pub type ControlFlowGraph = petgraph::graph::DiGraph<BlockId, (), usize>;
 // pub type ValueFlowGraph = petgraph::graph::DiGraph<RegisterId, (), usize>;
@@ -17,52 +18,58 @@ pub struct TopLevelId(NonZeroUsize);
 
 #[derive(Debug)]
 pub struct IR {
-    constants: Vec<Constant>,
-    global_variables: Vec<GlobalVariable>,
-    external_functions: Vec<ExternalFunction>,
-    functions: Vec<Function>,
+    pub constants: Vec<Constant>,
+    pub global_variables: Vec<GlobalVariable>,
+    pub external_functions: Vec<ExternalFunction>,
+    pub functions: Vec<Function>,
     // TODO: `pub data: Vec<DataDeclaration>`
-    debug_info: IRDebugInfo,
+    pub debug_info: IRDebugInfo,
 }
 
 #[derive(Debug)]
 pub struct IRDebugInfo {
-    top_level_names: HashMap<TopLevelId, Box<str>>,
+    pub top_level_names: HashMap<TopLevelId, Box<str>>,
 }
 
 #[derive(Debug)]
 pub struct Constant {
-    id: TopLevelId,
-    payload: Vec<u8>,
+    pub id: TopLevelId,
+    pub payload: Vec<u8>,
 }
 
 #[derive(Debug)]
 pub struct GlobalVariable {
-    id: TopLevelId,
+    pub id: TopLevelId,
 }
 
 #[derive(Debug)]
 pub struct ExternalFunction {
-    id: TopLevelId,
-    parameters: Vec<TypedParameter>,
+    pub id: TopLevelId,
+    pub parameters: Vec<TypedParameter>,
 }
 
 #[derive(Debug)]
 pub struct TypedParameter {
-    register: RegisterId,
-    kind: Type,
+    pub kind: Type,
 }
 
 #[derive(Debug)]
 pub struct Function {
-    id: TopLevelId,
-    arguments: Vec<Parameter>,
-    body: FunctionBody,
+    pub id: TopLevelId,
+    pub parameters: Vec<Parameter>,
+    pub body: FunctionBody,
+    pub debug_info: FunctionDebugInfo,
+    pub is_main: bool,
+}
+
+#[derive(Debug)]
+pub struct FunctionDebugInfo {
+    pub register_names: HashMap<RegisterId, Box<str>>,
 }
 
 #[derive(Debug)]
 pub struct Parameter {
-    register: RegisterId,
+    pub register: RegisterId,
 }
 
 #[derive(Debug)]
@@ -72,13 +79,19 @@ pub enum Type {
 
 #[derive(Debug)]
 pub struct FunctionBody {
-    blocks: Vec<FunctionBlock>,
+    pub blocks: Vec<FunctionBlock>,
+    pub debug_info: FunctionBodyDebugInfo,
+}
+
+#[derive(Debug)]
+pub struct FunctionBodyDebugInfo {
+    pub block_names: HashMap<BlockId, Box<str>>,
 }
 
 #[derive(Debug)]
 pub struct FunctionBlock {
-    id: BlockId,
-    instructions: Vec<Instruction>,
+    pub id: BlockId,
+    pub instructions: Vec<Instruction>,
 }
 
 #[derive(Debug)]
@@ -88,8 +101,8 @@ pub enum TypeRecord {
 
 #[derive(Debug)]
 pub struct BlockImpliesRegister {
-    block: BlockId,
-    implies: RegisterId,
+    pub block: BlockId,
+    pub implies: RegisterId,
 }
 
 #[derive(Debug)]
@@ -106,7 +119,7 @@ pub enum Instruction {
     GcEndRegion(RegisterId),
     GcTracingMarkRoot(RegisterId),
     GcTracingUnmarkRoot(RegisterId),
-    Call(Option<RegisterId> /*=*/, Callable),
+    Call(Option<RegisterId> /*=*/, Callable, Vec<Value>),
     Phi(RegisterId /*=*/, Vec<BlockImpliesRegister>),
     Jmp(BlockId),
     JmpIf(BlockImpliesRegister, BlockId),
@@ -152,4 +165,54 @@ pub enum ECMAScriptAbstractOperation {
     CreateRealm(RegisterId /*=*/),
     // CreateIntrinsics(RegisterId),
     // CreateBuiltinFunction(TopLevelId),
+}
+
+impl IR {
+    pub fn new() -> Self {
+        IR {
+            constants: vec![],
+            global_variables: vec![],
+            external_functions: vec![],
+            functions: vec![],
+            debug_info: IRDebugInfo::new(),
+        }
+    }
+}
+
+impl IRDebugInfo {
+    pub fn new() -> Self {
+        IRDebugInfo {
+            top_level_names: HashMap::new(),
+        }
+    }
+}
+
+impl RegisterId {
+    pub fn first() -> Self {
+        Self(NonZeroUsize::new(1).unwrap())
+    }
+
+    pub fn next(&self) -> Self {
+        Self(NonZeroUsize::new(self.0.get() + 1).unwrap())
+    }
+}
+
+impl BlockId {
+    pub fn first() -> Self {
+        Self(NonZeroUsize::new(1).unwrap())
+    }
+
+    pub fn next(&self) -> Self {
+        Self(NonZeroUsize::new(self.0.get() + 1).unwrap())
+    }
+}
+
+impl TopLevelId {
+    pub fn first() -> Self {
+        Self(NonZeroUsize::new(1).unwrap())
+    }
+
+    pub fn next(&self) -> Self {
+        Self(NonZeroUsize::new(self.0.get() + 1).unwrap())
+    }
 }
