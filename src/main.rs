@@ -1,5 +1,3 @@
-#![feature(option_result_contains)]
-
 use swc_common::{
     errors::{ColorConfig, Handler},
     input::StringInput,
