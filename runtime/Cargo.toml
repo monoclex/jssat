@@ -1,0 +1,15 @@
+[package]
+name = "jssatrt"
+version = "0.1.0"
+authors = ["SirJosh3917 <SirJosh3917@users.noreply.github.com>"]
+edition = "2018"
+
+[lib]
+name = "jssatrt"
+crate-type = ["staticlib", "cdylib"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+hashbrown = "0.11.2"
+mimalloc = "0.1.25"
