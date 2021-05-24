@@ -5,30 +5,22 @@
 ## generated object file to produce a binary.
 ##
 
-# https://github.com/sagiegurari/cargo-make/issues/56#issuecomment-359041088
 [config]
+# https://github.com/sagiegurari/cargo-make/issues/56#issuecomment-359041088
 skip_core_tasks = true
+# https://github.com/sagiegurari/cargo-make/issues/448#issuecomment-674697159
+# https://github.com/sagiegurari/cargo-make#disabling-workspace-support
+default_to_workspace = false
 
-# https://github.com/sagiegurari/cargo-make/issues/56#issuecomment-509030871
-[env]
-CARGO_MAKE_EXTEND_WORKSPACE_MAKEFILE = true
-
-[tasks.default]
-dependencies = [
-    "build-dev",
-    "build-release",
-]
-
-[tasks.build-dev]
-condition = { profiles = ["dev"] }
+[tasks.dev]
 script_runner = "@shell"
 script = '''
 cargo build -p jssatrt
 cargo build -p jssat
+cargo run -p jssat
 '''
 
-[tasks.build-release]
-condition = { profiles = ["release"] }
+[tasks.release]
 script_runner = "@shell"
 script = '''
 cargo build -p jssatrt --release

@@ -1,4 +1,8 @@
-use core::{alloc::Layout, hash::BuildHasherDefault, mem::ManuallyDrop, panic::PanicInfo};
+#![no_std]
+#![feature(default_alloc_error_handler)]
+#![feature(lang_items)]
+
+use core::{mem::ManuallyDrop, panic::PanicInfo};
 use hashbrown::HashMap;
 
 mod module;
@@ -7,6 +11,19 @@ use mimalloc::MiMalloc;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
+
+#[panic_handler]
+fn panic_handler(_: &PanicInfo) -> ! {
+    loop {}
+}
+
+#[lang = "eh_personality"]
+fn eh_personality(_: i32) {}
+
+#[no_mangle]
+fn rust_oom() -> ! {
+    loop {}
+}
 
 #[repr(C)]
 pub union FFIMap {
@@ -71,3 +88,6 @@ pub extern "C" fn drop_map(map: FFIMap) {
 pub extern "C" fn yield_3() -> i32 {
     module::what()
 }
+
+#[no_mangle]
+pub extern "C" fn schedule(job: fn() -> ()) {}

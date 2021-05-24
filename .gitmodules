@@ -1,0 +1,4 @@
+[submodule "runtime/mimalloc_rust"]
+	path = runtime/mimalloc_rust
+	url = https://github.com/SirJosh3917/mimalloc_rust.git
+	branch = no_std-mimalloc-fork

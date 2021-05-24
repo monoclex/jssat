@@ -8,12 +8,6 @@ edition = "2018"
 name = "jssatrt"
 crate-type = ["staticlib", "cdylib"]
 
-[profile.dev]
-panic = "abort"
-
-[profile.release]
-panic = "abort"
-
 [dependencies]
-hashbrown = "0.11.2"
-mimalloc = "0.1.25"
+hashbrown = { version = "0.11.2", default-features = false, features = ["ahash-compile-time-rng"] }
+mimalloc = { path = "./mimalloc_rust" }
