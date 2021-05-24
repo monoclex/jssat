@@ -1,0 +1,36 @@
+##
+## We use a Makefile to ensure that we generate the runtime before we build
+## `jssat`. We must generate the runtime so that we can include it in the
+## compiler, so that the user's linker can be invoked to link the runtime and
+## generated object file to produce a binary.
+##
+
+# https://github.com/sagiegurari/cargo-make/issues/56#issuecomment-359041088
+[config]
+skip_core_tasks = true
+
+# https://github.com/sagiegurari/cargo-make/issues/56#issuecomment-509030871
+[env]
+CARGO_MAKE_EXTEND_WORKSPACE_MAKEFILE = true
+
+[tasks.default]
+dependencies = [
+    "build-dev",
+    "build-release",
+]
+
+[tasks.build-dev]
+condition = { profiles = ["dev"] }
+script_runner = "@shell"
+script = '''
+cargo build -p jssatrt
+cargo build -p jssat
+'''
+
+[tasks.build-release]
+condition = { profiles = ["release"] }
+script_runner = "@shell"
+script = '''
+cargo build -p jssatrt --release
+cargo build -p jssat --release
+'''

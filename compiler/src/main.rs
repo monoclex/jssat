@@ -24,6 +24,9 @@ fn main() {
     eprintln!("OUTPUT LLVM IR (use unix pipes to redirect this into a file):");
     println!("{}", llvm_ir);
 
+    let runtime_library = include_bytes!(env!("JSSATRT_PATH"));
+    println!("included runtime size: {}", runtime_library.len());
+
     let file_name = std::env::args()
         .into_iter()
         .skip(1)
