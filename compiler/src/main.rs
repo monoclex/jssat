@@ -1,5 +1,8 @@
-#![feature(option_result_contains)]
+#![feature(command_access)]
 
+use std::{io::Write, process::Command};
+
+use inkwell::targets::TargetMachine;
 use swc_common::{
     errors::{ColorConfig, Handler},
     input::StringInput,
@@ -13,6 +16,71 @@ pub mod backend;
 pub mod ir;
 pub mod types;
 
+fn preview(command: &Command) -> String {
+    let mut preview = String::new();
+
+    preview.push_str(command.get_program().to_str().unwrap());
+
+    for arg in command.get_args() {
+        preview.push_str("\n\t");
+        preview.push_str(arg.to_str().unwrap());
+    }
+
+    preview
+}
+
+fn link_binary(build: &[u8]) {
+    let runtime_library = include_bytes!(env!("JSSATRT_PATH"));
+    println!("included runtime size: {}", runtime_library.len());
+
+    let mut runtime_object = tempfile::NamedTempFile::new().unwrap();
+    let mut build_object = tempfile::NamedTempFile::new().unwrap();
+
+    runtime_object.write_all(runtime_library).unwrap();
+    build_object.write_all(build).unwrap();
+
+    #[cfg(target_os = "windows")]
+    let artifact = "jssatout.exe";
+    #[cfg(target_os = "linux")]
+    let artifact = "jssatout";
+
+    let mut build = cc::Build::new();
+
+    // sensible defaults for `OPT_LEVEL`, `TARGET`, and `HOST`
+    if let Err(_) = std::env::var("OPT_LEVEL") {
+        build.opt_level(3);
+    }
+
+    if let Err(_) = std::env::var("TARGET") {
+        let triplet = TargetMachine::get_default_triple();
+        build.target(triplet.as_str().to_str().unwrap());
+    }
+
+    if let Err(_) = std::env::var("HOST") {
+        let triplet = TargetMachine::get_default_triple();
+        build.host(triplet.as_str().to_str().unwrap());
+    }
+
+    build.flag_if_supported("-flto");
+
+    let mut command = build.get_compiler().to_command();
+
+    #[cfg(target_os = "linux")]
+    {
+        command
+            .arg(format!("{}", build_object.path().display()))
+            .arg(format!("{}", runtime_object.path().display()))
+            .arg("-pthread")
+            .arg("-ldl");
+    }
+
+    eprintln!("invoking: {}", preview(&command));
+    assert!(command.spawn().unwrap().wait().unwrap().success());
+
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    std::compile_error!("unimplemented platform");
+}
+
 fn main() {
     let ir = ir::builder::ex();
     eprintln!("{:#?}", ir);
@@ -20,12 +88,19 @@ fn main() {
     let annotations = types::annotate(&ir);
     eprintln!("{:#?}", annotations);
 
-    let llvm_ir = backend::build(&ir, &annotations);
+    let build = backend::build(&ir, &annotations);
     eprintln!("OUTPUT LLVM IR (use unix pipes to redirect this into a file):");
-    println!("{}", llvm_ir);
+    println!("{}", build.llvm_ir);
 
-    let runtime_library = include_bytes!(env!("JSSATRT_PATH"));
-    println!("included runtime size: {}", runtime_library.len());
+    link_binary(build.obj.as_slice());
+    // // TODO: is this the right way to add `advapi32` to the linker flags?
+    // //       we need advapi32 for mimalloc
+    // #[cfg(target_os = "windows")]
+    // build.object("advapi32");
+
+    // build.file(runtime_object.path()).file(build_object.path());
+
+    // build.compile(artifact);
 
     let file_name = std::env::args()
         .into_iter()
