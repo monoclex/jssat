@@ -2,10 +2,13 @@
 #![feature(default_alloc_error_handler)]
 #![feature(lang_items)]
 
+extern crate alloc;
+
 use core::{mem::ManuallyDrop, panic::PanicInfo};
 use hashbrown::HashMap;
 
-mod module;
+pub mod gc;
+pub mod module;
 
 use mimalloc::MiMalloc;
 
