@@ -1,96 +1,208 @@
-#![no_std]
-#![feature(default_alloc_error_handler)]
-#![feature(lang_items)]
-
 extern crate alloc;
 
-use core::{mem::ManuallyDrop, panic::PanicInfo};
-use hashbrown::HashMap;
-
-pub mod gc;
-pub mod module;
-
 use mimalloc::MiMalloc;
+use std::{cell::RefCell, collections::HashMap, env, hash::Hash, rc::Rc};
+use widestring::U16String;
 
 #[global_allocator]
-static GLOBAL: MiMalloc = MiMalloc;
+static ALLOCATOR: MiMalloc = MiMalloc;
 
-#[panic_handler]
-fn panic_handler(_: &PanicInfo) -> ! {
-    loop {}
-}
-
-#[lang = "eh_personality"]
-fn eh_personality(_: i32) {}
-
-#[no_mangle]
-fn rust_oom() -> ! {
-    loop {}
-}
-
-#[repr(C)]
-pub union FFIMap {
-    abi_size: [u8; 64],
-    hashmap: ManuallyDrop<Map>,
-}
-
-#[test]
-fn ffimap_is_64_bytes() {
-    assert_eq!(64, core::mem::size_of::<FFIMap>());
-}
-
-pub struct Map {
-    map: HashMap<Key, Value>,
-}
-
-impl Into<FFIMap> for Map {
-    fn into(self) -> FFIMap {
-        FFIMap {
-            hashmap: ManuallyDrop::new(self),
+macro_rules! notnull {
+    ($x:ident) => {
+        #[cfg(debug_assertions)]
+        if $x.is_null() {
+            panic!(concat!("`", stringify!($x), "` was null"));
         }
-    }
+    };
 }
 
-impl Into<Map> for FFIMap {
-    fn into(self) -> Map {
-        ManuallyDrop::into_inner(unsafe { self.hashmap })
-    }
+macro_rules! not0 {
+    ($x:ident) => {
+        #[cfg(debug_assertions)]
+        if $x == 0 {
+            panic!(concat!("`", stringify!($x), "` was zero"));
+        }
+    };
 }
 
-pub enum Key {
-    // String(),
-    Number(f64),
+// TODO: fill this in with a definition
+// when we use `std` and try to link using `clang -flto`, we get an error if
+// this method is missing.
+#[no_mangle]
+pub extern "C" fn __rust_probestack() {
+    // SAFETY: this method needs a proper implementation to prevent against
+    // stack clashing. by marking this `unsafe`, we hope to capture the essence
+    // of how improper it is to leave this blank.
+    #[allow(unused_unsafe)]
+    unsafe {}
 }
 
+// TODO: include information necessary to the runtime, such as garbage
+// collection or job queues or whatever
+pub struct Runtime {}
+
+#[no_mangle]
+pub extern "C" fn jssatrt_runtime_new() -> *mut Runtime {
+    let runtime = Runtime {};
+
+    let runtime_ptr = Box::into_raw(Box::new(runtime));
+
+    runtime_ptr
+}
+
+#[no_mangle]
+pub extern "C" fn jssatrt_runtime_drop(runtime_ptr: *mut Runtime) {
+    notnull!(runtime_ptr);
+
+    let runtime = unsafe { Box::from_raw(runtime_ptr) };
+    drop(runtime);
+}
+
+#[derive(Debug, Clone)]
 pub enum Value {
-    // String(String),
+    Constant(&'static [u8]),
+    List(Vec<u8>),
+    // strings could be classified as a List, but we're not doing that just so
+    // it's easier.
+    // TODO: revisit the list/string decision? the idea was to abstract arrays
+    // and strings under the same thing, but maybe that's not a good idea? shrug
+    String(U16String),
+    // use an `Rc` so that when we clone the reference they point to the same
+    // thing
+    Record(Rc<RefCell<HashMap<Key, Value>>>),
     Number(f64),
-    Map(),
+    Boolean(bool),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Key {
+    // since all internal slots are specified in code, we can intern them
+    // thus, we don't have to do any string comparisons
+    InternalSlot(usize),
+    // TODO: perform interning for fields
+    Field(U16String),
+}
+
+/// Marks an object as root. This is automatically performed when creating new
+/// objects, or when getting values from fields. Typically you will only ever
+/// need to concern yourself with unmarking roots.
+#[no_mangle]
+pub extern "C" fn jssatrt_value_tracing_markroot(_runtime: *const Runtime, _value: *const Value) {
+    notnull!(_runtime);
+    notnull!(_value);
+
+    todo!()
+}
+
+/// Unmarks an object as a root. This means it is no longer reachable by the
+/// code. The only way it will remain alive is through references in other
+/// objects.
+#[no_mangle]
+pub extern "C" fn jssatrt_value_tracing_unmarkroot(_runtime: *const Runtime, _value: *const Value) {
+    notnull!(_runtime);
+    notnull!(_value);
+
+    todo!()
+}
+
+/// Uses tracing garbage collection to keep track of the newly created object.
+/// Automatically marks the object as a root.
+#[no_mangle]
+pub extern "C" fn jssatrt_record_tracing_new(_runtime: *const Runtime) -> *const Value {
+    notnull!(_runtime);
+
+    // TODO: use the `_runtime` to allocate objects into it
+
+    let value = Value::Record(Rc::new(RefCell::new(HashMap::new())));
+    let value_ptr = Box::into_raw(Box::new(value));
+
+    value_ptr
 }
 
 #[no_mangle]
-pub extern "C" fn make_map() -> FFIMap {
-    Map {
-        map: HashMap::new(),
+pub extern "C" fn jssatrt_record_set(
+    _runtime: *const Runtime,
+    record: *const Value,
+    key: *const Key,
+    value: *const Value,
+) {
+    notnull!(_runtime);
+    notnull!(record);
+    notnull!(key);
+    notnull!(value);
+
+    // TODO: validate safety
+    let record = unsafe { &*record };
+    let key = unsafe { &*key };
+    let value = unsafe { &*value };
+
+    let record = match record {
+        Value::Record(record) => record,
+        _ => panic!("did not receive record"),
+    };
+
+    record.borrow_mut().insert(key.clone(), value.clone());
+}
+
+#[no_mangle]
+pub extern "C" fn jssatrt_record_get(
+    _runtime: *const Runtime,
+    record: *const Value,
+    key: *const Key,
+) -> *const Value {
+    notnull!(_runtime);
+    notnull!(record);
+    notnull!(key);
+
+    // TODO: validate safety
+    let record = unsafe { &*record };
+    let key = unsafe { &*key };
+
+    let record = match record {
+        Value::Record(record) => record,
+        _ => panic!("did not receive record"),
+    };
+
+    let record = record.borrow();
+    let value = record.get(key);
+
+    match value {
+        None => std::ptr::null(),
+        // TODO: validate safety
+        // SAFETY: the pointer to `value` is as valid as the pointer to `record`
+        Some(value) => value as *const Value,
     }
-    .into()
 }
 
 #[no_mangle]
-pub extern "C" fn map_set_f64_f64(map: &mut FFIMap, key: f64, value: f64) {
-    // TODO: set the value
+pub extern "C" fn jssatrt_constant_new(
+    _runtime: *const Runtime,
+    ptr: *const u8,
+    len: usize,
+) -> *const Value {
+    notnull!(_runtime);
+    notnull!(ptr);
+    not0!(len);
+
+    // TODO: validate this code
+    let slice = unsafe { std::slice::from_raw_parts(ptr, len) };
+    let eternal_slice = unsafe { std::mem::transmute::<&[u8], &'static [u8]>(slice) };
+
+    &Value::Constant(eternal_slice)
 }
 
 #[no_mangle]
-pub extern "C" fn drop_map(map: FFIMap) {
-    let map: Map = map.into();
-    core::mem::drop(map);
-}
+pub extern "C" fn jssatrt_print(
+    _runtime: *const Runtime,
+    _environment: *const Value,
+    arguments: *const Value,
+) {
+    notnull!(_runtime);
+    notnull!(_environment);
+    notnull!(arguments);
 
-#[no_mangle]
-pub extern "C" fn yield_3() -> i32 {
-    module::what()
-}
+    // TODO: validate safety
+    let arguments = unsafe { &*arguments };
 
-#[no_mangle]
-pub extern "C" fn schedule(job: fn() -> ()) {}
+    println!("{:?}", arguments);
+}
