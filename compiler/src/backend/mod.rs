@@ -6,6 +6,7 @@ use inkwell::{
     module::Linkage,
     targets::{CodeModel, FileType, RelocMode, Target, TargetMachine},
     types::BasicTypeEnum,
+    values::FunctionValue,
     OptimizationLevel,
 };
 
@@ -14,6 +15,10 @@ use crate::{
     types::TypeAnnotations,
 };
 
+use self::runtime_glue::RuntimeGlue;
+
+mod runtime_glue;
+
 pub struct BuildArtifact {
     pub llvm_ir: String,
     pub obj: Vec<u8>,
@@ -21,19 +26,45 @@ pub struct BuildArtifact {
 
 pub fn build(ir: &IR, type_info: &TypeAnnotations) -> BuildArtifact {
     let context = Context::create();
+
     let builder = context.create_builder();
+    let llvm_module = context.create_module("jssat_gen");
 
-    let llvm_module = context
-        .create_module_from_ir(MemoryBuffer::create_from_memory_range_copy(
-            MAIN_C.as_bytes(),
-            "main.c",
-        ))
-        .unwrap();
+    let glue = RuntimeGlue::new(&context, &llvm_module);
 
+    let main = context.i32_type().fn_type(&[], false);
+    let main = llvm_module.add_function("main", main, Some(Linkage::External));
+
+    let entry = context.append_basic_block(main, "entry");
+    builder.position_at_end(entry);
+
+    // ==> setup
+    let runtime_inst = builder.build_call(glue.fn_jssatrt_runtime_new, &[], "runtime");
+
+    let runtime = runtime_inst.try_as_basic_value().unwrap_left();
+
+    // make a record and print it for funsies
+    let record_inst = builder.build_call(glue.fn_jssatrt_record_tracing_new, &[runtime], "record");
+
+    let record = record_inst.try_as_basic_value().unwrap_left();
+
+    builder.build_call(glue.fn_jssatrt_print, &[runtime, record, record], "");
+
+    // <== teardown
+    builder.build_call(glue.fn_jssatrt_runtime_drop, &[runtime], "");
+
+    builder.build_return(Some(&context.i32_type().const_int(0, false)));
+
+    compile(llvm_module)
+}
+
+fn compile(llvm_module: inkwell::module::Module) -> BuildArtifact {
     Target::initialize_all(&Default::default());
 
     let target_triple = TargetMachine::get_default_triple();
+
     let target = Target::from_triple(&target_triple).unwrap();
+
     let target_machine = target
         .create_target_machine(
             &target_triple,
@@ -162,50 +193,3 @@ pub fn build2(ir: &IR, type_info: &TypeAnnotations) -> BuildArtifact {
         obj: obj_buff.as_slice().to_vec(),
     }
 }
-
-const MAIN_C: &'static str = r###"
-; ModuleID = 'main.c'
-source_filename = "main.c"
-target datalayout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128"
-target triple = "x86_64-pc-linux-gnu"
-
-%union.FFIMap = type { [64 x i8] }
-
-@.str = private unnamed_addr constant [17 x i8] c"yield_3() -> %d\0A\00", align 1
-@.str.1 = private unnamed_addr constant [18 x i8] c"obtaining map...\0A\00", align 1
-@.str.2 = private unnamed_addr constant [10 x i8] c"got map!\0A\00", align 1
-@.str.3 = private unnamed_addr constant [14 x i8] c"dropped map!\0A\00", align 1
-
-; Function Attrs: noinline nounwind optnone uwtable
-define dso_local i32 @main() #0 {
-  %1 = alloca i32, align 4
-  %2 = alloca %union.FFIMap, align 8
-  store i32 0, i32* %1, align 4
-  %3 = call i32 @yield_3()
-  %4 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([17 x i8], [17 x i8]* @.str, i64 0, i64 0), i32 %3)
-  %5 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([18 x i8], [18 x i8]* @.str.1, i64 0, i64 0))
-  call void @make_map(%union.FFIMap* sret align 1 %2)
-  %6 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([10 x i8], [10 x i8]* @.str.2, i64 0, i64 0))
-  call void @drop_map(%union.FFIMap* byval(%union.FFIMap) align 8 %2)
-  %7 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([14 x i8], [14 x i8]* @.str.3, i64 0, i64 0))
-  ret i32 0
-}
-
-declare dso_local i32 @printf(i8*, ...) #1
-
-declare dso_local i32 @yield_3() #1
-
-declare dso_local void @make_map(%union.FFIMap* sret align 1) #1
-
-declare dso_local void @drop_map(%union.FFIMap* byval(%union.FFIMap) align 8) #1
-
-attributes #0 = { noinline nounwind optnone uwtable "correctly-rounded-divide-sqrt-fp-math"="false" "disable-tail-calls"="false" "frame-pointer"="all" "less-precise-fpmad"="false" "min-legal-vector-width"="0" "no-infs-fp-math"="false" "no-jump-tables"="false" "no-nans-fp-math"="false" "no-signed-zeros-fp-math"="false" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-cpu"="x86-64" "target-features"="+cx8,+fxsr,+mmx,+sse,+sse2,+x87" "unsafe-fp-math"="false" "use-soft-float"="false" }
-attributes #1 = { "correctly-rounded-divide-sqrt-fp-math"="false" "disable-tail-calls"="false" "frame-pointer"="all" "less-precise-fpmad"="false" "no-infs-fp-math"="false" "no-nans-fp-math"="false" "no-signed-zeros-fp-math"="false" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-cpu"="x86-64" "target-features"="+cx8,+fxsr,+mmx,+sse,+sse2,+x87" "unsafe-fp-math"="false" "use-soft-float"="false" }
-
-!llvm.module.flags = !{!0}
-!llvm.ident = !{!1}
-
-!0 = !{i32 1, !"wchar_size", i32 4}
-!1 = !{!"clang version 11.0.1"}
-
-"###;

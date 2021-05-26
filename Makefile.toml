@@ -16,7 +16,6 @@ default_to_workspace = false
 script_runner = "@shell"
 script = '''
 cargo build -p jssatrt
-cargo build -p jssat
 cargo run -p jssat
 '''
 

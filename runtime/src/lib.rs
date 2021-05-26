@@ -1,4 +1,6 @@
-extern crate alloc;
+//! # JSSAT Runtime
+//!
+//! This crate
 
 use mimalloc::MiMalloc;
 use std::{cell::RefCell, collections::HashMap, env, hash::Hash, rc::Rc};
@@ -147,9 +149,10 @@ pub extern "C" fn jssatrt_record_set(
 #[no_mangle]
 pub extern "C" fn jssatrt_record_get(
     _runtime: *const Runtime,
+    output: *mut *const Value,
     record: *const Value,
     key: *const Key,
-) -> *const Value {
+) {
     notnull!(_runtime);
     notnull!(record);
     notnull!(key);
@@ -166,12 +169,34 @@ pub extern "C" fn jssatrt_record_get(
     let record = record.borrow();
     let value = record.get(key);
 
-    match value {
-        None => std::ptr::null(),
+    if let Some(value) = value {
         // TODO: validate safety
-        // SAFETY: the pointer to `value` is as valid as the pointer to `record`
-        Some(value) => value as *const Value,
+        unsafe {
+            // SAFETY: the pointer to `value` is as valid as the pointer to `record`
+            *output = value as *const Value;
+        }
     }
+}
+
+#[no_mangle]
+pub extern "C" fn jssatrt_key_new_fromvalue(
+    _runtime: *const Runtime,
+    value: *const Value,
+) -> *const Key {
+    notnull!(_runtime);
+    notnull!(value);
+
+    todo!()
+}
+
+#[no_mangle]
+pub extern "C" fn jssatrt_key_new_fromslot(_runtime: *const Runtime, slot: usize) -> *const Key {
+    notnull!(_runtime);
+
+    let key = Key::InternalSlot(slot);
+    let key_ptr = Box::into_raw(Box::new(key));
+
+    key_ptr
 }
 
 #[no_mangle]
@@ -185,10 +210,11 @@ pub extern "C" fn jssatrt_constant_new(
     not0!(len);
 
     // TODO: validate this code
-    let slice = unsafe { std::slice::from_raw_parts(ptr, len) };
-    let eternal_slice = unsafe { std::mem::transmute::<&[u8], &'static [u8]>(slice) };
+    let slice = unsafe { std::slice::from_raw_parts::<'static>(ptr, len) };
 
-    &Value::Constant(eternal_slice)
+    // TODO: this is inefficient, need to rethink this
+    let constant_ptr = Box::into_raw(Box::new(Value::Constant(slice)));
+    constant_ptr
 }
 
 #[no_mangle]
