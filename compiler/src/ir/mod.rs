@@ -75,6 +75,9 @@ pub struct Parameter {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type {
     Any,
+    List(Box<Type>, Option<usize>),
+    // TODO: do we only accomodate i64 integers or more?
+    Integer(usize),
 }
 
 #[derive(Debug)]

@@ -1,4 +1,5 @@
 #![feature(command_access)]
+#![feature(box_patterns)]
 
 use std::{io::Write, process::Command};
 

@@ -1,7 +1,7 @@
 use inkwell::{
     context::Context,
     module::{Linkage, Module},
-    types::{BasicTypeEnum, FunctionType, PointerType, StructType},
+    types::{BasicTypeEnum, PointerType, StructType},
     values::FunctionValue,
     AddressSpace,
 };
@@ -22,7 +22,6 @@ pub struct RuntimeGlue<'ctx, 'module> {
     pub fn_jssatrt_constant_new: FunctionValue<'module>,
     pub fn_jssatrt_key_new_fromslot: FunctionValue<'module>,
     pub fn_jssatrt_record_set: FunctionValue<'module>,
-    pub fn_jssatrt_print: FunctionValue<'module>,
     pub fn_jssatrt_runtime_drop: FunctionValue<'module>,
 }
 
@@ -63,10 +62,6 @@ impl<'c, 'm> RuntimeGlue<'c, 'm> {
             ],
             false,
         );
-        let fn_jssatrt_print = context.void_type().fn_type(
-            &[type_runtime.into(), type_value.into(), type_value.into()],
-            false,
-        );
         let fn_jssatrt_runtime_drop = context.void_type().fn_type(&[type_runtime.into()], false);
 
         let fn_jssatrt_runtime_new = module.add_function(
@@ -94,8 +89,6 @@ impl<'c, 'm> RuntimeGlue<'c, 'm> {
             fn_jssatrt_record_set,
             Some(Linkage::External),
         );
-        let fn_jssatrt_print =
-            module.add_function("jssatrt_print", fn_jssatrt_print, Some(Linkage::External));
         let fn_jssatrt_runtime_drop = module.add_function(
             "jssatrt_runtime_drop",
             fn_jssatrt_runtime_drop,
@@ -114,7 +107,6 @@ impl<'c, 'm> RuntimeGlue<'c, 'm> {
             fn_jssatrt_constant_new,
             fn_jssatrt_key_new_fromslot,
             fn_jssatrt_record_set,
-            fn_jssatrt_print,
             fn_jssatrt_runtime_drop,
         }
     }

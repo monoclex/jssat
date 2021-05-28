@@ -226,8 +226,13 @@ impl BlockBuilder {
         }
     }
 
-    pub fn call(&mut self, function: FnRef, arguments: &[FnArg]) -> RegisterId {
-        let result = self.free_id();
+    pub fn call(
+        &mut self,
+        function: FnRef,
+        arguments: &[FnArg],
+        store: bool,
+    ) -> Option<RegisterId> {
+        let result = if store { Some(self.free_id()) } else { None };
 
         let callable = match function {
             FnRef::Fn(fn_builder) => Callable::GlobalFunction(fn_builder.id.0),
@@ -244,7 +249,7 @@ impl BlockBuilder {
             .collect::<Vec<_>>();
 
         self.instructions
-            .push(Instruction::Call(Some(result), callable, arguments));
+            .push(Instruction::Call(result, callable, arguments));
 
         result
     }
@@ -286,14 +291,18 @@ pub enum FnArg {
 pub fn ex() -> IR {
     let mut program = ProgramBuilder::new();
     let surrounding_agent = program.global(Name::new("surrounding_agent"));
-    let print = program.external_function(Name::new("print"), vec![Type::Any]);
+    let print = program.external_function(Name::new("jssatrt_print"), vec![Type::Any, Type::Any]);
 
     let mut print_stub = program.function(Name::new("print_stub"), false);
     {
         let print_value = print_stub.parameter(Name::new("value"));
 
         let mut entry = print_stub.block(Name::new("entry"));
-        entry.call(FnRef::ExtFn(print), &[FnArg::Reg(print_value)]);
+        entry.call(
+            FnRef::ExtFn(print),
+            &[FnArg::Reg(print_value), FnArg::Reg(print_value)],
+            false,
+        );
         entry.ret(&mut print_stub, None);
     }
 
@@ -302,7 +311,7 @@ pub fn ex() -> IR {
         let mut entry = main.block(Name::new("entry"));
 
         let hello_world = program.constant(Name::new("hello_world"), "Hello, World!".into());
-        entry.call(FnRef::Fn(&print_stub), &[FnArg::Cnst(hello_world)]);
+        entry.call(FnRef::Fn(&print_stub), &[FnArg::Cnst(hello_world)], false);
 
         entry.ret(&mut main, None);
     }

@@ -55,7 +55,7 @@ pub fn annotate(ir: &IR) -> TypeAnnotations {
     // ==> annotate functions
     let mut full_function_annotations = HashMap::new();
 
-    for (key, annotation) in function_annotations.into_iter() {
+    for (key, (annotation, param_annotations)) in function_annotations.into_iter() {
         let mut full_annotations = HashMap::new();
 
         for (register, kind) in annotation.into_iter() {
@@ -73,10 +73,20 @@ pub fn annotate(ir: &IR) -> TypeAnnotations {
             }
         }
 
+        let mut param_full_annotations = Vec::new();
+
+        for param_type in param_annotations.into_iter() {
+            // TODO: intern type
+            type_mappings.insert(TypeId(id), param_type);
+            param_full_annotations.push(TypeId(id));
+            id += 1;
+        }
+
         full_function_annotations.insert(
             key,
             FunctionAnnotations {
                 register_annotations: full_annotations,
+                parameter_annotations: param_full_annotations,
             },
         );
     }
@@ -97,28 +107,32 @@ impl TypeId {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TypeAnnotations {
     pub type_map: HashMap<TypeId, Type>,
     pub external_functions: HashMap<TopLevelId, ExternalFunctionAnnotations>,
     pub function_annotations: HashMap<TopLevelId, FunctionAnnotations>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FunctionAnnotations {
     pub register_annotations: HashMap<RegisterId, TypeId>,
+    pub parameter_annotations: Vec<TypeId>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ExternalFunctionAnnotations {
     pub parameter_annotations: Vec<TypeId>,
 }
 
-pub fn annotate_function(function: &Function) -> HashMap<RegisterId, Type> {
+// TODO: intern types here
+pub fn annotate_function(function: &Function) -> (HashMap<RegisterId, Type>, Vec<Type>) {
     let mut types = HashMap::new();
+    let mut param_types = Vec::new();
 
     for parameter in function.parameters.iter() {
         types.insert(parameter.register, Type::Any);
+        param_types.push(Type::Any);
     }
 
     for instruction in function
@@ -132,5 +146,5 @@ pub fn annotate_function(function: &Function) -> HashMap<RegisterId, Type> {
         }
     }
 
-    types
+    (types, param_types)
 }
