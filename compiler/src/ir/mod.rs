@@ -18,10 +18,10 @@ pub struct TopLevelId(NonZeroUsize);
 
 #[derive(Debug)]
 pub struct IR {
-    pub constants: Vec<Constant>,
-    pub global_variables: Vec<GlobalVariable>,
-    pub external_functions: Vec<ExternalFunction>,
-    pub functions: Vec<Function>,
+    pub constants: HashMap<TopLevelId, Constant>,
+    pub global_variables: HashMap<TopLevelId, GlobalVariable>,
+    pub external_functions: HashMap<TopLevelId, ExternalFunction>,
+    pub functions: HashMap<TopLevelId, Function>,
     // TODO: `pub data: Vec<DataDeclaration>`
     pub debug_info: IRDebugInfo,
 }
@@ -29,22 +29,20 @@ pub struct IR {
 #[derive(Debug)]
 pub struct IRDebugInfo {
     pub top_level_names: HashMap<TopLevelId, Box<str>>,
+    // TODO: information in source about where generated from, or what opt
+    // passes have occurred
 }
 
 #[derive(Debug)]
 pub struct Constant {
-    pub id: TopLevelId,
     pub payload: Vec<u8>,
 }
 
 #[derive(Debug)]
-pub struct GlobalVariable {
-    pub id: TopLevelId,
-}
+pub struct GlobalVariable {}
 
 #[derive(Debug)]
 pub struct ExternalFunction {
-    pub id: TopLevelId,
     pub parameters: Vec<TypedParameter>,
 }
 
@@ -55,7 +53,6 @@ pub struct TypedParameter {
 
 #[derive(Debug)]
 pub struct Function {
-    pub id: TopLevelId,
     pub parameters: Vec<Parameter>,
     pub body: FunctionBody,
     pub debug_info: FunctionDebugInfo,
@@ -75,6 +72,7 @@ pub struct Parameter {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type {
     Any,
+    // Constant(Vec<u8>),
     List(Box<Type>, Option<usize>),
     // TODO: do we only accomodate i64 integers or more?
     Integer(usize),
@@ -95,11 +93,6 @@ pub struct FunctionBodyDebugInfo {
 pub struct FunctionBlock {
     pub id: BlockId,
     pub instructions: Vec<Instruction>,
-}
-
-#[derive(Debug)]
-pub enum TypeRecord {
-    Todo,
 }
 
 #[derive(Debug)]
@@ -189,10 +182,10 @@ pub enum ECMAScriptAbstractOperation {
 impl IR {
     pub fn new() -> Self {
         IR {
-            constants: vec![],
-            global_variables: vec![],
-            external_functions: vec![],
-            functions: vec![],
+            constants: HashMap::new(),
+            global_variables: HashMap::new(),
+            external_functions: HashMap::new(),
+            functions: HashMap::new(),
             debug_info: IRDebugInfo::new(),
         }
     }

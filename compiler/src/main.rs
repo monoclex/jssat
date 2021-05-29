@@ -89,7 +89,7 @@ fn main() {
     let annotations = types::annotate(&ir);
     eprintln!("{:#?}", annotations);
 
-    let build = backend::build(&ir, &annotations);
+    let build = backend::compile(&ir, &annotations);
     eprintln!("OUTPUT LLVM IR (use unix pipes to redirect this into a file):");
     println!("{}", build.llvm_ir);
 

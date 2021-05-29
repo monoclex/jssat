@@ -6,10 +6,10 @@ pub fn annotate(ir: &IR) -> TypeAnnotations {
     // 1. Annotate types inside of functions
     let mut function_annotations = HashMap::new();
 
-    for function in ir.functions.iter() {
+    for (&id, function) in ir.functions.iter() {
         let register_annotations = annotate_function(&function);
 
-        function_annotations.insert(function.id, register_annotations);
+        function_annotations.insert(id, register_annotations);
     }
 
     // TODO: 2. Annotate global variables based on their usages
@@ -25,7 +25,11 @@ pub fn annotate(ir: &IR) -> TypeAnnotations {
     // ==> annotate external functions
     let mut full_ext_fn_anns = HashMap::new();
 
-    for (key, parameters) in ir.external_functions.iter().map(|f| (f.id, &f.parameters)) {
+    for (key, parameters) in ir
+        .external_functions
+        .iter()
+        .map(|(&id, f)| (id, &f.parameters))
+    {
         let mut full_annotations = Vec::new();
 
         for p in parameters.iter() {

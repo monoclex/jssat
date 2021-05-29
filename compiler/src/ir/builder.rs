@@ -58,7 +58,7 @@ impl ProgramBuilder {
         let id = self.free_id();
         self.save_name(id, name);
 
-        self.ir.constants.push(Constant { id, payload });
+        self.ir.constants.insert(id, Constant { payload });
 
         ConstantId(id)
     }
@@ -67,7 +67,7 @@ impl ProgramBuilder {
         let id = self.free_id();
         self.save_name(id, name);
 
-        self.ir.global_variables.push(GlobalVariable { id });
+        self.ir.global_variables.insert(id, GlobalVariable {});
 
         GlobalId(id)
     }
@@ -76,13 +76,15 @@ impl ProgramBuilder {
         let id = self.free_id();
         self.save_name(id, name);
 
-        self.ir.external_functions.push(ExternalFunction {
+        self.ir.external_functions.insert(
             id,
-            parameters: param_types
-                .into_iter()
-                .map(|kind| TypedParameter { kind })
-                .collect::<Vec<_>>(),
-        });
+            ExternalFunction {
+                parameters: param_types
+                    .into_iter()
+                    .map(|kind| TypedParameter { kind })
+                    .collect::<Vec<_>>(),
+            },
+        );
 
         ExternalFunctionId(id)
     }
@@ -179,20 +181,22 @@ impl FunctionBuilder {
         self.hold_open.fetch_sub(1, Ordering::Relaxed);
 
         // builder.ir.functions.insert(index, element)
-        builder.ir.functions.push(Function {
-            id: self.id.0,
-            parameters: self.parameters,
-            body: FunctionBody {
-                blocks: self.blocks,
-                debug_info: FunctionBodyDebugInfo {
-                    block_names: self.block_debug_info,
+        builder.ir.functions.insert(
+            self.id.0,
+            Function {
+                parameters: self.parameters,
+                body: FunctionBody {
+                    blocks: self.blocks,
+                    debug_info: FunctionBodyDebugInfo {
+                        block_names: self.block_debug_info,
+                    },
                 },
+                debug_info: FunctionDebugInfo {
+                    register_names: self.debug_info,
+                },
+                is_main: self.is_main,
             },
-            debug_info: FunctionDebugInfo {
-                register_names: self.debug_info,
-            },
-            is_main: self.is_main,
-        });
+        );
 
         self.id
     }
