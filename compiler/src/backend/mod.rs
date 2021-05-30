@@ -68,9 +68,6 @@ struct SkeletonCompiler<'compilation, 'module> {
 }
 
 struct SkeletonArtifact<'compilation> {
-    // TODO: encapsulate the `HashMap<K, V>` structure of these types into something?
-    // i ran into having to update all the type signatures when updating this, so
-    // leaving this comment here to consider if i should put this into its own struct.
     types: HashMap<TypeId, AnyTypeEnum<'compilation>>,
     globals: HashMap<TopLevelId, GlobalValue<'compilation>>,
     functions: HashMap<TopLevelId, FunctionValue<'compilation>>,
@@ -102,9 +99,11 @@ impl<'c, 'm> SkeletonCompiler<'c, 'm> {
         artifact
     }
 
-    // TODO: should this be in the skeleton compiler? as really, we need
+    // DISCUSSION: should this be in the skeleton compiler? as really, we need
     // full type info before making skeletons of `globals` and `functions`, but at that
     // point, it feels like a lot of boilerplate to have a `TypeCompiler` state.
+    //
+    // for the time being, these are going to be left here to reduce boilerplate.
     fn populate_types(&self) -> HashMap<TypeId, AnyTypeEnum<'c>> {
         let mut types = HashMap::new();
 
@@ -116,7 +115,7 @@ impl<'c, 'm> SkeletonCompiler<'c, 'm> {
         types
     }
 
-    // TODO: see the todo for `populate_types`
+    // DISCUSSION: see above
     fn create_type(&self, _id: TypeId, r#type: &Type) -> AnyTypeEnum<'c> {
         match r#type {
             Type::Any => self.glue.type_value.as_any_type_enum(),
@@ -171,7 +170,10 @@ impl<'c, 'm> SkeletonCompiler<'c, 'm> {
         }
     }
 
-    // TODO: somehow unify `populate_external_function` and `populate_function`, as they are very similar
+    // DISCUSSION: should `populate_external_function` and `populate_function`, be unified?
+    // for now, going with "no" as code duplication for two functions isn't really an issue.
+    //
+    // once it gets to 3+, then i'd want to start thinking about it.
     fn populate_external_function(
         &self,
         id: TopLevelId,
@@ -205,9 +207,8 @@ impl<'c, 'm> SkeletonCompiler<'c, 'm> {
         let fn_type =
             LLVMAnyWrapper(&llvm_ret.as_any_type_enum()).fn_type(llvm_params.as_slice(), false);
 
-        // TODO: review if `ExternalWeak` is right
         self.module
-            .add_function(&name, fn_type, Some(Linkage::ExternalWeak))
+            .add_function(&name, fn_type, Some(Linkage::External))
     }
 
     fn populate_function(
@@ -241,19 +242,19 @@ impl<'c, 'm> SkeletonCompiler<'c, 'm> {
             .collect::<Vec<_>>();
 
         // all JSSAT functions have an implicit runtime parameter except for main
-        let needs_runtime_parameter = !func.is_main;
-        if needs_runtime_parameter {
-            // TODO: the `types` parameter should be responsible for converting
-            // `Type::Any` -> <runtime type>
-            llvm_params.insert(0, self.glue.type_runtime.as_basic_type_enum());
-        }
+        // main does not use `llvm_params` so we can do this in all cases.
+        llvm_params.insert(0, self.glue.type_runtime.as_basic_type_enum());
 
         let fn_type =
             LLVMAnyWrapper(&llvm_ret.as_any_type_enum()).fn_type(llvm_params.as_slice(), false);
 
-        // TODO: review if `ExternalWeak` is right
-        self.module
-            .add_function(&name, fn_type, Some(Linkage::ExternalWeak))
+        match func.is_main {
+            false => self.module.add_function(&name, fn_type, None),
+            true => {
+                let main_fn = self.context.i32_type().fn_type(&[], false);
+                self.module.add_function("main", main_fn, None)
+            }
+        }
     }
 }
 
@@ -370,7 +371,7 @@ impl<'c> LLVMAnyWrapper<'_, 'c> {
 //     let (ir_main_fn_id, _) = ir.functions.iter().find(|(_, f)| f.is_main).unwrap();
 //     let llvm_main_fn = fns.get(&ir_main_fn_id).unwrap();
 
-//     // TODO: remove the massive amount of nesting?
+//     // TxODO: remove the massive amount of nesting?
 //     for i in ir.functions.iter() {
 //         let fn_types = type_info.function_annotations.get(&i.id).unwrap();
 //         let llvm_fn = fns.get(&i.id).unwrap();
@@ -412,7 +413,7 @@ impl<'c> LLVMAnyWrapper<'_, 'c> {
 //             builder.position_at_end(basic_block);
 
 //             for instruction in block.instructions.iter() {
-//                 // TODO: extract this into its own function?
+//                 // TxODO: extract this into its own function?
 //                 match instruction {
 //                     Instruction::Call(result, callable, args) => {
 //                         enum Either<A, B> {
@@ -485,7 +486,7 @@ impl<'c> LLVMAnyWrapper<'_, 'c> {
 //                                 )
 //                             })
 //                             .map(|(idx, (value, kind))| {
-//                                 // TODO: pull this into its own function
+//                                 // TxODO: pull this into its own function
 //                                 // type conversions
 //                                 let kind = match &kind {
 //                                     Either::Left(id) => type_info.type_map.get(id).unwrap(),
@@ -497,7 +498,7 @@ impl<'c> LLVMAnyWrapper<'_, 'c> {
 //                                     Either::Right(r) => r.parameter_annotations.get(idx).unwrap(),
 //                                 };
 
-//                                 // TODO: **proper** code to convert from arbitrary `kind` -> `param_type`
+//                                 // TxODO: **proper** code to convert from arbitrary `kind` -> `param_type`
 //                                 // for now this is just some hacky workarounds
 //                                 let value = match kind {
 //                                     Type::List(box Type::Integer(8), Some(size)) => {
@@ -510,7 +511,7 @@ impl<'c> LLVMAnyWrapper<'_, 'c> {
 //                                         };
 //                                         println!("dealing with: {:?}", p);
 
-//                                         // TODO: what am i doing
+//                                         // TxODO: what am i doing
 //                                         let gep = unsafe {
 //                                             p.const_in_bounds_gep(&[
 //                                                 context.i64_type().const_int(0, false),
@@ -528,7 +529,7 @@ impl<'c> LLVMAnyWrapper<'_, 'c> {
 //                                         let args = &[
 //                                             runtime_param,
 //                                             gep.into(),
-//                                             // TODO: use platform dependent size
+//                                             // TxODO: use platform dependent size
 //                                             context
 //                                                 .i64_type()
 //                                                 .const_int(*size as u64, false)

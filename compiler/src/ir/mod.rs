@@ -70,7 +70,17 @@ pub struct Parameter {
     pub register: RegisterId,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+// TODO: have some kind of `SolvedType` versus `UnsolvedType` for types that
+// utilize generics and other things that would be both:
+//
+// - hard for the backend to understand (the backend can only understand
+//   "concrete" types, like solved types)
+// - maybe not possible to derive `Hash` for (speculation on my part)
+//
+// in addition, we'd need an `InternedType` which has inner `TypeId`s nested
+// for references to other types. or perhaps we should just do that from the
+// getgo?
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type {
     /// Useful to box a value into the largest possible idea of what it may be.
     /// Primarily used during prototyping, and is only really useful if our
@@ -83,8 +93,8 @@ pub enum Type {
     Void,
     // TODO: why is this used?
     Constant(Vec<u8>),
+    // TODO: bring back these types once we have a more mature type system
     // List(Box<Type>, Option<usize>),
-    // TODO: do we only accomodate i64 integers or more?
     // Integer(usize),
 }
 

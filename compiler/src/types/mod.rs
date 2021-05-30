@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, hash::Hash};
 
 use crate::ir::{Function, RegisterId, TopLevelId, Type, IR};
 
