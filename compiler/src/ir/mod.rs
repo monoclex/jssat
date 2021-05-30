@@ -44,6 +44,7 @@ pub struct GlobalVariable {}
 #[derive(Debug)]
 pub struct ExternalFunction {
     pub parameters: Vec<TypedParameter>,
+    pub return_type: Type,
 }
 
 #[derive(Debug)]
@@ -71,11 +72,20 @@ pub struct Parameter {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type {
+    /// Useful to box a value into the largest possible idea of what it may be.
+    /// Primarily used during prototyping, and is only really useful if our
+    /// type system is too immature to detect exact usage of something.
     Any,
-    // Constant(Vec<u8>),
-    List(Box<Type>, Option<usize>),
+    /// Annotated on external functions to signal that they accept a `Runtime`
+    /// parameter. All JSSAT functions implicitly have a `Runtime` parameter.
+    Runtime,
+    /// Used to annotate functions that do not return anything.
+    Void,
+    // TODO: why is this used?
+    Constant(Vec<u8>),
+    // List(Box<Type>, Option<usize>),
     // TODO: do we only accomodate i64 integers or more?
-    Integer(usize),
+    // Integer(usize),
 }
 
 #[derive(Debug)]

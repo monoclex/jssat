@@ -25,14 +25,10 @@ pub fn annotate(ir: &IR) -> TypeAnnotations {
     // ==> annotate external functions
     let mut full_ext_fn_anns = HashMap::new();
 
-    for (key, parameters) in ir
-        .external_functions
-        .iter()
-        .map(|(&id, f)| (id, &f.parameters))
-    {
+    for (key, f) in ir.external_functions.iter().map(|(&id, f)| (id, f)) {
         let mut full_annotations = Vec::new();
 
-        for p in parameters.iter() {
+        for p in f.parameters.iter() {
             if let Some(t) =
                 type_mappings
                     .iter()
@@ -48,10 +44,15 @@ pub fn annotate(ir: &IR) -> TypeAnnotations {
             }
         }
 
+        // TODO: don't be lazy about type interning
+        type_mappings.insert(TypeId(id), f.return_type.clone());
+        id += 1;
+
         full_ext_fn_anns.insert(
             key,
             ExternalFunctionAnnotations {
                 parameter_annotations: full_annotations,
+                return_type: TypeId(id - 1),
             },
         );
     }
@@ -59,7 +60,7 @@ pub fn annotate(ir: &IR) -> TypeAnnotations {
     // ==> annotate functions
     let mut full_function_annotations = HashMap::new();
 
-    for (key, (annotation, param_annotations)) in function_annotations.into_iter() {
+    for (key, (annotation, param_annotations, return_type)) in function_annotations.into_iter() {
         let mut full_annotations = HashMap::new();
 
         for (register, kind) in annotation.into_iter() {
@@ -86,11 +87,15 @@ pub fn annotate(ir: &IR) -> TypeAnnotations {
             id += 1;
         }
 
+        type_mappings.insert(TypeId(id), return_type);
+        id += 1;
+
         full_function_annotations.insert(
             key,
             FunctionAnnotations {
                 register_annotations: full_annotations,
                 parameter_annotations: param_full_annotations,
+                return_annotation: TypeId(id - 1),
             },
         );
     }
@@ -122,15 +127,17 @@ pub struct TypeAnnotations {
 pub struct FunctionAnnotations {
     pub register_annotations: HashMap<RegisterId, TypeId>,
     pub parameter_annotations: Vec<TypeId>,
+    pub return_annotation: TypeId,
 }
 
 #[derive(Debug, Clone)]
 pub struct ExternalFunctionAnnotations {
     pub parameter_annotations: Vec<TypeId>,
+    pub return_type: TypeId,
 }
 
 // TODO: intern types here
-pub fn annotate_function(function: &Function) -> (HashMap<RegisterId, Type>, Vec<Type>) {
+pub fn annotate_function(function: &Function) -> (HashMap<RegisterId, Type>, Vec<Type>, Type) {
     let mut types = HashMap::new();
     let mut param_types = Vec::new();
 
@@ -150,5 +157,5 @@ pub fn annotate_function(function: &Function) -> (HashMap<RegisterId, Type>, Vec
         }
     }
 
-    (types, param_types)
+    (types, param_types, Type::Void)
 }

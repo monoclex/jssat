@@ -72,13 +72,19 @@ impl ProgramBuilder {
         GlobalId(id)
     }
 
-    pub fn external_function(&mut self, name: Name, param_types: Vec<Type>) -> ExternalFunctionId {
+    pub fn external_function(
+        &mut self,
+        name: Name,
+        return_type: Type,
+        param_types: Vec<Type>,
+    ) -> ExternalFunctionId {
         let id = self.free_id();
         self.save_name(id, name);
 
         self.ir.external_functions.insert(
             id,
             ExternalFunction {
+                return_type,
                 parameters: param_types
                     .into_iter()
                     .map(|kind| TypedParameter { kind })
@@ -295,7 +301,11 @@ pub enum FnArg {
 pub fn ex() -> IR {
     let mut program = ProgramBuilder::new();
     let surrounding_agent = program.global(Name::new("surrounding_agent"));
-    let print = program.external_function(Name::new("jssatrt_print"), vec![Type::Any, Type::Any]);
+    let print = program.external_function(
+        Name::new("jssatrt_print"),
+        Type::Void,
+        vec![Type::Any, Type::Any],
+    );
 
     let mut print_stub = program.function(Name::new("print_stub"), false);
     {
