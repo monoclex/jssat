@@ -12,6 +12,11 @@ use swc_common::{
 };
 use swc_ecmascript::parser::{Parser, Syntax};
 
+// macros need to be defined before usage
+// reminds me of C++ ;-;
+#[macro_use]
+pub mod id;
+
 pub mod ast_traversal;
 pub mod backend;
 pub mod ir;
