@@ -1,6 +1,6 @@
-use inkwell::types::AnyTypeEnum;
+use inkwell::types::{AnyTypeEnum, BasicType, BasicTypeEnum};
 
-use crate::id::*;
+use crate::{backend::runtime_glue::RuntimeGlue, id::*};
 use std::collections::HashMap;
 
 pub struct IR {
@@ -55,13 +55,42 @@ pub struct Block {
 }
 
 /// Handles interning and solving of types (TODO: is that a good desc?)
-pub struct TypeManager<'context> {
+pub struct TypeManager {
     pub types: HashMap<TypeId, ValueType>,
-    llvm_types: HashMap<TypeId, AnyTypeEnum<'context>>,
 }
 
-impl<'c> TypeManager<'c> {
-    pub fn llvm_type(&self, id: TypeId) -> AnyTypeEnum<'c> {
+pub struct LLVMMonomorphizer<'type_manager, 'context, 'module, 'glue> {
+    type_manager: &'type_manager TypeManager,
+    llvm_types: HashMap<TypeId, BasicTypeEnum<'context>>,
+    runtime_glue: &'glue RuntimeGlue<'context, 'module>,
+}
+
+impl<'t, 'c, 'm, 'g> LLVMMonomorphizer<'t, 'c, 'm, 'g> {
+    pub fn new(type_manager: &'t TypeManager, runtime_glue: &'g RuntimeGlue<'c, 'm>) -> Self {
+        Self {
+            type_manager,
+            llvm_types: HashMap::new(),
+            runtime_glue,
+        }
+    }
+
+    pub fn llvm_type(&mut self, id: TypeId) -> BasicTypeEnum<'c> {
+        if let Some(llvm_type) = self.llvm_types.get(&id) {
+            return *llvm_type;
+        }
+
+        let value_type = self
+            .type_manager
+            .types
+            .get(&id)
+            .expect("expected typeid -> valuetype mapping");
+
+        let llvm_type = match value_type {
+            ValueType::Any => self.runtime_glue.type_value.as_basic_type_enum(),
+            ValueType::Runtime => self.runtime_glue.type_runtime.as_basic_type_enum(),
+        };
+
+        self.llvm_types.insert(id, llvm_type);
         *self.llvm_types.get(&id).unwrap()
     }
 }

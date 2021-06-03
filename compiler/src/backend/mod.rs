@@ -31,10 +31,12 @@ pub fn compile(ir: &IR, type_info: &TypeManager) -> BuildArtifact {
     let builder = context.create_builder();
     let module = context.create_module("jssat");
     let glue = RuntimeGlue::new(&context, &module);
+    let mut monomorphizer = LLVMMonomorphizer::new(&type_info, &glue);
 
-    let skeleton_compiler = SkeletonCompiler {
+    let mut skeleton_compiler = SkeletonCompiler {
         ir,
         type_info,
+        monomorphizer: &mut monomorphizer,
         context: &context,
         // builder: &builder,
         module: &module,
@@ -61,7 +63,7 @@ pub fn compile(ir: &IR, type_info: &TypeManager) -> BuildArtifact {
 
 struct BackendCompiler<'compilation, 'module> {
     ir: &'compilation IR,
-    type_info: &'compilation TypeManager<'compilation>,
+    type_info: &'compilation TypeManager,
     context: &'compilation Context,
     builder: &'compilation Builder<'compilation>,
     module: &'module Module<'compilation>,

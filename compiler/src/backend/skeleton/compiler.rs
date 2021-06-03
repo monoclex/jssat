@@ -11,13 +11,15 @@ use std::{borrow::Cow, collections::HashMap};
 use crate::backend::{runtime_glue::RuntimeGlue, skeleton::ir::*};
 use crate::id::*;
 
-pub struct SkeletonCompiler<'compilation, 'module> {
+pub struct SkeletonCompiler<'compilation, 'module, 'type_info, 'glue, 'monomorphizer> {
     pub ir: &'compilation IR,
-    pub type_info: &'compilation TypeManager<'compilation>,
+    pub type_info: &'type_info TypeManager,
+    pub monomorphizer:
+        &'monomorphizer mut LLVMMonomorphizer<'type_info, 'compilation, 'module, 'glue>,
     pub context: &'compilation Context,
     // pub builder: &'compilation Builder<'compilation>,
     pub module: &'module Module<'compilation>,
-    pub glue: &'module RuntimeGlue<'compilation, 'module>,
+    pub glue: &'glue RuntimeGlue<'compilation, 'module>,
 }
 
 pub struct SkeletonArtifact<'compilation> {
@@ -25,8 +27,8 @@ pub struct SkeletonArtifact<'compilation> {
     pub functions: HashMap<TopLevelId, FunctionValue<'compilation>>,
 }
 
-impl<'c, 'm> SkeletonCompiler<'c, 'm> {
-    pub fn compile(&self) -> SkeletonArtifact<'c> {
+impl<'c, 'm> SkeletonCompiler<'c, 'm, '_, '_, '_> {
+    pub fn compile(&mut self) -> SkeletonArtifact<'c> {
         let mut artifact = SkeletonArtifact {
             globals: HashMap::new(),
             functions: HashMap::new(),
@@ -83,20 +85,19 @@ impl<'c, 'm> SkeletonCompiler<'c, 'm> {
         }
     }
 
-    fn populate_function(&self, id: TopLevelId, function: &Function) -> FunctionValue<'c> {
+    fn populate_function(&mut self, id: TopLevelId, function: &Function) -> FunctionValue<'c> {
         let name = (function.name.as_deref())
             .map(|n| Cow::Borrowed(n))
             .unwrap_or_else(|| Cow::Owned(format!(".{}", id.value())));
 
         let llvm_ret = match function.return_type {
             PossibleType::Void => self.context.void_type().as_any_type_enum(),
-            PossibleType::Value(v) => self.type_info.llvm_type(v),
+            PossibleType::Value(v) => self.monomorphizer.llvm_type(v).as_any_type_enum(),
         };
 
         // TODO: the `AnyWrapper` stuff shouldn't need to exist
         let mut llvm_params = (function.parameter_types.iter())
-            .map(|id| self.type_info.llvm_type(*id))
-            .map(|a| LLVMAnyWrapper(a).coerce_basic())
+            .map(|id| self.monomorphizer.llvm_type(*id))
             .collect::<Vec<_>>();
 
         let kind = function.kind(id, self.ir.entry_function);
