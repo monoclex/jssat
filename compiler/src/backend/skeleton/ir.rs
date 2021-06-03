@@ -1,3 +1,5 @@
+use inkwell::types::AnyTypeEnum;
+
 use crate::id::*;
 use std::collections::HashMap;
 
@@ -21,6 +23,25 @@ pub struct Function {
     pub body: Option<FunctionBody>,
 }
 
+pub enum FunctionKind {
+    Entrypoint,
+    External,
+    Code,
+}
+
+impl Function {
+    pub fn kind(&self, my_id: TopLevelId, entry: TopLevelId) -> FunctionKind {
+        if my_id == entry {
+            return FunctionKind::Entrypoint;
+        }
+
+        match self.body.is_some() {
+            true => FunctionKind::Code,
+            false => FunctionKind::External,
+        }
+    }
+}
+
 pub struct FunctionBody {
     pub register_types: HashMap<RegisterId, TypeId>,
     pub parameter_registers: Vec<RegisterId>,
@@ -34,8 +55,15 @@ pub struct Block {
 }
 
 /// Handles interning and solving of types (TODO: is that a good desc?)
-pub struct TypeManager {
+pub struct TypeManager<'context> {
     pub types: HashMap<TypeId, ValueType>,
+    llvm_types: HashMap<TypeId, AnyTypeEnum<'context>>,
+}
+
+impl<'c> TypeManager<'c> {
+    pub fn llvm_type(&self, id: TypeId) -> AnyTypeEnum<'c> {
+        *self.llvm_types.get(&id).unwrap()
+    }
 }
 
 /// Valid types for values

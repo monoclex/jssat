@@ -22,7 +22,7 @@ pub struct FunctionState<'ctx> {
 // TODO: cleanup this bad glue code. it didn't take any time at all to write,
 // and the skeleton and llvm structures are very similar so i figured that
 // this would be a really easy piece of code to rewrite in isolation.
-pub fn glue<'c>(ir: s::IR, glue: GlueState<'c>) -> l::IR<'c> {
+pub fn glue<'c>(ir: s::IR, mut glue: GlueState<'c>) -> l::IR<'c> {
     l::IR {
         constants: ir
             .constants
@@ -43,7 +43,7 @@ pub fn glue<'c>(ir: s::IR, glue: GlueState<'c>) -> l::IR<'c> {
             .into_iter()
             .map(|(k, f)| {
                 (k, {
-                    let glue = glue.functions.remove(&k).unwrap();
+                    let mut glue = glue.functions.remove(&k).unwrap();
 
                     l::Function {
                         llvm: glue.llvm,

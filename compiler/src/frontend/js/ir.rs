@@ -1,20 +1,9 @@
 // use petgraph::Directed;
-use std::{collections::HashMap, num::NonZeroUsize, sync::Arc};
-
-// mod formatting;
-pub mod builder;
+use crate::id::*;
+use std::collections::HashMap;
 
 // pub type ControlFlowGraph = petgraph::graph::DiGraph<BlockId, (), usize>;
 // pub type ValueFlowGraph = petgraph::graph::DiGraph<RegisterId, (), usize>;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct RegisterId(NonZeroUsize);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct BlockId(NonZeroUsize);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct TopLevelId(NonZeroUsize);
 
 #[derive(Debug)]
 pub struct IR {
@@ -123,7 +112,7 @@ pub struct BlockImpliesRegister {
 
 #[derive(Debug)]
 pub enum Instruction {
-    ECMAScriptAbstractOperation(ECMAScriptAbstractOperation),
+    // ECMAScriptAbstractOperation(ECMAScriptAbstractOperation),
     LoadGlobal(RegisterId /*=*/, TopLevelId),
     SaveGlobal(TopLevelId /*=*/, RegisterId),
     RecordGet(RegisterId /*=*/, RegisterId, RecordKey),
@@ -216,47 +205,5 @@ impl IRDebugInfo {
         IRDebugInfo {
             top_level_names: HashMap::new(),
         }
-    }
-}
-
-impl RegisterId {
-    pub fn first() -> Self {
-        Self(NonZeroUsize::new(1).unwrap())
-    }
-
-    pub fn next(&self) -> Self {
-        Self(NonZeroUsize::new(self.0.get() + 1).unwrap())
-    }
-
-    pub fn value(&self) -> usize {
-        self.0.get()
-    }
-}
-
-impl BlockId {
-    pub fn first() -> Self {
-        Self(NonZeroUsize::new(1).unwrap())
-    }
-
-    pub fn next(&self) -> Self {
-        Self(NonZeroUsize::new(self.0.get() + 1).unwrap())
-    }
-
-    pub fn value(&self) -> usize {
-        self.0.get()
-    }
-}
-
-impl TopLevelId {
-    pub fn first() -> Self {
-        Self(NonZeroUsize::new(1).unwrap())
-    }
-
-    pub fn next(&self) -> Self {
-        Self(NonZeroUsize::new(self.0.get() + 1).unwrap())
-    }
-
-    pub fn value(&self) -> usize {
-        self.0.get()
     }
 }

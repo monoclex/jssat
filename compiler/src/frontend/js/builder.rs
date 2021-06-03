@@ -1,6 +1,12 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
-
-use super::*;
+use crate::frontend::js::ir::*;
+use crate::id::*;
+use std::{
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ConstantId(TopLevelId);
@@ -50,7 +56,7 @@ impl ProgramBuilder {
             ir: IR::new(),
             open_functions: Arc::new(AtomicUsize::new(0)),
             has_main: false,
-            counter: TopLevelId::first(),
+            counter: TopLevelId::new(),
         }
     }
 
@@ -154,9 +160,9 @@ impl FunctionBuilder {
             is_main,
             parameters: vec![],
             blocks: vec![],
-            counter: Arc::new(AtomicUsize::new(1)),
+            counter: Arc::new(AtomicUsize::new(RegisterId::new().value())),
             debug_info: HashMap::new(),
-            block_counter: BlockId::first(),
+            block_counter: BlockId::new(),
             block_debug_info: HashMap::new(),
             hold_open,
         }
@@ -209,7 +215,7 @@ impl FunctionBuilder {
 
     fn free_id(&mut self) -> RegisterId {
         let id = self.counter.fetch_add(1, Ordering::Relaxed);
-        RegisterId(NonZeroUsize::new(id).unwrap())
+        RegisterId::new_with_value(id)
     }
 
     fn free_block_id(&mut self) -> BlockId {
@@ -283,7 +289,7 @@ impl BlockBuilder {
 
     fn free_id(&self) -> RegisterId {
         let id = self.register_counter.fetch_add(1, Ordering::Relaxed);
-        RegisterId(NonZeroUsize::new(id).unwrap())
+        RegisterId::new_with_value(id)
     }
 }
 
@@ -296,42 +302,4 @@ pub enum FnArg {
     Reg(RegisterId),
     Cnst(ConstantId),
     Number(f64),
-}
-
-pub fn ex() -> IR {
-    let mut program = ProgramBuilder::new();
-    let surrounding_agent = program.global(Name::new("surrounding_agent"));
-    let print = program.external_function(
-        Name::new("jssatrt_print"),
-        Type::Void,
-        vec![Type::Any, Type::Any],
-    );
-
-    let mut print_stub = program.function(Name::new("print_stub"), false);
-    {
-        let print_value = print_stub.parameter(Name::new("value"));
-
-        let mut entry = print_stub.block(Name::new("entry"));
-        entry.call(
-            FnRef::ExtFn(print),
-            &[FnArg::Reg(print_value), FnArg::Reg(print_value)],
-            false,
-        );
-        entry.ret(&mut print_stub, None);
-    }
-
-    let mut main = program.function(Name::new("main"), true);
-    {
-        let mut entry = main.block(Name::new("entry"));
-
-        let hello_world = program.constant(Name::new("hello_world"), "Hello, World!".into());
-        entry.call(FnRef::Fn(&print_stub), &[FnArg::Cnst(hello_world)], false);
-
-        entry.ret(&mut main, None);
-    }
-
-    print_stub.finish(&mut program);
-    main.finish(&mut program);
-
-    program.build()
 }

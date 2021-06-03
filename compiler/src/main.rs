@@ -12,15 +12,11 @@ use swc_common::{
 };
 use swc_ecmascript::parser::{Parser, Syntax};
 
-// macros need to be defined before usage
-// reminds me of C++ ;-;
-#[macro_use]
-pub mod id;
+use crate::frontend::skeleton_glue::{self, GlueArtifact};
 
-pub mod ast_traversal;
 pub mod backend;
-pub mod ir;
-pub mod types;
+pub mod frontend;
+pub mod id;
 
 fn preview(command: &Command) -> String {
     let mut preview = String::new();
@@ -88,33 +84,14 @@ fn link_binary(build: &[u8]) {
 }
 
 fn main() {
-    let ir = ir::builder::ex();
-    eprintln!("{:#?}", ir);
+    // let file_name = std::env::args()
+    //     .into_iter()
+    //     .skip(1)
+    //     .next()
+    //     .expect("expected file name");
 
-    let annotations = types::annotate(&ir);
-    eprintln!("{:#?}", annotations);
-
-    let build = backend::compile(&ir, &annotations);
-    eprintln!("OUTPUT LLVM IR (use unix pipes to redirect this into a file):");
-    println!("{}", build.llvm_ir);
-
-    link_binary(build.obj.as_slice());
-    // // TODO: is this the right way to add `advapi32` to the linker flags?
-    // //       we need advapi32 for mimalloc
-    // #[cfg(target_os = "windows")]
-    // build.object("advapi32");
-
-    // build.file(runtime_object.path()).file(build_object.path());
-
-    // build.compile(artifact);
-
-    let file_name = std::env::args()
-        .into_iter()
-        .skip(1)
-        .next()
-        .expect("expected file name");
-
-    let content = std::fs::read_to_string(file_name).expect("expected to read file");
+    // let content = std::fs::read_to_string(file_name).expect("expected to read file");
+    let content = "print('Hello, World!');".to_owned();
 
     // https://github.com/Starlight-JS/starlight/blob/4c4ce5d0178fb28c3b2a044d572473baaf057b73/crates/starlight/src/vm.rs#L275-L300
     let cm: Lrc<SourceMap> = Default::default();
@@ -132,6 +109,27 @@ fn main() {
     }
 
     let script = parser.parse_script().expect("script to parse");
-
     println!("{:#?}", script);
+
+    let ir = frontend::js::compiler::traverse(script);
+    eprintln!("{:#?}", ir);
+
+    let type_artifact = frontend::types::compiler::compile(&ir);
+    eprintln!("{:#?}", type_artifact);
+
+    let GlueArtifact(ir, type_info) = skeleton_glue::glue(ir, type_artifact.annotations);
+
+    let build = backend::compile(&ir, &type_info);
+    eprintln!("OUTPUT LLVM IR (use unix pipes to redirect this into a file):");
+    println!("{}", build.llvm_ir);
+
+    link_binary(build.obj.as_slice());
+    // // TODO: is this the right way to add `advapi32` to the linker flags?
+    // //       we need advapi32 for mimalloc
+    // #[cfg(target_os = "windows")]
+    // build.object("advapi32");
+
+    // build.file(runtime_object.path()).file(build_object.path());
+
+    // build.compile(artifact);
 }

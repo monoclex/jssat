@@ -10,17 +10,15 @@ use inkwell::{
     AddressSpace, OptimizationLevel,
 };
 
-use crate::{
-    ir::{Constant, ExternalFunction, Function, Instruction, RegisterId, TopLevelId, Type, IR},
-    types::{TypeAnnotations, TypeId},
-};
+use crate::frontend::types::ir::TypeAnnotations;
 
-use self::runtime_glue::RuntimeGlue;
+use self::{runtime_glue::RuntimeGlue, skeleton::ir::*};
 
-mod llvm;
+pub mod llvm;
 mod runtime_glue;
-mod skeleton;
+pub mod skeleton;
 
+use crate::id::*;
 use skeleton::compiler::{SkeletonArtifact, SkeletonCompiler};
 
 pub struct BuildArtifact {
@@ -28,7 +26,7 @@ pub struct BuildArtifact {
     pub obj: Vec<u8>,
 }
 
-pub fn compile(ir: &IR, type_info: &TypeAnnotations) -> BuildArtifact {
+pub fn compile(ir: &IR, type_info: &TypeManager) -> BuildArtifact {
     let context = Context::create();
     let builder = context.create_builder();
     let module = context.create_module("jssat");
@@ -54,7 +52,6 @@ pub fn compile(ir: &IR, type_info: &TypeAnnotations) -> BuildArtifact {
         glue: &glue,
         functions: &skeleton_artifact.functions,
         globals: &skeleton_artifact.globals,
-        types: &skeleton_artifact.types,
     };
 
     let backend_artifact = backend_compiler.compile();
@@ -64,12 +61,11 @@ pub fn compile(ir: &IR, type_info: &TypeAnnotations) -> BuildArtifact {
 
 struct BackendCompiler<'compilation, 'module> {
     ir: &'compilation IR,
-    type_info: &'compilation TypeAnnotations,
+    type_info: &'compilation TypeManager<'compilation>,
     context: &'compilation Context,
     builder: &'compilation Builder<'compilation>,
     module: &'module Module<'compilation>,
     glue: &'module RuntimeGlue<'compilation, 'module>,
-    types: &'module HashMap<TypeId, AnyTypeEnum<'module>>,
     globals: &'module HashMap<TopLevelId, GlobalValue<'module>>,
     functions: &'module HashMap<TopLevelId, FunctionValue<'module>>,
 }
