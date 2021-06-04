@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use super::ir::{Type, TypeAnnotations};
-use crate::backend::skeleton::ir::{self as s, TypeManager, ValueType};
+use crate::backend::skeleton::ir::{self as s, ValueType};
 use crate::frontend::js::ir as j;
 use crate::id::*;
 
@@ -73,7 +73,7 @@ pub fn monomorphize(ir: &j::IR, type_annotations: &TypeAnnotations) -> (s::IR, s
         free_id = free_id.next();
     }
 
-    for (id, func) in ir.functions.iter() {
+    for (id, _) in ir.functions.iter() {
         fn_maps.insert(*id, free_id);
         free_id = free_id.next();
     }

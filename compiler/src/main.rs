@@ -65,6 +65,8 @@ fn link_binary(build: &[u8]) {
 
     let mut command = build.get_compiler().to_command();
 
+    command.arg("-o").arg(artifact);
+
     #[cfg(target_os = "linux")]
     {
         command

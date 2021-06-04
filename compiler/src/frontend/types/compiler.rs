@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use super::ir::*;
 use crate::frontend::js::ir::{Instruction, IR};
-use crate::id::*;
 
 pub fn compile(ir: &IR) -> TypesArtifact {
     let mut annotations = TypeAnnotations {
@@ -66,12 +65,12 @@ pub fn compile(ir: &IR) -> TypesArtifact {
                 Instruction::GcEndRegion(_) => todo!("GcEndRegion"),
                 Instruction::GcTracingMarkRoot(_) => todo!("GcTracingMarkRoot"),
                 Instruction::GcTracingUnmarkRoot(_) => todo!("GcTracingUnmarkRoot"),
-                Instruction::Call(a, b, c) => {
-                    if let Some(r) = a {
+                Instruction::Call(a, b, _) => {
+                    if let Some(_) = a {
                         todo!("determine callable return type");
                     }
 
-                    let f = *match b {
+                    let _ = *match b {
                         crate::frontend::js::ir::Callable::GlobalFunction(f) => f,
                         crate::frontend::js::ir::Callable::LocalFunction(_) => {
                             todo!("analyze tpyes ")

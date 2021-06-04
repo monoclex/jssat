@@ -1,4 +1,4 @@
-use inkwell::types::{AnyTypeEnum, BasicType, BasicTypeEnum};
+use inkwell::types::{BasicType, BasicTypeEnum};
 
 use crate::{backend::runtime_glue::RuntimeGlue, id::*};
 use std::collections::HashMap;

@@ -1,16 +1,4 @@
-use std::{borrow::Cow, collections::HashMap, num::NonZeroUsize, u64};
-
-use inkwell::{
-    builder::Builder,
-    context::Context,
-    module::{Linkage, Module},
-    targets::{CodeModel, FileType, RelocMode, Target, TargetMachine},
-    types::{AnyType, AnyTypeEnum, BasicType, BasicTypeEnum, FunctionType, StructType},
-    values::{BasicValue, BasicValueEnum, FunctionValue, GlobalValue},
-    AddressSpace, OptimizationLevel,
-};
-
-use crate::frontend::types::ir::TypeAnnotations;
+use inkwell::context::Context;
 
 use self::{llvm::compiler::BackendCompiler, runtime_glue::RuntimeGlue, skeleton::ir::*};
 
@@ -18,8 +6,7 @@ pub mod llvm;
 mod runtime_glue;
 pub mod skeleton;
 
-use crate::id::*;
-use skeleton::compiler::{SkeletonArtifact, SkeletonCompiler};
+use skeleton::compiler::SkeletonCompiler;
 
 pub struct BuildArtifact {
     pub llvm_ir: String,

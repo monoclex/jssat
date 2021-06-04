@@ -1,7 +1,7 @@
 use inkwell::{
     context::Context,
     module::{Linkage, Module},
-    types::{AnyType, BasicType},
+    types::AnyType,
     types::{AnyTypeEnum, BasicTypeEnum, FunctionType},
     values::{BasicValue, BasicValueEnum, FunctionValue, GlobalValue},
     AddressSpace,
@@ -47,7 +47,7 @@ impl<'c, 'm> SkeletonCompiler<'c, 'm, '_, '_, '_> {
         artifact
     }
 
-    fn populate_constant(&self, id: TopLevelId, constant: &Constant) -> GlobalValue<'c> {
+    fn populate_constant(&self, _id: TopLevelId, constant: &Constant) -> GlobalValue<'c> {
         let name = constant.name.as_deref().unwrap_or("");
 
         let raw_const = self.make_constant_value(&constant);
@@ -96,7 +96,7 @@ impl<'c, 'm> SkeletonCompiler<'c, 'm, '_, '_, '_> {
         };
 
         // TODO: the `AnyWrapper` stuff shouldn't need to exist
-        let mut llvm_params = (function.parameter_types.iter())
+        let llvm_params = (function.parameter_types.iter())
             .map(|id| self.monomorphizer.llvm_type(*id))
             .collect::<Vec<_>>();
 
@@ -149,23 +149,6 @@ impl<'c> LLVMAnyWrapper<'c> {
             AnyTypeEnum::StructType(t) => t.fn_type(param_types, is_var_args),
             AnyTypeEnum::VectorType(t) => t.fn_type(param_types, is_var_args),
             AnyTypeEnum::VoidType(t) => t.fn_type(param_types, is_var_args),
-        }
-    }
-
-    pub fn coerce_basic(&self) -> BasicTypeEnum<'c> {
-        match self.0 {
-            AnyTypeEnum::ArrayType(t) => t.as_basic_type_enum(),
-            AnyTypeEnum::FloatType(t) => t.as_basic_type_enum(),
-            AnyTypeEnum::FunctionType(t) => {
-                panic!("cannot coerce `FunctionType` to variant of `BasicTypeEnum`")
-            }
-            AnyTypeEnum::IntType(t) => t.as_basic_type_enum(),
-            AnyTypeEnum::PointerType(t) => t.as_basic_type_enum(),
-            AnyTypeEnum::StructType(t) => t.as_basic_type_enum(),
-            AnyTypeEnum::VectorType(t) => t.as_basic_type_enum(),
-            AnyTypeEnum::VoidType(t) => {
-                panic!("cannot coerce `VoidType` to variant of `BasicTypeEnum`")
-            }
         }
     }
 }

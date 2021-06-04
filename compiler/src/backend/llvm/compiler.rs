@@ -1,12 +1,11 @@
-use std::{borrow::Cow, collections::HashMap, num::NonZeroUsize, u64};
+use std::{collections::HashMap, u64};
 
 use inkwell::{
     builder::Builder,
     context::Context,
     module::Module,
     targets::{CodeModel, FileType, RelocMode, Target, TargetMachine},
-    types::BasicType,
-    values::{BasicValue, BasicValueEnum, FunctionValue, GlobalValue},
+    values::{BasicValueEnum, FunctionValue, GlobalValue},
     AddressSpace, OptimizationLevel,
 };
 
@@ -90,7 +89,7 @@ impl BackendCompiler<'_, '_> {
             inst_values.insert(*register, *param);
         }
 
-        for (id, block) in blocks {
+        for (_, block) in blocks {
             // TODO: use debug information to generate a name
             let basic_block = self.context.append_basic_block(llvm_function, "");
 
@@ -109,16 +108,12 @@ impl BackendCompiler<'_, '_> {
                     Instruction::RecordSet(_, _, _) => todo!("RecordSet"),
                     Instruction::RefIsEmpty(_, _) => todo!("RefIsEmpty"),
                     Instruction::RefDeref(_, _) => todo!("RefDeref"),
-                    Instruction::MakePrimitive {
-                        result,
-                        strategy,
-                        primitive_kind,
-                    } => todo!("MakePrimitive"),
+                    Instruction::MakePrimitive { .. } => todo!("MakePrimitive"),
                     Instruction::GcTracingUnmarkRoot(_) => todo!("GcTracingUnmarkRoot"),
                     Instruction::Call(a, b, c) => {
                         let call_func = match b {
                             Callable::GlobalFunction(f) => self.functions.get(f).unwrap(),
-                            Callable::LocalFunction(f) => todo!("LocalFunction"),
+                            Callable::LocalFunction(_) => todo!("LocalFunction"),
                         };
 
                         let mut args = c
@@ -215,11 +210,11 @@ impl BackendCompiler<'_, '_> {
             }
 
             match &block.end_flow {
-                InstructionFlow::Phi(a, b) => todo!("Phi"),
-                InstructionFlow::Jmp(a) => todo!("Jmp"),
-                InstructionFlow::JmpIf(a, b) => todo!("JmpIf"),
+                InstructionFlow::Phi(_, _) => todo!("Phi"),
+                InstructionFlow::Jmp(_) => todo!("Jmp"),
+                InstructionFlow::JmpIf(_, _) => todo!("JmpIf"),
                 InstructionFlow::Ret(None) => self.builder.build_return(None),
-                InstructionFlow::Ret(a) => todo!("Ret"),
+                InstructionFlow::Ret(_) => todo!("Ret"),
             };
         }
     }

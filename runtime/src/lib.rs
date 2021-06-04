@@ -3,7 +3,7 @@
 //! This crate
 
 use mimalloc::MiMalloc;
-use std::{cell::RefCell, collections::HashMap, env, hash::Hash, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, hash::Hash, rc::Rc};
 use widestring::U16String;
 
 #[global_allocator]
