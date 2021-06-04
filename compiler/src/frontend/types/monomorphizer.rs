@@ -40,6 +40,9 @@ pub fn monomorphize(ir: &j::IR, type_annotations: &TypeAnnotations) -> (s::IR, s
         );
     }
 
+    // first allocate IDs for all functions to use during conversion
+    let mut fn_maps = HashMap::new();
+
     // TODO: consolidate external functions and IR functions somehow?
     for (id, ext_function) in ir.external_functions.iter() {
         let context = type_annotations.functions.get(id).expect("fn context");
@@ -57,6 +60,7 @@ pub fn monomorphize(ir: &j::IR, type_annotations: &TypeAnnotations) -> (s::IR, s
             other => s::PossibleType::Value(monomorphizer.cache(monomorph(other))),
         };
 
+        fn_maps.insert(*id, free_id);
         functions.insert(
             free_id,
             s::Function {
@@ -66,27 +70,39 @@ pub fn monomorphize(ir: &j::IR, type_annotations: &TypeAnnotations) -> (s::IR, s
                 body: None,
             },
         );
+        free_id = free_id.next();
+    }
+
+    for (id, func) in ir.functions.iter() {
+        fn_maps.insert(*id, free_id);
+        free_id = free_id.next();
     }
 
     for (id, function) in ir.functions.iter() {
+        let free_id = *fn_maps.get(id).unwrap();
+
         if function.is_main {
             if entry_function.is_some() {
                 panic!("main already exists");
             }
 
-            entry_function = Some(*id);
+            entry_function = Some(free_id);
         }
 
         let context = type_annotations.functions.get(id).expect("fn context");
 
         let name = ir.debug_info.top_level_names.get(id).map(|b| b.clone());
 
-        let parameter_types = (function.parameters.iter())
+        let mut parameter_types = (function.parameters.iter())
             .map(|p| p.register)
             .map(|r| context.registers.get(&r).unwrap())
             .map(|t| context.types.get(t))
             .map(|t| monomorphizer.cache(monomorph(t)))
             .collect::<Vec<_>>();
+
+        if !function.is_main {
+            parameter_types.insert(0, context.types.id_cache(&Type::Runtime));
+        }
 
         let return_type = match context.types.get(&context.return_type) {
             Type::Void => s::PossibleType::Void,
@@ -105,6 +121,11 @@ pub fn monomorphize(ir: &j::IR, type_annotations: &TypeAnnotations) -> (s::IR, s
                     *register_id,
                     monomorphizer.cache(monomorph(context.types.get(type_id))),
                 );
+            }
+
+            if !function.is_main {
+                // TODO: i need some way to insert my own register here. for now i'm picking a high enough register
+                parameter_registers.push(RegisterId::new_with_value(100));
             }
 
             for p in function.parameters.iter() {
@@ -133,11 +154,14 @@ pub fn monomorphize(ir: &j::IR, type_annotations: &TypeAnnotations) -> (s::IR, s
                         j::Instruction::Call(a, b, c) => block_inst.push(s::Instruction::Call(
                             *a,
                             match b {
-                                j::Callable::GlobalFunction(a) => s::Callable::GlobalFunction(*a),
+                                j::Callable::GlobalFunction(a) => {
+                                    s::Callable::GlobalFunction(*fn_maps.get(a).unwrap())
+                                }
                                 j::Callable::LocalFunction(a) => s::Callable::LocalFunction(*a),
                             },
                             c.iter()
                                 .map(|v| match v {
+                                    j::Value::Runtime => s::Value::Runtime,
                                     j::Value::Register(r) => s::Value::Register(*r),
                                     j::Value::Constant(c) => s::Value::Constant(*c),
                                     j::Value::Number(n) => s::Value::Number(*n),
@@ -204,6 +228,14 @@ pub fn monomorphize(ir: &j::IR, type_annotations: &TypeAnnotations) -> (s::IR, s
             }
         });
 
+        if let Some(b) = &body {
+            debug_assert_eq!(
+                b.parameter_registers.len(),
+                parameter_types.len(),
+                "amount of parameter registers does not match declared amount of parameter types"
+            );
+        }
+
         functions.insert(
             free_id,
             s::Function {
@@ -228,6 +260,7 @@ pub fn monomorphize(ir: &j::IR, type_annotations: &TypeAnnotations) -> (s::IR, s
 fn monomorph(t: &Type) -> ValueType {
     match t {
         Type::Any => ValueType::Any,
+        Type::Runtime => ValueType::Runtime,
         Type::Void => panic!("cannot monomorphize void atm"),
     }
 }

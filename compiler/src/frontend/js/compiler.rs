@@ -5,9 +5,9 @@ use crate::frontend::js::{
     ir::{Type, IR},
 };
 
-pub fn traverse(script: Script) -> IR {
+pub fn traverse(_script: Script) -> IR {
     let mut program = ProgramBuilder::new();
-    let surrounding_agent = program.global(Name::new("surrounding_agent"));
+    // let surrounding_agent = program.global(Name::new("surrounding_agent"));
     let print = program.external_function(
         Name::new("jssatrt_print"),
         Type::Void,
@@ -21,7 +21,11 @@ pub fn traverse(script: Script) -> IR {
         let mut entry = print_stub.block(Name::new("entry"));
         entry.call(
             FnRef::ExtFn(print),
-            &[FnArg::Reg(print_value), FnArg::Reg(print_value)],
+            &[
+                FnArg::Runtime,
+                FnArg::Reg(print_value),
+                FnArg::Reg(print_value),
+            ],
             false,
         );
         entry.ret(&mut print_stub, None);

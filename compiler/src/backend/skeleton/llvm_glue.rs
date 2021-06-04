@@ -131,6 +131,7 @@ pub fn glue<'c>(ir: s::IR, mut glue: GlueState<'c>) -> l::IR<'c> {
                                                                 }
                                                             },
                                                             match c {
+                                                                s::Value::Runtime => l::Value::Runtime,
                                                                 s::Value::Register(a) => {
                                                                     l::Value::Register(a)
                                                                 }
@@ -171,6 +172,7 @@ pub fn glue<'c>(ir: s::IR, mut glue: GlueState<'c>) -> l::IR<'c> {
                                                             s::Callable::GlobalFunction(a) => l::Callable::GlobalFunction(a),
                                                             s::Callable::LocalFunction(a) => l::Callable::LocalFunction(a),
                                                         }, c.into_iter().map(|v| match v {
+                                                            s::Value::Runtime => l::Value::Runtime,
                                                             s::Value::Register(a) => {
                                                                 l::Value::Register(a)
                                                             }

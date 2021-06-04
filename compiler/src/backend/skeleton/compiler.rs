@@ -105,7 +105,9 @@ impl<'c, 'm> SkeletonCompiler<'c, 'm, '_, '_, '_> {
         match kind {
             FunctionKind::Code => {
                 // all JSSAT functions have an implicit runtime parameter
-                llvm_params.insert(0, self.glue.type_runtime.as_basic_type_enum());
+                // TODO: investigate if this should be here, as it might be the frontend's responsibility
+                // to emit runtime parameters
+                // llvm_params.insert(0, self.glue.type_runtime.as_basic_type_enum());
             }
             FunctionKind::Entrypoint | FunctionKind::External => {}
         };
@@ -121,7 +123,8 @@ impl<'c, 'm> SkeletonCompiler<'c, 'm, '_, '_, '_> {
             }
             FunctionKind::Entrypoint => {
                 let main_fn = self.context.i32_type().fn_type(&[], false);
-                self.module.add_function("main", main_fn, None)
+                self.module
+                    .add_function("main", main_fn, Some(Linkage::External))
             }
         }
     }

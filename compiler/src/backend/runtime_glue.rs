@@ -10,6 +10,7 @@ use inkwell::{
 // maybe we should auto generate some LLVM IR based on `cbindgen` output,
 // and somehow link that together here. /shrug
 
+#[derive(Debug)]
 pub struct RuntimeGlue<'ctx, 'module> {
     pub type_runtime_value: StructType<'ctx>,
     pub type_runtime: PointerType<'ctx>,

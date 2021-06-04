@@ -12,7 +12,7 @@ use inkwell::{
 
 use crate::frontend::types::ir::TypeAnnotations;
 
-use self::{runtime_glue::RuntimeGlue, skeleton::ir::*};
+use self::{llvm::compiler::BackendCompiler, runtime_glue::RuntimeGlue, skeleton::ir::*};
 
 pub mod llvm;
 mod runtime_glue;
@@ -60,64 +60,6 @@ pub fn compile(ir: &IR, type_info: &TypeManager) -> BuildArtifact {
 
     backend_artifact
 }
-
-struct BackendCompiler<'compilation, 'module> {
-    ir: &'compilation IR,
-    type_info: &'compilation TypeManager,
-    context: &'compilation Context,
-    builder: &'compilation Builder<'compilation>,
-    module: &'module Module<'compilation>,
-    glue: &'module RuntimeGlue<'compilation, 'module>,
-    globals: &'module HashMap<TopLevelId, GlobalValue<'module>>,
-    functions: &'module HashMap<TopLevelId, FunctionValue<'module>>,
-}
-
-impl BackendCompiler<'_, '_> {
-    pub fn compile(&self) -> BuildArtifact {
-        self.compile_llvm()
-    }
-
-    fn compile_llvm(&self) -> BuildArtifact {
-        Target::initialize_all(&Default::default());
-        let target_triple = TargetMachine::get_default_triple();
-
-        let target = Target::from_triple(&target_triple).unwrap();
-
-        let target_machine = target
-            .create_target_machine(
-                &target_triple,
-                "generic",
-                "",
-                OptimizationLevel::Aggressive,
-                RelocMode::PIC,
-                CodeModel::Default,
-            )
-            .expect("couldn't make target machine");
-
-        let text_buff = self.module.print_to_string().to_string();
-
-        let obj_buff = target_machine
-            .write_to_memory_buffer(&self.module, FileType::Object)
-            .expect("couldn't compile to assembly");
-
-        BuildArtifact {
-            llvm_ir: text_buff.to_string(),
-            obj: obj_buff.as_slice().to_vec(),
-        }
-    }
-}
-
-struct TypeCompiler<'compilation, 'module, 'types> {
-    ir: &'compilation IR,
-    type_info: &'compilation TypeAnnotations,
-    context: &'compilation Context,
-    builder: &'compilation Builder<'compilation>,
-    module: &'module Module<'compilation>,
-    glue: &'module RuntimeGlue<'compilation, 'module>,
-    types: &'types HashMap<TypeId, StructType<'compilation>>,
-}
-
-impl<'c, 'm, 't> TypeCompiler<'c, 'm, 't> {}
 
 // pub fn build(ir: &IR, type_info: &TypeAnnotations) -> BuildArtifact {
 //     let mut types = HashMap::new();

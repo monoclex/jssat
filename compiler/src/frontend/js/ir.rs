@@ -163,6 +163,7 @@ pub enum RecordKey {
 
 #[derive(Debug)]
 pub enum Value {
+    Runtime,
     Register(RegisterId),
     Constant(TopLevelId),
     Number(f64),

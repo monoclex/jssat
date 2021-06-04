@@ -258,6 +258,7 @@ impl BlockBuilder {
         let arguments = arguments
             .into_iter()
             .map(|a| match *a {
+                FnArg::Runtime => Value::Runtime,
                 FnArg::Cnst(constant_id) => Value::Constant(constant_id.0),
                 FnArg::Number(number) => Value::Number(number),
                 FnArg::Reg(register) => Value::Register(register),
@@ -299,6 +300,7 @@ pub enum FnRef<'function> {
 }
 
 pub enum FnArg {
+    Runtime,
     Reg(RegisterId),
     Cnst(ConstantId),
     Number(f64),
