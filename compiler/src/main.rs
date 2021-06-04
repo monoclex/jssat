@@ -12,8 +12,6 @@ use swc_common::{
 };
 use swc_ecmascript::parser::{Parser, Syntax};
 
-use crate::frontend::skeleton_glue::{self, GlueArtifact};
-
 pub mod backend;
 pub mod frontend;
 pub mod id;
@@ -117,9 +115,11 @@ fn main() {
     let type_artifact = frontend::types::compiler::compile(&ir);
     eprintln!("{:#?}", type_artifact);
 
-    let GlueArtifact(ir, type_info) = skeleton_glue::glue(ir, type_artifact.annotations);
+    let (ir, type_manager) =
+        frontend::types::monomorphizer::monomorphize(&ir, &type_artifact.annotations);
+    eprintln!("{:#?}", (&ir, &type_manager));
 
-    let build = backend::compile(&ir, &type_info);
+    let build = backend::compile(&ir, &type_manager);
     eprintln!("OUTPUT LLVM IR (use unix pipes to redirect this into a file):");
     println!("{}", build.llvm_ir);
 

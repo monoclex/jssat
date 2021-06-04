@@ -3,6 +3,7 @@ use inkwell::types::{AnyTypeEnum, BasicType, BasicTypeEnum};
 use crate::{backend::runtime_glue::RuntimeGlue, id::*};
 use std::collections::HashMap;
 
+#[derive(Clone, Debug)]
 pub struct IR {
     pub constants: HashMap<TopLevelId, Constant>,
     pub functions: HashMap<TopLevelId, Function>,
@@ -11,11 +12,13 @@ pub struct IR {
     // pub internal_slots: HashMap<InternalSlotId, Box<str>>,
 }
 
+#[derive(Clone, Debug)]
 pub struct Constant {
     pub payload: Vec<u8>,
     pub name: Option<Box<str>>,
 }
 
+#[derive(Clone, Debug)]
 pub struct Function {
     pub name: Option<Box<str>>,
     pub parameter_types: Vec<TypeId>,
@@ -23,6 +26,7 @@ pub struct Function {
     pub body: Option<FunctionBody>,
 }
 
+#[derive(Clone, Debug)]
 pub enum FunctionKind {
     Entrypoint,
     External,
@@ -42,6 +46,7 @@ impl Function {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct FunctionBody {
     pub register_types: HashMap<RegisterId, TypeId>,
     pub parameter_registers: Vec<RegisterId>,
@@ -49,12 +54,14 @@ pub struct FunctionBody {
     pub body: HashMap<BlockId, Block>,
 }
 
+#[derive(Clone, Debug)]
 pub struct Block {
     pub instructions: Vec<Instruction>,
     pub end_flow: InstructionFlow,
 }
 
 /// Handles interning and solving of types (TODO: is that a good desc?)
+#[derive(Clone, Debug)]
 pub struct TypeManager {
     pub types: HashMap<TypeId, ValueType>,
 }
@@ -96,6 +103,7 @@ impl<'t, 'c, 'm, 'g> LLVMMonomorphizer<'t, 'c, 'm, 'g> {
 }
 
 /// Valid types for values
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum ValueType {
     /// Useful to box a value into the largest possible idea of what it may be.
     /// Primarily used during prototyping, and is only really useful if our
@@ -107,12 +115,14 @@ pub enum ValueType {
 }
 
 /// Value types for everything (values + fn return type)
+#[derive(Clone, Debug)]
 pub enum PossibleType {
     Void,
     /// Index into a `TypeManager::types` -> `ValueType`
     Value(TypeId),
 }
 
+#[derive(Clone, Debug)]
 pub enum Instruction {
     LoadGlobal(RegisterId /*=*/, TopLevelId),
     SaveGlobal(TopLevelId /*=*/, RegisterId),
@@ -132,12 +142,13 @@ pub enum Instruction {
     Call(Option<RegisterId> /*=*/, Callable, Vec<Value>),
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct BlockImpliesRegister {
     pub block: BlockId,
     pub implies: RegisterId,
 }
 
+#[derive(Clone, Debug)]
 pub enum InstructionFlow {
     Phi(RegisterId /*=*/, Vec<BlockImpliesRegister>),
     Jmp(BlockId),
@@ -145,13 +156,13 @@ pub enum InstructionFlow {
     Ret(Option<RegisterId>),
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Callable {
     GlobalFunction(TopLevelId),
     LocalFunction(RegisterId),
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum RecordKey {
     /// An ECMAScript internal slot. `[[str]]`
     InternalSlot(InternalSlotId),
@@ -159,20 +170,20 @@ pub enum RecordKey {
     // Constant(TopLevelId),
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Value {
     Register(RegisterId),
     Constant(TopLevelId),
     Number(f64),
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum PrimitiveKind {
     Record,
     List,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum GarbageCollectionStrategy {
     Tracing,
     // Region(RegisterId),
