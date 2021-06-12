@@ -45,17 +45,12 @@ pub struct Function {
     pub name: DebugName,
     pub parameters: Vec<Parameter>,
     pub body: FunctionBody,
-    pub debug_info: FunctionDebugInfo,
     pub is_main: bool,
 }
 
 #[derive(Debug)]
-pub struct FunctionDebugInfo {
-    pub register_names: HashMap<RegisterId, DebugName>,
-}
-
-#[derive(Debug)]
 pub struct Parameter {
+    pub name: DebugName,
     pub register: RegisterId,
 }
 
@@ -90,16 +85,11 @@ pub enum Type {
 #[derive(Debug)]
 pub struct FunctionBody {
     pub blocks: Vec<FunctionBlock>,
-    pub debug_info: FunctionBodyDebugInfo,
-}
-
-#[derive(Debug)]
-pub struct FunctionBodyDebugInfo {
-    pub block_names: HashMap<BlockId, DebugName>,
 }
 
 #[derive(Debug)]
 pub struct FunctionBlock {
+    pub name: DebugName,
     pub id: BlockId,
     pub instructions: Vec<Instruction>,
 }

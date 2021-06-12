@@ -13,6 +13,10 @@ macro_rules! gen_id {
                     <Self as crate::id::IdCompat>::value(&self) + 1,
                 )
             }
+
+            pub fn convert<I: IdCompat>(&self) -> I {
+                convert::<Self, I>(*self)
+            }
         }
 
         impl crate::id::IdCompat for $name {
@@ -45,6 +49,7 @@ where
 gen_id!(TypeId);
 gen_id!(TopLevelId);
 gen_id!(ConstantId);
+gen_id!(GlobalId);
 gen_id!(FunctionId);
 gen_id!(ExternalFunctionId);
 gen_id!(BlockId);

@@ -2,26 +2,10 @@ use crate::frontend::js::ir::*;
 use crate::id::*;
 use crate::name::DebugName;
 use crate::name::Name;
-use std::fmt::Debug;
-use std::{
-    collections::HashMap,
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc,
-    },
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
 };
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ConstantId(TopLevelId);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct GlobalId(TopLevelId);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ExternalFunctionId(TopLevelId);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct FunctionId(TopLevelId);
 
 pub struct ProgramBuilder {
     ir: IR,
@@ -45,7 +29,7 @@ impl ProgramBuilder {
 
         self.ir.constants.insert(id, Constant { name, payload });
 
-        ConstantId(id)
+        id.convert()
     }
 
     pub fn global(&mut self, name: DebugName) -> GlobalId {
@@ -53,7 +37,7 @@ impl ProgramBuilder {
 
         self.ir.global_variables.insert(id, GlobalVariable { name });
 
-        GlobalId(id)
+        id.convert()
     }
 
     pub fn external_function(
@@ -76,7 +60,7 @@ impl ProgramBuilder {
             },
         );
 
-        ExternalFunctionId(id)
+        id.convert()
     }
 
     pub fn function(&mut self, name: DebugName, is_main: bool) -> FunctionBuilder {
@@ -90,7 +74,7 @@ impl ProgramBuilder {
             self.has_main = true;
         }
 
-        FunctionBuilder::new(name, FunctionId(id), is_main, self.open_functions.clone())
+        FunctionBuilder::new(name, id.convert(), is_main, self.open_functions.clone())
     }
 
     pub fn build(self) -> IR {
@@ -117,9 +101,7 @@ pub struct FunctionBuilder {
     // rather than use a RegisterId we use an Arc<AtomicUsize> so we can pass
     // it to BlockBuilders so they can get registers too
     counter: Arc<AtomicUsize>,
-    debug_info: HashMap<RegisterId, DebugName>,
     block_counter: BlockId,
-    block_debug_info: HashMap<BlockId, DebugName>,
     hold_open: Arc<AtomicUsize>,
 }
 
@@ -139,28 +121,23 @@ impl FunctionBuilder {
             parameters: vec![],
             blocks: vec![],
             counter: Arc::new(AtomicUsize::new(RegisterId::new().value())),
-            debug_info: HashMap::new(),
             block_counter: BlockId::new(),
-            block_debug_info: HashMap::new(),
             hold_open,
         }
     }
 
     pub fn parameter(&mut self, name: DebugName) -> RegisterId {
-        let id = self.free_id();
-        self.parameters.push(Parameter { register: id });
+        let register = self.free_id();
 
-        self.debug_info.insert(id, name);
+        self.parameters.push(Parameter { name, register });
 
-        id
+        register
     }
 
     pub fn block(&mut self, name: DebugName) -> BlockBuilder {
         let id = self.free_block_id();
 
-        self.block_debug_info.insert(id, name);
-
-        BlockBuilder::new(id, self.counter.clone())
+        BlockBuilder::new(name, id, self.counter.clone())
     }
 
     pub fn finish(self, builder: &mut ProgramBuilder) -> FunctionId {
@@ -168,18 +145,12 @@ impl FunctionBuilder {
 
         // builder.ir.functions.insert(index, element)
         builder.ir.functions.insert(
-            self.id.0,
+            self.id.convert(),
             Function {
                 name: self.name,
                 parameters: self.parameters,
                 body: FunctionBody {
                     blocks: self.blocks,
-                    debug_info: FunctionBodyDebugInfo {
-                        block_names: self.block_debug_info,
-                    },
-                },
-                debug_info: FunctionDebugInfo {
-                    register_names: self.debug_info,
                 },
                 is_main: self.is_main,
             },
@@ -201,19 +172,19 @@ impl FunctionBuilder {
 }
 
 pub struct BlockBuilder {
+    name: DebugName,
     id: BlockId,
     register_counter: Arc<AtomicUsize>,
     instructions: Vec<Instruction>,
-    debug_info: HashMap<RegisterId, DebugName>,
 }
 
 impl BlockBuilder {
-    pub fn new(id: BlockId, register_counter: Arc<AtomicUsize>) -> Self {
+    pub fn new(name: DebugName, id: BlockId, register_counter: Arc<AtomicUsize>) -> Self {
         Self {
+            name,
             id,
             register_counter,
             instructions: vec![],
-            debug_info: HashMap::new(),
         }
     }
 
@@ -226,15 +197,15 @@ impl BlockBuilder {
         let result = if store { Some(self.free_id()) } else { None };
 
         let callable = match function {
-            FnRef::Fn(fn_builder) => Callable::GlobalFunction(fn_builder.id.0),
-            FnRef::ExtFn(id) => Callable::GlobalFunction(id.0),
+            FnRef::Fn(fn_builder) => Callable::GlobalFunction(fn_builder.id.convert()),
+            FnRef::ExtFn(id) => Callable::GlobalFunction(id.convert()),
         };
 
         let arguments = arguments
             .into_iter()
             .map(|a| match *a {
                 FnArg::Runtime => Value::Runtime,
-                FnArg::Cnst(constant_id) => Value::Constant(constant_id.0),
+                FnArg::Cnst(constant_id) => Value::Constant(constant_id.convert()),
                 FnArg::Number(number) => Value::Number(number),
                 FnArg::Reg(register) => Value::Register(register),
             })
@@ -256,8 +227,8 @@ impl BlockBuilder {
             panic!("specified wrong function")
         }
 
-        builder.debug_info.extend(self.debug_info);
         builder.blocks.push(FunctionBlock {
+            name: self.name,
             id: self.id,
             instructions: self.instructions,
         });
