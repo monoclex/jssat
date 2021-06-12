@@ -44,6 +44,9 @@ where
 
 gen_id!(TypeId);
 gen_id!(TopLevelId);
+gen_id!(ConstantId);
+gen_id!(FunctionId);
+gen_id!(ExternalFunctionId);
 gen_id!(BlockId);
 gen_id!(RegisterId);
 gen_id!(InternalSlotId);

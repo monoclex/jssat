@@ -1,5 +1,8 @@
 use crate::frontend::js::ir::*;
 use crate::id::*;
+use crate::name::DebugName;
+use crate::name::Name;
+use std::fmt::Debug;
 use std::{
     collections::HashMap,
     sync::{
@@ -27,29 +30,6 @@ pub struct ProgramBuilder {
     has_main: bool,
 }
 
-/// # Name
-///
-/// Parameters that accept a [`Name`] were considered to just accept a
-/// [`Option<Box<str>>`] directly, so that users could succinctly type [`None`].
-/// However, this was decided against as it could lead users into the pitfall
-/// of typing out a lengthy `Some("asdf".to_string().into_boxed_str())`, which
-/// is exactly the pitfall requiring a [`Name`] is designed to prevent.
-///
-/// Thus, we believe users will opt to type `Name::` and wait for intellisense.
-/// This will guide them into the happy path of typing `Name::new("name")`, or
-/// `Name::none()` for no names.
-pub struct Name(Option<Box<str>>);
-
-impl Name {
-    pub fn new<S: ToString>(name: S) -> Name {
-        Self(Some(name.to_string().into_boxed_str()))
-    }
-
-    pub fn none() -> Name {
-        Self(None)
-    }
-}
-
 impl ProgramBuilder {
     pub fn new() -> Self {
         Self {
@@ -60,20 +40,18 @@ impl ProgramBuilder {
         }
     }
 
-    pub fn constant(&mut self, name: Name, payload: Vec<u8>) -> ConstantId {
+    pub fn constant(&mut self, name: DebugName, payload: Vec<u8>) -> ConstantId {
         let id = self.free_id();
-        self.save_name(id, name);
 
-        self.ir.constants.insert(id, Constant { payload });
+        self.ir.constants.insert(id, Constant { name, payload });
 
         ConstantId(id)
     }
 
-    pub fn global(&mut self, name: Name) -> GlobalId {
+    pub fn global(&mut self, name: DebugName) -> GlobalId {
         let id = self.free_id();
-        self.save_name(id, name);
 
-        self.ir.global_variables.insert(id, GlobalVariable {});
+        self.ir.global_variables.insert(id, GlobalVariable { name });
 
         GlobalId(id)
     }
@@ -85,11 +63,11 @@ impl ProgramBuilder {
         param_types: Vec<Type>,
     ) -> ExternalFunctionId {
         let id = self.free_id();
-        self.save_name(id, name);
 
         self.ir.external_functions.insert(
             id,
             ExternalFunction {
+                name,
                 return_type,
                 parameters: param_types
                     .into_iter()
@@ -101,19 +79,18 @@ impl ProgramBuilder {
         ExternalFunctionId(id)
     }
 
-    pub fn function(&mut self, name: Name, is_main: bool) -> FunctionBuilder {
+    pub fn function(&mut self, name: DebugName, is_main: bool) -> FunctionBuilder {
         if is_main && self.has_main {
             panic!("Declared a duplicate `main`");
         }
 
         let id = self.free_id();
-        self.save_name(id, name);
 
         if is_main {
             self.has_main = true;
         }
 
-        FunctionBuilder::new(FunctionId(id), is_main, self.open_functions.clone())
+        FunctionBuilder::new(name, FunctionId(id), is_main, self.open_functions.clone())
     }
 
     pub fn build(self) -> IR {
@@ -129,35 +106,36 @@ impl ProgramBuilder {
         self.counter = self.counter.next();
         id
     }
-
-    fn save_name(&mut self, id: TopLevelId, name: Name) {
-        if let Some(name) = name.0 {
-            self.ir.debug_info.top_level_names.insert(id, name);
-        }
-    }
 }
 
 pub struct FunctionBuilder {
     id: FunctionId,
     is_main: bool,
+    name: DebugName,
     parameters: Vec<Parameter>,
     blocks: Vec<FunctionBlock>,
     // rather than use a RegisterId we use an Arc<AtomicUsize> so we can pass
     // it to BlockBuilders so they can get registers too
     counter: Arc<AtomicUsize>,
-    debug_info: HashMap<RegisterId, Box<str>>,
+    debug_info: HashMap<RegisterId, DebugName>,
     block_counter: BlockId,
-    block_debug_info: HashMap<BlockId, Box<str>>,
+    block_debug_info: HashMap<BlockId, DebugName>,
     hold_open: Arc<AtomicUsize>,
 }
 
 impl FunctionBuilder {
-    pub fn new(id: FunctionId, is_main: bool, hold_open: Arc<AtomicUsize>) -> Self {
+    pub fn new(
+        name: DebugName,
+        id: FunctionId,
+        is_main: bool,
+        hold_open: Arc<AtomicUsize>,
+    ) -> Self {
         hold_open.fetch_add(1, Ordering::Relaxed);
 
         Self {
             id,
             is_main,
+            name,
             parameters: vec![],
             blocks: vec![],
             counter: Arc::new(AtomicUsize::new(RegisterId::new().value())),
@@ -168,23 +146,19 @@ impl FunctionBuilder {
         }
     }
 
-    pub fn parameter(&mut self, name: Name) -> RegisterId {
+    pub fn parameter(&mut self, name: DebugName) -> RegisterId {
         let id = self.free_id();
         self.parameters.push(Parameter { register: id });
 
-        if let Some(name) = name.0 {
-            self.debug_info.insert(id, name);
-        }
+        self.debug_info.insert(id, name);
 
         id
     }
 
-    pub fn block(&mut self, name: Name) -> BlockBuilder {
+    pub fn block(&mut self, name: DebugName) -> BlockBuilder {
         let id = self.free_block_id();
 
-        if let Some(name) = name.0 {
-            self.block_debug_info.insert(id, name);
-        }
+        self.block_debug_info.insert(id, name);
 
         BlockBuilder::new(id, self.counter.clone())
     }
@@ -196,6 +170,7 @@ impl FunctionBuilder {
         builder.ir.functions.insert(
             self.id.0,
             Function {
+                name: self.name,
                 parameters: self.parameters,
                 body: FunctionBody {
                     blocks: self.blocks,
@@ -229,7 +204,7 @@ pub struct BlockBuilder {
     id: BlockId,
     register_counter: Arc<AtomicUsize>,
     instructions: Vec<Instruction>,
-    debug_info: HashMap<RegisterId, Box<str>>,
+    debug_info: HashMap<RegisterId, DebugName>,
 }
 
 impl BlockBuilder {

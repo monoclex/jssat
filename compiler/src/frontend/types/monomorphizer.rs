@@ -33,7 +33,7 @@ pub fn monomorphize(ir: &j::IR, type_annotations: &TypeAnnotations) -> (s::IR, s
         constants.insert(
             *id,
             s::Constant {
-                name: ir.debug_info.top_level_names.get(id).map(|b| b.clone()),
+                name: constant.name.clone(),
                 // TODO: don't clone, definitely expensive here
                 payload: constant.payload.clone(),
             },
@@ -47,7 +47,7 @@ pub fn monomorphize(ir: &j::IR, type_annotations: &TypeAnnotations) -> (s::IR, s
     for (id, ext_function) in ir.external_functions.iter() {
         let context = type_annotations.functions.get(id).expect("fn context");
 
-        let name = ir.debug_info.top_level_names.get(id).map(|b| b.clone());
+        let name = ext_function.name.clone();
 
         let parameter_types = (ext_function.parameters.iter())
             .map(|p| &p.kind)
@@ -91,7 +91,7 @@ pub fn monomorphize(ir: &j::IR, type_annotations: &TypeAnnotations) -> (s::IR, s
 
         let context = type_annotations.functions.get(id).expect("fn context");
 
-        let name = ir.debug_info.top_level_names.get(id).map(|b| b.clone());
+        let name = function.name.clone();
 
         let mut parameter_types = (function.parameters.iter())
             .map(|p| p.register)
@@ -239,7 +239,7 @@ pub fn monomorphize(ir: &j::IR, type_annotations: &TypeAnnotations) -> (s::IR, s
         functions.insert(
             free_id,
             s::Function {
-                name,
+                name: name.into(),
                 parameter_types,
                 return_type,
                 body,

@@ -1,6 +1,10 @@
 use inkwell::types::{BasicType, BasicTypeEnum};
 
-use crate::{backend::runtime_glue::RuntimeGlue, id::*};
+use crate::{
+    backend::runtime_glue::RuntimeGlue,
+    id::*,
+    name::{DebugName, Name},
+};
 use std::collections::HashMap;
 
 #[derive(Clone, Debug)]
@@ -15,12 +19,12 @@ pub struct IR {
 #[derive(Clone, Debug)]
 pub struct Constant {
     pub payload: Vec<u8>,
-    pub name: Option<Box<str>>,
+    pub name: DebugName,
 }
 
 #[derive(Clone, Debug)]
 pub struct Function {
-    pub name: Option<Box<str>>,
+    pub name: Name,
     pub parameter_types: Vec<TypeId>,
     pub return_type: PossibleType,
     pub body: Option<FunctionBody>,

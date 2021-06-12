@@ -15,6 +15,7 @@ use swc_ecmascript::parser::{Parser, Syntax};
 pub mod backend;
 pub mod frontend;
 pub mod id;
+pub mod name;
 
 fn preview(command: &Command) -> String {
     let mut preview = String::new();

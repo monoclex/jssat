@@ -3,7 +3,10 @@ use inkwell::{
     values::{FunctionValue, GlobalValue},
 };
 
-use crate::id::*;
+use crate::{
+    id::*,
+    name::{DebugName, Name},
+};
 use std::collections::HashMap;
 
 pub struct IR<'ctx> {
@@ -15,13 +18,13 @@ pub struct IR<'ctx> {
 
 pub struct Constant<'ctx> {
     pub llvm: GlobalValue<'ctx>,
+    pub name: DebugName,
     pub payload: Vec<u8>,
-    pub name: Option<Box<str>>,
 }
 
 pub struct Function<'ctx> {
     pub llvm: FunctionValue<'ctx>,
-    pub name: Option<Box<str>>,
+    pub name: Name,
     pub parameter_types: Vec<TypeId>,
     pub return_type: PossibleType,
     pub body: Option<FunctionBody<'ctx>>,

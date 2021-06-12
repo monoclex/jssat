@@ -48,7 +48,7 @@ impl<'c, 'm> SkeletonCompiler<'c, 'm, '_, '_, '_> {
     }
 
     fn populate_constant(&self, _id: TopLevelId, constant: &Constant) -> GlobalValue<'c> {
-        let name = constant.name.as_deref().unwrap_or("");
+        let name = constant.name.value().unwrap_or("");
 
         let raw_const = self.make_constant_value(&constant);
 
@@ -86,7 +86,7 @@ impl<'c, 'm> SkeletonCompiler<'c, 'm, '_, '_, '_> {
     }
 
     fn populate_function(&mut self, id: TopLevelId, function: &Function) -> FunctionValue<'c> {
-        let name = (function.name.as_deref())
+        let name = (function.name.value())
             .map(|n| Cow::Borrowed(n))
             .unwrap_or_else(|| Cow::Owned(format!(".{}", id.value())));
 

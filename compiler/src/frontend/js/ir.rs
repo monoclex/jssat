@@ -1,5 +1,8 @@
 // use petgraph::Directed;
-use crate::id::*;
+use crate::{
+    id::*,
+    name::{DebugName, Name},
+};
 use std::collections::HashMap;
 
 // pub type ControlFlowGraph = petgraph::graph::DiGraph<BlockId, (), usize>;
@@ -12,26 +15,22 @@ pub struct IR {
     pub external_functions: HashMap<TopLevelId, ExternalFunction>,
     pub functions: HashMap<TopLevelId, Function>,
     // TODO: `pub data: Vec<DataDeclaration>`
-    pub debug_info: IRDebugInfo,
-}
-
-#[derive(Debug)]
-pub struct IRDebugInfo {
-    pub top_level_names: HashMap<TopLevelId, Box<str>>,
-    // TODO: information in source about where generated from, or what opt
-    // passes have occurred
 }
 
 #[derive(Debug)]
 pub struct Constant {
+    pub name: DebugName,
     pub payload: Vec<u8>,
 }
 
 #[derive(Debug)]
-pub struct GlobalVariable {}
+pub struct GlobalVariable {
+    pub name: DebugName,
+}
 
 #[derive(Debug)]
 pub struct ExternalFunction {
+    pub name: Name,
     pub parameters: Vec<TypedParameter>,
     pub return_type: Type,
 }
@@ -43,6 +42,7 @@ pub struct TypedParameter {
 
 #[derive(Debug)]
 pub struct Function {
+    pub name: DebugName,
     pub parameters: Vec<Parameter>,
     pub body: FunctionBody,
     pub debug_info: FunctionDebugInfo,
@@ -51,7 +51,7 @@ pub struct Function {
 
 #[derive(Debug)]
 pub struct FunctionDebugInfo {
-    pub register_names: HashMap<RegisterId, Box<str>>,
+    pub register_names: HashMap<RegisterId, DebugName>,
 }
 
 #[derive(Debug)]
@@ -95,7 +95,7 @@ pub struct FunctionBody {
 
 #[derive(Debug)]
 pub struct FunctionBodyDebugInfo {
-    pub block_names: HashMap<BlockId, Box<str>>,
+    pub block_names: HashMap<BlockId, DebugName>,
 }
 
 #[derive(Debug)]
@@ -196,15 +196,6 @@ impl IR {
             global_variables: HashMap::new(),
             external_functions: HashMap::new(),
             functions: HashMap::new(),
-            debug_info: IRDebugInfo::new(),
-        }
-    }
-}
-
-impl IRDebugInfo {
-    pub fn new() -> Self {
-        IRDebugInfo {
-            top_level_names: HashMap::new(),
         }
     }
 }
