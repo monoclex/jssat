@@ -29,13 +29,13 @@ pub fn annotate(ir: &IR) -> TypeAnnotations {
 
     for instruction in block.instructions.iter() {
         match instruction {
-            Instruction::RecordGet(_, _, _) => todo!("RecordGet"),
-            Instruction::RecordSet(_, _, _) => todo!("RecordSet"),
-            Instruction::RefIsEmpty(_, _) => todo!("RefIsEmpty"),
-            Instruction::RefDeref(_, _) => todo!("RefDeref"),
-            Instruction::MakePrimitive(_, _) => todo!("MakePrimitive"),
+            // Instruction::RecordGet(_, _, _) => todo!("RecordGet"),
+            // Instruction::RecordSet(_, _, _) => todo!("RecordSet"),
+            // Instruction::RefIsEmpty(_, _) => todo!("RefIsEmpty"),
+            // Instruction::RefDeref(_, _) => todo!("RefDeref"),
+            // Instruction::MakePrimitive(_, _) => todo!("MakePrimitive"),
             Instruction::Call(_, _, _) => todo!("Call"),
-            Instruction::Phi(_, _) => todo!("Phi"),
+            // Instruction::Phi(_, _) => todo!("Phi"),
         }
     }
 

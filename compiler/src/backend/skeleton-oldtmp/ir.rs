@@ -1,10 +1,6 @@
 use inkwell::types::{BasicType, BasicTypeEnum};
 
-use crate::{
-    backend::runtime_glue::RuntimeGlue,
-    id::*,
-    name::{DebugName, Name},
-};
+use crate::{backend::runtime_glue::RuntimeGlue, id::*, name::DebugName};
 use std::collections::HashMap;
 
 #[derive(Clone, Debug)]

@@ -63,7 +63,7 @@ impl DebugName {
 #[cfg(debug_assertions)]
 impl Display for DebugName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match (self.0).0 {
+        match &(self.0).0 {
             Some(name) => write!(f, "{}", name),
             None => write!(f, "anonymous"),
         }

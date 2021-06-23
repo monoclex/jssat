@@ -1,5 +1,3 @@
-use std::fmt::Display;
-
 macro_rules! gen_id {
     ($name:ident) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

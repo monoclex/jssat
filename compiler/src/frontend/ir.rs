@@ -75,24 +75,23 @@ pub struct BlockImpliesRegister {
 
 #[derive(Debug)]
 pub enum Instruction {
-    // ECMAScriptAbstractOperation(ECMAScriptAbstractOperation),
-    RecordGet(RegisterId /*=*/, RegisterId, RecordKey),
-    RecordSet(RegisterId, RecordKey, Value),
-    RefIsEmpty(RegisterId /*=*/, RegisterId),
-    RefDeref(RegisterId /*=*/, RegisterId),
-    MakePrimitive(RegisterId /*=*/, PrimtiveCreationDetails),
-    // GcMakeRegion(RegisterId /*=*/),
-    // GcEndRegion(RegisterId),
-    // GcTracingMarkRoot(RegisterId),
-    // GcTracingUnmarkRoot(RegisterId),
+    // RecordGet(RegisterId /*=*/, RegisterId, RecordKey),
+    // RecordSet(RegisterId, RecordKey, Value),
+    // RefIsEmpty(RegisterId /*=*/, RegisterId),
+    // RefDeref(RegisterId /*=*/, RegisterId),
+    // MakePrimitive(RegisterId /*=*/, PrimtiveCreationDetails),
+    // FAR FUTURE: GcMakeRegion(RegisterId /*=*/),
+    // FAR FUTURE: GcEndRegion(RegisterId),
+    // FAR FUTURE: GcTracingMarkRoot(RegisterId),
+    // FAR FUTURE: GcTracingUnmarkRoot(RegisterId),
     Call(Option<RegisterId> /*=*/, Callable, Vec<Value>),
-    Phi(RegisterId /*=*/, Vec<BlockImpliesRegister>),
+    // Phi(RegisterId /*=*/, Vec<BlockImpliesRegister>),
 }
 
 #[derive(Debug)]
 pub enum ControlFlowInstruction {
-    Jmp(BlockId),
-    JmpIf(BlockImpliesRegister, BlockId),
+    // Jmp(BlockId),
+    // JmpIf(BlockImpliesRegister, BlockId),
     Ret(Option<RegisterId>),
 }
 
@@ -100,12 +99,12 @@ impl Instruction {
     pub fn assigned_to(&self) -> Option<RegisterId> {
         match self {
             // Self::LoadGlobal(to, _)
-            | Self::RecordGet(to, _, _)
-            | Self::RefIsEmpty(to, _)
-            | Self::RefDeref(to, _)
-            | Self::MakePrimitive(to, _)
+            // | Self::RecordGet(to, _, _)
+            // | Self::RefIsEmpty(to, _)
+            // | Self::RefDeref(to, _)
+            // | Self::MakePrimitive(to, _)
             // | Self::GcMakeRegion(to)
-            | Self::Phi(to, _) => Some(*to),
+            // | Self::Phi(to, _) => Some(*to),
             Self::Call(to, _, _) => *to,
             _ => None,
         }

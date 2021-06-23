@@ -84,8 +84,9 @@ impl ProgramBuilder {
     }
 
     pub fn end_function(&mut self, builder: FunctionBuilder) {
+        let builder_id = builder.id;
         let (is_main, func) = builder.finish();
-        self.functions.insert(builder.id, func);
+        self.functions.insert(builder_id, func);
 
         match (is_main, self.entrypoint) {
             (false, _) => {}
@@ -94,7 +95,7 @@ impl ProgramBuilder {
                 id,
                 self.functions.get(&id).unwrap().name
             ),
-            (true, None) => self.entrypoint = Some(builder.id),
+            (true, None) => self.entrypoint = Some(builder_id),
         };
     }
 }
