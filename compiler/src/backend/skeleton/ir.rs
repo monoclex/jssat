@@ -9,8 +9,9 @@ use std::collections::HashMap;
 
 #[derive(Clone, Debug)]
 pub struct IR {
-    pub constants: HashMap<TopLevelId, Constant>,
-    pub functions: HashMap<TopLevelId, Function>,
+    pub constants: HashMap<ConstantId, Constant>,
+    pub functions: HashMap<FunctionId, Function>,
+    pub external_functions: HashMap<ExternalFunctionId, ExternalFunction>,
     pub entry_function: TopLevelId,
     // TODO: store this as part of the state passed to the skeleton compiler
     // pub internal_slots: HashMap<InternalSlotId, Box<str>>,
@@ -18,16 +19,25 @@ pub struct IR {
 
 #[derive(Clone, Debug)]
 pub struct Constant {
-    pub payload: Vec<u8>,
     pub name: DebugName,
+    pub payload: Vec<u8>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ExternalFunction {
+    pub name: String,
+    pub parameters: Vec<TypeId>,
+    pub return_type: PossibleType,
 }
 
 #[derive(Clone, Debug)]
 pub struct Function {
-    pub name: Name,
-    pub parameter_types: Vec<TypeId>,
+    pub name: DebugName,
+    pub parameter_types: Vec<RegisterId>,
     pub return_type: PossibleType,
-    pub body: Option<FunctionBody>,
+    pub type_mapping: HashMap<RegisterId, TypeId>,
+    pub entry_block: BlockId,
+    pub blocks: HashMap<BlockId, Block>,
 }
 
 #[derive(Clone, Debug)]
@@ -35,27 +45,6 @@ pub enum FunctionKind {
     Entrypoint,
     External,
     Code,
-}
-
-impl Function {
-    pub fn kind(&self, my_id: TopLevelId, entry: TopLevelId) -> FunctionKind {
-        if my_id == entry {
-            return FunctionKind::Entrypoint;
-        }
-
-        match self.body.is_some() {
-            true => FunctionKind::Code,
-            false => FunctionKind::External,
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct FunctionBody {
-    pub register_types: HashMap<RegisterId, TypeId>,
-    pub parameter_registers: Vec<RegisterId>,
-    pub entry_block: BlockId,
-    pub body: HashMap<BlockId, Block>,
 }
 
 #[derive(Clone, Debug)]

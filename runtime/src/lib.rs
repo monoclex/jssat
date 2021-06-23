@@ -224,7 +224,7 @@ pub extern "C" fn jssatrt_print(
     arguments: *const Value,
 ) {
     notnull!(_runtime);
-    notnull!(_environment);
+    // notnull!(_environment);
     notnull!(arguments);
 
     // TODO: validate safety

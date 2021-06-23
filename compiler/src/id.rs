@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 macro_rules! gen_id {
     ($name:ident) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -27,6 +29,12 @@ macro_rules! gen_id {
 
             fn value(&self) -> usize {
                 self.0.get() - 1
+            }
+        }
+
+        impl ::std::fmt::Display for $name {
+            fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+                write!(f, "{}", self.0)
             }
         }
     };

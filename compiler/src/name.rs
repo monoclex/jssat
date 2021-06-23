@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 type StringValue = Option<Box<str>>;
 
 // this documentation is outdated but being left here for reference
@@ -59,6 +61,16 @@ impl DebugName {
 }
 
 #[cfg(debug_assertions)]
+impl Display for DebugName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match (self.0).0 {
+            Some(name) => write!(f, "{}", name),
+            None => write!(f, "anonymous"),
+        }
+    }
+}
+
+#[cfg(debug_assertions)]
 impl Into<Name> for DebugName {
     fn into(self) -> Name {
         self.0
@@ -83,6 +95,13 @@ impl DebugName {
 
     pub fn value(&self) -> Option<&str> {
         None
+    }
+}
+
+#[cfg(not(debug_assertions))]
+impl Display for DebugName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "anonymous")
     }
 }
 

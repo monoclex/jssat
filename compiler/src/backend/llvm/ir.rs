@@ -3,15 +3,13 @@ use inkwell::{
     values::{FunctionValue, GlobalValue},
 };
 
-use crate::{
-    id::*,
-    name::{DebugName, Name},
-};
+use crate::{id::*, name::DebugName};
 use std::collections::HashMap;
 
 pub struct IR<'ctx> {
-    pub constants: HashMap<TopLevelId, Constant<'ctx>>,
-    pub functions: HashMap<TopLevelId, Function<'ctx>>,
+    pub constants: HashMap<ConstantId, Constant<'ctx>>,
+    pub external_functions: HashMap<ExternalFunctionId, ExternalFunction<'ctx>>,
+    pub functions: HashMap<FunctionId, Function<'ctx>>,
     // TODO: pass this as part of the state given to the LLVMCompiler
     // pub internal_slots: HashMap<InternalSlotId, Box<str>>,
 }
@@ -22,19 +20,21 @@ pub struct Constant<'ctx> {
     pub payload: Vec<u8>,
 }
 
-pub struct Function<'ctx> {
+pub struct ExternalFunction<'ctx> {
     pub llvm: FunctionValue<'ctx>,
-    pub name: Name,
-    pub parameter_types: Vec<TypeId>,
+    pub name: String,
+    pub parameters: Vec<TypeId>,
     pub return_type: PossibleType,
-    pub body: Option<FunctionBody<'ctx>>,
 }
 
-pub struct FunctionBody<'ctx> {
-    pub register_types: HashMap<RegisterId, TypeId>,
-    pub parameter_registers: Vec<RegisterId>,
+pub struct Function<'ctx> {
+    pub llvm: FunctionValue<'ctx>,
+    pub name: DebugName,
+    pub parameters: Vec<RegisterId>,
+    pub return_type: PossibleType,
+    pub type_mapping: HashMap<RegisterId, TypeId>,
     pub entry_block: BlockId,
-    pub body: HashMap<BlockId, Block<'ctx>>,
+    pub blocks: HashMap<BlockId, Block<'ctx>>,
 }
 
 pub struct Block<'ctx> {

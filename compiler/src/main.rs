@@ -77,6 +77,15 @@ fn link_binary(build: &[u8]) {
             .arg("-ldl");
     }
 
+    // // TODO: is this the right way to add `advapi32` to the linker flags?
+    // //       we need advapi32 for mimalloc
+    // #[cfg(target_os = "windows")]
+    // build.object("advapi32");
+
+    // build.file(runtime_object.path()).file(build_object.path());
+
+    // build.compile(artifact);
+
     eprintln!("invoking: {}", preview(&command));
     assert!(command.spawn().unwrap().wait().unwrap().success());
 
@@ -112,27 +121,15 @@ fn main() {
     let script = parser.parse_script().expect("script to parse");
     println!("{:#?}", script);
 
-    let ir = frontend::js::compiler::traverse(script);
+    let ir = frontend::js::traverse(script);
     eprintln!("{:#?}", ir);
 
-    let type_artifact = frontend::types::compiler::compile(&ir);
-    eprintln!("{:#?}", type_artifact);
+    let annotations = frontend::type_annotater::annotate(&ir);
+    eprintln!("{:#?}", annotations);
 
-    let (ir, type_manager) =
-        frontend::types::monomorphizer::monomorphize(&ir, &type_artifact.annotations);
-    eprintln!("{:#?}", (&ir, &type_manager));
-
-    let build = backend::compile(&ir, &type_manager);
+    let build = backend::compile(&ir, &annotations);
     eprintln!("OUTPUT LLVM IR (use unix pipes to redirect this into a file):");
     println!("{}", build.llvm_ir);
 
     link_binary(build.obj.as_slice());
-    // // TODO: is this the right way to add `advapi32` to the linker flags?
-    // //       we need advapi32 for mimalloc
-    // #[cfg(target_os = "windows")]
-    // build.object("advapi32");
-
-    // build.file(runtime_object.path()).file(build_object.path());
-
-    // build.compile(artifact);
 }
