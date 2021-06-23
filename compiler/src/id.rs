@@ -61,3 +61,4 @@ gen_id!(ExternalFunctionId);
 gen_id!(BlockId);
 gen_id!(RegisterId);
 gen_id!(InternalSlotId);
+gen_id!(OpaqueStructId);
