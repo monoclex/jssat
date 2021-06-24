@@ -86,11 +86,19 @@ pub fn annotate(ir: &IR) -> TypeAnnotations {
         }
     };
 
+    let top_free_register = registers
+        .iter()
+        .map(|(r, _)| *r)
+        .max_by(|a, b| a.value().cmp(&b.value()))
+        .map(|r| r.next())
+        .unwrap_or(RegisterId::new());
+
     type_mapping.insert(
         entrypoint,
         TypedFunction {
             name: entrypoint_function.name.clone(),
             parameters: vec![],
+            top_free_register,
             return_type,
             entry_block: entrypoint_function.entry_block,
             blocks: entrypoint_function.blocks.clone(),
@@ -113,6 +121,10 @@ pub struct TypeAnnotations {
 #[derive(Debug)]
 pub struct TypedFunction {
     pub name: DebugName,
+    /// The highest register ID that is unavailable. All registers after this
+    /// one must also be unclaimed. This is so that the skeleton phase can gen
+    /// code for the LLVM phase
+    pub top_free_register: RegisterId,
     pub parameters: Vec<Parameter>,
     pub return_type: ReturnType,
     // pub control_flow: ControlFlowGraph,
@@ -163,6 +175,8 @@ pub enum ValueType {
     // TODO: an "ExactString" should just be a String with some kind of
     // ExactnessGuarantee to be exactly a type of a constant
     ExactString(ConstantId),
+    BytePointer,
+    Word,
 }
 
 impl ValueType {
@@ -174,18 +188,30 @@ impl ValueType {
             // (ValueType::Any, ValueType::Runtime) => todo!(),
             (ValueType::Any, ValueType::String) => {}
             (ValueType::Any, ValueType::ExactString(_)) => {}
+            // (ValueType::Any, ValueType::BytePointer) => todo!(),
+            // (ValueType::Any, ValueType::Word) => todo!(),
             // (ValueType::Runtime, ValueType::Any) => todo!(),
             (ValueType::Runtime, ValueType::Runtime) => {}
             // (ValueType::Runtime, ValueType::String) => todo!(),
             // (ValueType::Runtime, ValueType::ExactString(_)) => todo!(),
+            (ValueType::Runtime, ValueType::BytePointer) => todo!(),
+            // (ValueType::Runtime, ValueType::Word) => todo!(),
             // (ValueType::String, ValueType::Any) => todo!(),
             // (ValueType::String, ValueType::Runtime) => todo!(),
             (ValueType::String, ValueType::String) => {}
             (ValueType::String, ValueType::ExactString(_)) => {}
+            // (ValueType::String, ValueType::BytePointer) => todo!(),
+            // (ValueType::String, ValueType::Word) => todo!(),
             // (ValueType::ExactString(_), ValueType::Any) => todo!(),
             // (ValueType::ExactString(_), ValueType::Runtime) => todo!(),
             // (ValueType::ExactString(_), ValueType::String) => todo!(),
             (ValueType::ExactString(_), ValueType::ExactString(_)) => {}
+            // (ValueType::ExactString(_), ValueType::BytePointer) => todo!(),
+            // (ValueType::ExactString(_), ValueType::Word) => todo!(),
+            (ValueType::BytePointer, ValueType::BytePointer) => {}
+            // (ValueType::BytePointer, ValueType::Word) => todo!(),
+            // (ValueType::Word, ValueType::BytePointer) => todo!(),
+            (ValueType::Word, ValueType::Word) => {}
             (a, b) => panic!("cannot unify {:?} and {:?}", a, b),
         }
     }
@@ -202,6 +228,8 @@ fn ffi_value_type_to_value_type(ffi_value_type: &FFIValueType) -> ValueType {
     match ffi_value_type {
         FFIValueType::Any => ValueType::Any,
         FFIValueType::Runtime => ValueType::Runtime,
+        FFIValueType::BytePointer => ValueType::BytePointer,
+        FFIValueType::Word => ValueType::Word,
     }
 }
 

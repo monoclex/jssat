@@ -37,6 +37,11 @@ pub enum FFIValueType {
     /// Annotated on external functions to signal that they accept a `Runtime`
     /// parameter. All JSSAT functions implicitly have a `Runtime` parameter.
     Runtime,
+    /// Pointer to a contiguous amount of bytes, `*const u8` or `void*`
+    BytePointer,
+    /// A value dependent on the machine's size - akin to `usize`, or `size_t`.
+    /// Either 32 bits or 64 bits.
+    Word,
 }
 
 #[derive(Debug)]

@@ -17,7 +17,7 @@ use crate::id::*;
 pub struct BackendIR<'name> {
     pub constants: FxHashMap<ConstantId, Constant<'name>>,
     pub opaque_structs: FxHashMap<OpaqueStructId, OpaqueStruct<'name>>,
-    pub external_functions: FxHashMap<ExternalFunctionId, ExternalFunction<'name>>,
+    pub external_functions: FxHashMap<ExternalFunctionId, ExternalFunction>, // <'name>>,
     pub functions: FxHashMap<FunctionId, Function<'name>>,
 }
 
@@ -30,8 +30,12 @@ pub struct OpaqueStruct<'name> {
     pub name: &'name str,
 }
 
-pub struct ExternalFunction<'name> {
-    pub name: &'name str,
+pub struct ExternalFunction {
+    // <'name> {
+    // pub name: &'name str,
+    // TODO: fix the ugly hack (reason being we add external fns during the
+    // translation of IR + TypeAnnotations -> BackendIr)
+    pub name: String,
     pub return_type: ReturnType,
     pub parameters: Vec<ValueType>,
 }
@@ -45,6 +49,7 @@ pub struct Function<'name> {
     pub blocks: FxHashMap<BlockId, Vec<Instruction>>,
 }
 
+#[derive(Debug)]
 pub struct PartialFunction<'ctx> {
     pub llvm: FunctionValue<'ctx>,
     pub parameters: Vec<RegisterId>,
@@ -57,8 +62,30 @@ pub struct Parameter {
     pub register: RegisterId,
 }
 
+#[derive(Debug)]
 pub enum Instruction {
-    // TODO
+    /// # [`Instruction::LoadConstantPtr`]
+    ///
+    /// Loads the value of the constant as a `i8*` into the register specified.
+    LoadConstantPtr(RegisterId, ConstantId),
+    /// # [`Instruction::LoadConstantLen`]
+    ///
+    /// Loads the length of the payload of the constant as a word-sized valaue
+    /// into the register specified.
+    LoadConstantLen(RegisterId, ConstantId),
+    Call(Option<RegisterId>, Callable, Vec<RegisterId>),
+    /// # [`Instruction::Return`]
+    ///
+    /// Returns the value in the register to the caller, or returns nothing if
+    /// no register is given.
+    Return(Option<RegisterId>),
+}
+
+#[derive(Debug)]
+pub enum Callable {
+    External(ExternalFunctionId),
+    Static(FunctionId),
+    Virtual(RegisterId),
 }
 
 pub enum ReturnType {
@@ -92,8 +119,12 @@ pub fn compile(ir: BackendIR) -> BuildArtifact {
 
     let mut constants = FxHashMap::default();
     for (id, constant) in ir.constants.into_iter() {
-        constants.insert(id, compiler.llvm_constant(constant));
+        constants.insert(
+            id,
+            (constant.payload.len(), compiler.llvm_constant(constant)),
+        );
     }
+    let constant_resolver = ConstantResolver { things: &constants };
 
     let mut opaque_structs = FxHashMap::default();
     for (id, opaque_struct) in ir.opaque_structs.into_iter() {
@@ -130,6 +161,7 @@ pub fn compile(ir: BackendIR) -> BuildArtifact {
     for (_, function) in functions {
         compiler.llvm_function_end(
             function,
+            &constant_resolver,
             &opaque_struct_resolver,
             &external_function_resolver,
             &function_resolver,
@@ -176,6 +208,7 @@ pub fn compile(ir: BackendIR) -> BuildArtifact {
     }
 }
 
+type ConstantResolver<'structs, 'ctx> = Resolver<'structs, ConstantId, (usize, GlobalValue<'ctx>)>;
 type OpaqueStructResolver<'structs, 'ctx> = Resolver<'structs, OpaqueStructId, StructType<'ctx>>;
 type ExternalFunctionResolver<'structs, 'ctx> =
     Resolver<'structs, ExternalFunctionId, FunctionValue<'ctx>>;
@@ -264,8 +297,11 @@ impl<'c> BackendCompiler<'c, '_> {
                 .fn_type(parameter_types, false),
         };
 
-        self.module
-            .add_function(external_function.name, function, Some(Linkage::External))
+        self.module.add_function(
+            external_function.name.as_str(),
+            function,
+            Some(Linkage::External),
+        )
     }
 
     pub fn llvm_function_start(
@@ -306,10 +342,13 @@ impl<'c> BackendCompiler<'c, '_> {
     pub fn llvm_function_end(
         &self,
         mut function: PartialFunction<'c>,
+        constant_resolver: &ConstantResolver<'_, 'c>,
         opaque_struct_resolver: &OpaqueStructResolver<'_, 'c>,
         external_function_resolver: &ExternalFunctionResolver<'_, 'c>,
         function_resolver: &FunctionResolver<'_, 'c>,
     ) {
+        println!("llvm_function_end: {:?} -> {:#?}", function, function);
+
         let entry_block_id = function.entry_block;
         let entry_block = function
             .blocks
@@ -317,12 +356,78 @@ impl<'c> BackendCompiler<'c, '_> {
             .expect("entry block");
         let non_entry_blocks = function.blocks.into_iter().map(|(_, v)| v);
 
+        let mut register_values = FxHashMap::default();
+
         for block in std::iter::once(entry_block).chain(non_entry_blocks) {
             let basic_block = self.context.append_basic_block(function.llvm, "");
             self.builder.position_at_end(basic_block);
 
             for instruction in block.into_iter() {
-                match instruction {}
+                match instruction {
+                    Instruction::Call(result, function, args) => {
+                        let llvm_callable = match function {
+                            Callable::External(id) => external_function_resolver.resolve(&id),
+                            Callable::Static(_) => todo!(),
+                            Callable::Virtual(_) => todo!(),
+                        };
+
+                        let o_args = args.clone();
+                        let args = args
+                            .into_iter()
+                            .map(|r| *register_values.get(&r).unwrap())
+                            .collect::<Vec<_>>();
+
+                        println!(
+                            "calling {:?} with {:?} :: {:?}",
+                            llvm_callable, args, o_args
+                        );
+                        let llvm_result =
+                            self.builder.build_call(llvm_callable, args.as_slice(), "");
+
+                        if let Some(result) = result {
+                            register_values.insert(
+                                result,
+                                llvm_result
+                                    .try_as_basic_value()
+                                    .left()
+                                    .expect("expected value"),
+                            );
+                        }
+                    }
+                    Instruction::LoadConstantPtr(result, constant) => {
+                        let (_, global) = constant_resolver.resolve(&constant);
+
+                        // if you think i know what i'm doing, you'd be absolutely incorrect
+
+                        // BLACK MAGIC START
+                        let ptr = global.as_pointer_value();
+                        let get_element_ptr = unsafe {
+                            ptr.const_in_bounds_gep(&[self.context.i64_type().const_int(0, false)])
+                        };
+
+                        let get_element_ptr = self.builder.build_bitcast(
+                            get_element_ptr,
+                            self.context.i8_type().ptr_type(AddressSpace::Generic),
+                            "",
+                        );
+                        // BLACK MAGIC END
+
+                        register_values.insert(result, get_element_ptr);
+                    }
+                    Instruction::LoadConstantLen(result, constant) => {
+                        let (len, _) = constant_resolver.resolve(&constant);
+
+                        register_values
+                            .insert(result, self.word_size.const_int(len as u64, false).into());
+                    }
+                    Instruction::Return(None) => {
+                        self.builder.build_return(None);
+                    }
+                    Instruction::Return(Some(register)) => {
+                        let value = *register_values.get(&register).unwrap();
+                        self.builder.build_return(Some(&value));
+                    }
+                }
             }
         }
     }

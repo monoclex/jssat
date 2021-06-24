@@ -1,8 +1,9 @@
 use inkwell::module::Linkage;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::backend::llvm::{BackendIR, Constant, ExternalFunction, OpaqueStruct};
-use crate::frontend::ir::{FFIReturnType, FFIValueType};
+use crate::backend::llvm::{self, BackendIR, Callable, Constant, ExternalFunction, OpaqueStruct};
+use crate::frontend::ir::{FFIReturnType, FFIValueType, Instruction};
+use crate::frontend::{self, js};
 use crate::frontend::{ir::IR, type_annotater::TypeAnnotations};
 use crate::id::*;
 
@@ -29,6 +30,7 @@ pub fn translate<'ir>(ir: &'ir IR, annotations: &'ir TypeAnnotations) -> Backend
         );
     }
 
+    // TODO: shove JSSATRT stuff into its own space
     let mut opaque_structs = FxHashMap::default();
     let runtime_id = OpaqueStructId::new();
     opaque_structs.insert(
@@ -50,46 +52,188 @@ pub fn translate<'ir>(ir: &'ir IR, annotations: &'ir TypeAnnotations) -> Backend
     };
 
     let mut external_functions = FxHashMap::default();
-    for (id, external_function) in ir.external_functions.iter() {
+
+    // TODO: this is more JSSAT RT crud just littered in here. it's ugly.
+    // TODO: this is repeated when getting the highest available id for registers.
+    // this core logic (the "find by max" **and then `.next()` the result**) should be
+    // put in a function
+    let mut unused_id = ir
+        .external_functions
+        .iter()
+        .map(|(id, _)| *id)
+        .max_by(|id, id2| id.value().cmp(&id2.value()))
+        .map(|r| r.next())
+        .unwrap_or(ExternalFunctionId::new());
+
+    let jssatrt_runtime_new = unused_id;
+    let jssatrt_constant_new = jssatrt_runtime_new.next();
+    let jssatrt_ext_fns = std::array::IntoIter::new([
+        (
+            jssatrt_runtime_new,
+            frontend::ir::ExternalFunction {
+                name: "jssatrt_runtime_new".into(),
+                parameters: vec![],
+                return_type: FFIReturnType::Value(FFIValueType::Runtime),
+            },
+        ),
+        (
+            jssatrt_constant_new,
+            frontend::ir::ExternalFunction {
+                name: "jssatrt_constant_new".into(),
+                parameters: vec![
+                    FFIValueType::Runtime,
+                    FFIValueType::BytePointer,
+                    FFIValueType::Word,
+                ],
+                return_type: FFIReturnType::Value(FFIValueType::Any),
+            },
+        ),
+    ])
+    .collect::<FxHashMap<ExternalFunctionId, frontend::ir::ExternalFunction>>();
+
+    for (id, external_function) in ir.external_functions.iter().chain(jssatrt_ext_fns.iter()) {
+        if id.next().value() > unused_id.value() {
+            unused_id = id.next();
+        }
+
+        let name = external_function.name.as_str().to_owned();
+
+        let return_type = map_ffi_ret_type(&external_function.return_type, &opaque_map);
+
+        let parameters = external_function
+            .parameters
+            .iter()
+            .map(|p| map_ffi_val_type(p, &opaque_map))
+            .collect();
+
         external_functions.insert(
             *id,
             ExternalFunction {
-                name: external_function.name.as_str(),
-                return_type: map_ffi_ret_type(&external_function.return_type, &opaque_map),
-                parameters: external_function
-                    .parameters
-                    .iter()
-                    .map(|p| map_ffi_val_type(p, &opaque_map))
-                    .collect(),
+                name,
+                return_type,
+                parameters,
             },
         );
     }
 
     let mut functions = FxHashMap::default();
     for (id, function) in annotations.functions.iter() {
+        let is_main = *id == annotations.entrypoint;
+
+        let name = function.name.value().unwrap_or("");
+
+        let linkage = is_main.then_some(Linkage::External);
+
+        let return_type = map_ret_type(&function.return_type, &opaque_map);
+
+        let runtime_parameter = function.top_free_register;
+        let parameters = if is_main {
+            // the main function doesn't have any parameters
+            // (TODO: support argc, argv)
+            vec![]
+        } else {
+            // if the function isn't the main function, prepend the runtime as
+            // a parameter.
+            //
+            // all JSSAT functions must have the runtime passed as a parameter
+            // to perform anything.
+            std::iter::once(Parameter {
+                register: runtime_parameter,
+                r#type: map_ffi_val_type(&FFIValueType::Runtime, &opaque_map),
+            })
+            .chain(function.parameters.iter().map(|p| Parameter {
+                register: p.register,
+                r#type: map_val_type(&p.r#type, &opaque_map),
+            }))
+            .collect()
+        };
+
+        let mut blocks = FxHashMap::default();
+
+        if is_main {
+            let jssatrt_runtime_new = llvm::Instruction::Call(
+                Some(runtime_parameter),
+                Callable::External(jssatrt_runtime_new),
+                vec![],
+            );
+
+            blocks.insert(function.entry_block, vec![jssatrt_runtime_new]);
+        }
+
+        // TODO: little capabilities like "which register has the runtime?"
+        // should really be abstracted into a struct with a setup phase
+        // of some kind
+        let runtime_register = runtime_parameter;
+        let mut free_register = runtime_parameter.next();
+
+        let mut is_runtime_register = FxHashSet::default();
+
+        for (id, block) in function.blocks.iter() {
+            let instructions: &mut Vec<llvm::Instruction> =
+                blocks.entry(*id).or_insert_with(|| vec![]);
+
+            for instruction in block.instructions.iter() {
+                match instruction {
+                    Instruction::Call(result, callable, args) => {
+                        let args = args
+                            .iter()
+                            .map(|r| {
+                                is_runtime_register
+                                    .contains(r)
+                                    .then_some(runtime_register)
+                                    .unwrap_or(*r)
+                            })
+                            .collect::<Vec<_>>();
+
+                        let callable = match callable {
+                            frontend::ir::Callable::External(id) => Callable::External(*id),
+                            frontend::ir::Callable::Static(_) => todo!(),
+                            frontend::ir::Callable::Virtual(_) => todo!(),
+                        };
+
+                        instructions.push(llvm::Instruction::Call(*result, callable, args));
+                    }
+                    Instruction::GetRuntime(register) => {
+                        // any time we request the runtime to be put in the
+                        // register, we'll directly inline the actual runtime
+                        // register into whereever that register is used
+                        is_runtime_register.insert(*register);
+                    }
+                    Instruction::MakeString(result, payload) => {
+                        let const_ptr = free_register.next_and_mut();
+                        let const_len = free_register.next_and_mut();
+
+                        instructions.push(llvm::Instruction::LoadConstantPtr(const_ptr, *payload));
+                        instructions.push(llvm::Instruction::LoadConstantLen(const_len, *payload));
+
+                        instructions.push(llvm::Instruction::Call(
+                            Some(*result),
+                            Callable::External(jssatrt_constant_new),
+                            vec![runtime_register, const_ptr, const_len],
+                        ));
+                    }
+                };
+            }
+
+            match block.end {
+                frontend::ir::ControlFlowInstruction::Ret(register) => {
+                    let register = register
+                        .and_then(|r| is_runtime_register.contains(&r).then_some(runtime_register));
+
+                    instructions.push(llvm::Instruction::Return(register));
+                }
+            };
+        }
+
         functions.insert(
             *id,
             Function {
-                name: function.name.value().unwrap_or(""),
-                linkage: (*id == annotations.entrypoint).then_some(Linkage::External),
-                return_type: map_ret_type(&function.return_type, &opaque_map),
-                parameters: function
-                    .parameters
-                    .iter()
-                    .map(|p| Parameter {
-                        register: p.register,
-                        r#type: map_val_type(&p.r#type, &opaque_map),
-                    })
-                    .collect(),
+                name,
+                linkage,
+                return_type,
+                parameters,
                 entry_block: function.entry_block,
-                blocks: function
-                    .blocks
-                    .iter()
-                    .map(|(k, block)| {
-                        // todo
-                        (*k, vec![])
-                    })
-                    .collect(),
+                blocks,
             },
         );
     }
@@ -113,6 +257,8 @@ fn map_ffi_val_type(ffi: &FFIValueType, opaque: &OpaqueStructs) -> ValueType {
     match ffi {
         FFIValueType::Any => ValueType::Pointer(Box::new(ValueType::Opaque(opaque.any))),
         FFIValueType::Runtime => ValueType::Pointer(Box::new(ValueType::Opaque(opaque.runtime))),
+        FFIValueType::BytePointer => ValueType::Pointer(Box::new(ValueType::BitType(8))), // i8*
+        FFIValueType::Word => ValueType::WordSizeBitType,
     }
 }
 
@@ -133,13 +279,13 @@ fn map_val_type(
     opaque: &OpaqueStructs,
 ) -> ValueType {
     match r#type {
-        crate::frontend::type_annotater::ValueType::Any => {
-            map_ffi_val_type(&FFIValueType::Any, opaque)
-        }
-        crate::frontend::type_annotater::ValueType::Runtime => {
+        frontend::type_annotater::ValueType::Any => map_ffi_val_type(&FFIValueType::Any, opaque),
+        frontend::type_annotater::ValueType::Runtime => {
             map_ffi_val_type(&FFIValueType::Runtime, opaque)
         }
-        crate::frontend::type_annotater::ValueType::String => todo!(),
-        crate::frontend::type_annotater::ValueType::ExactString(_) => todo!(),
+        frontend::type_annotater::ValueType::String => todo!(),
+        frontend::type_annotater::ValueType::ExactString(_) => todo!(),
+        frontend::type_annotater::ValueType::BytePointer => todo!(),
+        frontend::type_annotater::ValueType::Word => todo!(),
     }
 }

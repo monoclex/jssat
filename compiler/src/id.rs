@@ -14,6 +14,12 @@ macro_rules! gen_id {
                 )
             }
 
+            pub fn next_and_mut(&mut self) -> Self {
+                let result = *self;
+                *self = self.next();
+                result
+            }
+
             pub fn convert<I: IdCompat>(&self) -> I {
                 convert::<Self, I>(*self)
             }

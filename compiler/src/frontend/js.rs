@@ -16,8 +16,8 @@ pub fn traverse(_script: Script) -> IR {
 
     let hello_world = builder.constant(DebugName::new("hello_world"), utf16_message);
     let print = builder.external_function(
-        "print".into(),
-        vec![FFIValueType::Runtime, FFIValueType::Any],
+        "jssatrt_print".into(),
+        vec![FFIValueType::Runtime, FFIValueType::Any, FFIValueType::Any],
         FFIReturnType::Void,
     );
 
@@ -28,7 +28,7 @@ pub fn traverse(_script: Script) -> IR {
         entry.mark_entrypoint();
         let jssatrt = entry.get_runtime();
         let string = entry.make_string(hello_world);
-        entry.call_external_function(print, vec![jssatrt, string]);
+        entry.call_external_function(print, vec![jssatrt, string, string]);
         main.end_block(entry.ret(None));
     }
     builder.end_function(main);
