@@ -7,51 +7,101 @@ use crate::name::DebugName;
 pub fn annotate(ir: &IR) -> TypeAnnotations {
     // TODO: i cannot build rome in a day. type inference of control flow
     // is very complicatetd.
-    let entrypoint = ir
+    let entrypoint_function = ir
         .functions
         .get(&ir.entrypoint)
         .expect("expected entrypoint");
 
     debug_assert_eq!(
-        entrypoint.parameters.len(),
+        entrypoint_function.parameters.len(),
         0,
         "entrypoint shall have no parameters"
     );
 
-    if entrypoint.blocks.len() > 1 {
+    if entrypoint_function.blocks.len() > 1 {
         todo!("control flow isn't supported atm");
     }
 
-    let (_, block) = entrypoint.blocks.iter().next().unwrap();
+    let (_, block) = entrypoint_function.blocks.iter().next().unwrap();
 
     let entrypoint = FunctionId::new();
     let mut type_mapping = FxHashMap::<FunctionId, TypedFunction>::default();
+    let mut registers = FxHashMap::default();
 
     for instruction in block.instructions.iter() {
-        match instruction {
+        match &instruction {
             // Instruction::RecordGet(_, _, _) => todo!("RecordGet"),
             // Instruction::RecordSet(_, _, _) => todo!("RecordSet"),
             // Instruction::RefIsEmpty(_, _) => todo!("RefIsEmpty"),
             // Instruction::RefDeref(_, _) => todo!("RefDeref"),
             // Instruction::MakePrimitive(_, _) => todo!("MakePrimitive"),
-            Instruction::Call(_, _, _) => todo!("Call"),
+            &Instruction::Call(Some(result), Callable::External(external_fn), values) => {
+                let external_fn = ir
+                    .external_functions
+                    .get(external_fn)
+                    .expect("expected valid ext fn");
+
+                let return_type = ffi_return_type_to_return_type(&external_fn.return_type);
+
+                match return_type {
+                    ReturnType::Void => panic!("cannot assign void to register"),
+                    ReturnType::Value(value) => registers.insert(*result, value),
+                };
+
+                // TODO: ensure that every value can unify with the arguments of the external function
+                // if they cannot, emit a compiler error
+            }
+            &Instruction::Call(None, Callable::External(external_fn), values) => {
+                // TODO: ensure that every value can unify with the arguments of the external function
+                // if they cannot, emit a compiler error
+
+                let external_function = (ir.external_functions.get(&external_fn))
+                    .expect("expected callable::external to pt to valid ext fn");
+
+                for (register_id, ffi_value_type) in
+                    values.iter().zip(external_function.parameters.iter())
+                {
+                    let register_type = registers.get(&register_id).expect("expected type");
+                    let target_type = ffi_value_type_to_value_type(ffi_value_type);
+
+                    // TODO: do something with the unification result?
+                    target_type.unify(register_type);
+                }
+            }
+            Instruction::GetRuntime(result) => {
+                registers.insert(*result, ValueType::Runtime);
+            }
+            Instruction::MakeString(result, constant_id) => {
+                registers.insert(*result, ValueType::ExactString(*constant_id));
+            }
+            _ => todo!("{:?}", instruction),
             // Instruction::Phi(_, _) => todo!("Phi"),
         }
     }
 
-    // for (fn_id, function) in ir.functions.iter() {
-    //     if function.blocks.len() > 1 {
-    //         todo!("control flow isn't supported atm");
-    //     }
+    let return_type = match block.end {
+        ControlFlowInstruction::Ret(None) => ReturnType::Void,
+        ControlFlowInstruction::Ret(Some(register)) => {
+            ReturnType::Value(registers.get(&register).expect("type").clone())
+        }
+    };
 
-    //     for (block_id, block) in function.blocks.iter() {
-    //         for instruction in block.instructions.iter() {
-    //             match instruction {}
-    //         }
-    //     }
-    // }
+    type_mapping.insert(
+        entrypoint,
+        TypedFunction {
+            name: entrypoint_function.name.clone(),
+            parameters: vec![],
+            return_type,
+            entry_block: entrypoint_function.entry_block,
+            blocks: entrypoint_function.blocks.clone(),
+            register_types: registers,
+        },
+    );
 
-    todo!()
+    TypeAnnotations {
+        entrypoint,
+        functions: type_mapping,
+    }
 }
 
 #[derive(Debug)]
@@ -85,10 +135,74 @@ pub enum ReturnType {
     Value(ValueType),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ValueType {
+    /// # `Any`
+    ///
+    /// The `Any` type in JSSAT is used a a polymorphic "catch-all" for when
+    /// the type system cannot figure something out.
+    ///
+    /// Narrowing an `Any` into a more specific type when it's not possible to
+    /// do so results in runtime errors. This feature of the `Any` type allows
+    /// us to compile all user provided code into an output, even if the code
+    /// given should be considered a compiler error.
+    ///
+    /// The `Any` type is the most generic type possible for all values. Any
+    /// JSSAT RT value can be cast into an `Any`, besides exotic primitives,
+    // TODO: is `Reference`/`Pointer` the finalized name?
+    /// such as a `Runtime` or `Reference`/`Pointer`.
+    ///
+    /// A hierarchy of JSSAT RT types is shown below:
+    ///
+    /// - [`ValueType::Any`]
+    ///   - [`ValueType::String`]
+    ///     - [`ValueType::ExactString`]
     Any,
     Runtime,
+    String,
+    // TODO: an "ExactString" should just be a String with some kind of
+    // ExactnessGuarantee to be exactly a type of a constant
+    ExactString(ConstantId),
+}
+
+impl ValueType {
+    // TODO: do something with the current type, widening it to something else if necessary?
+    // `self`: the type we are trying to ensure `target` is compatible with
+    pub fn unify(&self, target: &ValueType) {
+        match (self, target) {
+            (ValueType::Any, ValueType::Any) => {}
+            // (ValueType::Any, ValueType::Runtime) => todo!(),
+            (ValueType::Any, ValueType::String) => {}
+            (ValueType::Any, ValueType::ExactString(_)) => {}
+            // (ValueType::Runtime, ValueType::Any) => todo!(),
+            (ValueType::Runtime, ValueType::Runtime) => {}
+            // (ValueType::Runtime, ValueType::String) => todo!(),
+            // (ValueType::Runtime, ValueType::ExactString(_)) => todo!(),
+            // (ValueType::String, ValueType::Any) => todo!(),
+            // (ValueType::String, ValueType::Runtime) => todo!(),
+            (ValueType::String, ValueType::String) => {}
+            (ValueType::String, ValueType::ExactString(_)) => {}
+            // (ValueType::ExactString(_), ValueType::Any) => todo!(),
+            // (ValueType::ExactString(_), ValueType::Runtime) => todo!(),
+            // (ValueType::ExactString(_), ValueType::String) => todo!(),
+            (ValueType::ExactString(_), ValueType::ExactString(_)) => {}
+            (a, b) => panic!("cannot unify {:?} and {:?}", a, b),
+        }
+    }
+}
+
+fn ffi_return_type_to_return_type(ffi_return_type: &FFIReturnType) -> ReturnType {
+    match ffi_return_type {
+        FFIReturnType::Void => ReturnType::Void,
+        FFIReturnType::Value(value) => ReturnType::Value(ffi_value_type_to_value_type(value)),
+    }
+}
+
+fn ffi_value_type_to_value_type(ffi_value_type: &FFIValueType) -> ValueType {
+    match ffi_value_type {
+        FFIValueType::Any => ValueType::Any,
+        FFIValueType::Runtime => ValueType::Runtime,
+    }
 }
 
 impl TypeAnnotations {

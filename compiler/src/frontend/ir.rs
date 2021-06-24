@@ -61,7 +61,7 @@ pub struct Parameter {
     pub register: RegisterId,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FunctionBlock {
     pub instructions: Vec<Instruction>,
     pub end: ControlFlowInstruction,
@@ -73,7 +73,7 @@ pub struct BlockImpliesRegister {
     pub implies: RegisterId,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Instruction {
     // RecordGet(RegisterId /*=*/, RegisterId, RecordKey),
     // RecordSet(RegisterId, RecordKey, Value),
@@ -84,11 +84,21 @@ pub enum Instruction {
     // FAR FUTURE: GcEndRegion(RegisterId),
     // FAR FUTURE: GcTracingMarkRoot(RegisterId),
     // FAR FUTURE: GcTracingUnmarkRoot(RegisterId),
-    Call(Option<RegisterId> /*=*/, Callable, Vec<Value>),
+    Call(Option<RegisterId> /*=*/, Callable, Vec<RegisterId>),
     // Phi(RegisterId /*=*/, Vec<BlockImpliesRegister>),
+    /// # `GetRuntime`
+    ///
+    /// Stores a pointer to the JSSAT Runtime in the specified register.
+    GetRuntime(RegisterId),
+    /// # `MakeString`
+    ///
+    /// Will instantiate a string, using the constant referenced as payload for
+    /// the value of the string. JS strings are UTF-16, so it is expected that
+    /// the constant referenced is a valid UTF-16 string.
+    MakeString(RegisterId, ConstantId),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ControlFlowInstruction {
     // Jmp(BlockId),
     // JmpIf(BlockImpliesRegister, BlockId),
@@ -111,7 +121,7 @@ impl Instruction {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Callable {
     External(ExternalFunctionId),
     Static(FunctionId),

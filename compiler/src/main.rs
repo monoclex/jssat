@@ -1,5 +1,6 @@
 #![feature(command_access)]
 #![feature(box_patterns)]
+#![feature(bool_to_option)]
 
 use std::{io::Write, process::Command};
 

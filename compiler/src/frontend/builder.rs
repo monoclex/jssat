@@ -180,10 +180,23 @@ impl BlockBuilder {
         self.is_entry = true;
     }
 
+    pub fn get_runtime(&mut self) -> RegisterId {
+        let result = self.gen_register_id.next();
+        self.instructions.push(Instruction::GetRuntime(result));
+        result
+    }
+
+    pub fn make_string(&mut self, payload: ConstantId) -> RegisterId {
+        let result = self.gen_register_id.next();
+        self.instructions
+            .push(Instruction::MakeString(result, payload));
+        result
+    }
+
     pub fn call_external_function(
         &mut self,
         external_function: ExternalFunctionId,
-        values: Vec<Value>,
+        values: Vec<RegisterId>,
     ) {
         self.instructions.push(Instruction::Call(
             None,
@@ -195,7 +208,7 @@ impl BlockBuilder {
     pub fn call_external_function_with_result(
         &mut self,
         external_function: ExternalFunctionId,
-        values: Vec<Value>,
+        values: Vec<RegisterId>,
     ) -> RegisterId {
         let result = self.gen_register_id.next();
 

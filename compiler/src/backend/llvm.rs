@@ -18,43 +18,43 @@ pub struct BackendIR<'name> {
     pub constants: FxHashMap<ConstantId, Constant<'name>>,
     pub opaque_structs: FxHashMap<OpaqueStructId, OpaqueStruct<'name>>,
     pub external_functions: FxHashMap<ExternalFunctionId, ExternalFunction<'name>>,
-    pub function: FxHashMap<FunctionId, Function<'name>>,
+    pub functions: FxHashMap<FunctionId, Function<'name>>,
 }
 
 pub struct Constant<'name> {
-    name: &'name str,
-    payload: Vec<u8>,
+    pub name: &'name str,
+    pub payload: Vec<u8>,
 }
 
 pub struct OpaqueStruct<'name> {
-    name: &'name str,
+    pub name: &'name str,
 }
 
 pub struct ExternalFunction<'name> {
-    name: &'name str,
-    return_type: ReturnType,
-    parameters: Vec<ValueType>,
+    pub name: &'name str,
+    pub return_type: ReturnType,
+    pub parameters: Vec<ValueType>,
 }
 
 pub struct Function<'name> {
-    name: &'name str,
-    linkage: Option<Linkage>,
-    return_type: ReturnType,
-    parameters: Vec<Parameter>,
-    entry_block: BlockId,
-    blocks: FxHashMap<BlockId, Vec<Instruction>>,
+    pub name: &'name str,
+    pub linkage: Option<Linkage>,
+    pub return_type: ReturnType,
+    pub parameters: Vec<Parameter>,
+    pub entry_block: BlockId,
+    pub blocks: FxHashMap<BlockId, Vec<Instruction>>,
 }
 
 pub struct PartialFunction<'ctx> {
-    llvm: FunctionValue<'ctx>,
-    parameters: Vec<RegisterId>,
-    entry_block: BlockId,
-    blocks: FxHashMap<BlockId, Vec<Instruction>>,
+    pub llvm: FunctionValue<'ctx>,
+    pub parameters: Vec<RegisterId>,
+    pub entry_block: BlockId,
+    pub blocks: FxHashMap<BlockId, Vec<Instruction>>,
 }
 
 pub struct Parameter {
-    r#type: ValueType,
-    register: RegisterId,
+    pub r#type: ValueType,
+    pub register: RegisterId,
 }
 
 pub enum Instruction {
@@ -114,7 +114,7 @@ pub fn compile(ir: BackendIR) -> BuildArtifact {
     };
 
     let mut functions = FxHashMap::default();
-    for (id, function) in ir.function.into_iter() {
+    for (id, function) in ir.functions.into_iter() {
         let function = compiler.llvm_function_start(function, &opaque_struct_resolver);
         functions.insert(id, function);
     }
@@ -320,7 +320,10 @@ impl<'c> BackendCompiler<'c, '_> {
         for block in std::iter::once(entry_block).chain(non_entry_blocks) {
             let basic_block = self.context.append_basic_block(function.llvm, "");
             self.builder.position_at_end(basic_block);
-            self.builder.build_return(None);
+
+            for instruction in block.into_iter() {
+                match instruction {}
+            }
         }
     }
 
