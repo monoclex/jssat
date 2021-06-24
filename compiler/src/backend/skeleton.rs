@@ -3,7 +3,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::backend::llvm::{self, BackendIR, Callable, Constant, ExternalFunction, OpaqueStruct};
 use crate::frontend::ir::{FFIReturnType, FFIValueType, Instruction};
-use crate::frontend::{self, js};
+use crate::frontend::{self};
 use crate::frontend::{ir::IR, type_annotater::TypeAnnotations};
 use crate::id::*;
 
@@ -66,7 +66,7 @@ pub fn translate<'ir>(ir: &'ir IR, annotations: &'ir TypeAnnotations) -> Backend
         .unwrap_or(ExternalFunctionId::new());
 
     let jssatrt_runtime_new = unused_id;
-    let jssatrt_constant_new = jssatrt_runtime_new.next();
+    let jssatrt_string_new = jssatrt_runtime_new.next();
     let jssatrt_ext_fns = std::array::IntoIter::new([
         (
             jssatrt_runtime_new,
@@ -77,9 +77,9 @@ pub fn translate<'ir>(ir: &'ir IR, annotations: &'ir TypeAnnotations) -> Backend
             },
         ),
         (
-            jssatrt_constant_new,
+            jssatrt_string_new,
             frontend::ir::ExternalFunction {
-                name: "jssatrt_constant_new".into(),
+                name: "jssatrt_string_new".into(),
                 parameters: vec![
                     FFIValueType::Runtime,
                     FFIValueType::BytePointer,
@@ -120,7 +120,10 @@ pub fn translate<'ir>(ir: &'ir IR, annotations: &'ir TypeAnnotations) -> Backend
     for (id, function) in annotations.functions.iter() {
         let is_main = *id == annotations.entrypoint;
 
-        let name = function.name.value().unwrap_or("");
+        let name = function
+            .name
+            .value()
+            .unwrap_or(if is_main { "main" } else { "" });
 
         let linkage = is_main.then_some(Linkage::External);
 
@@ -208,7 +211,7 @@ pub fn translate<'ir>(ir: &'ir IR, annotations: &'ir TypeAnnotations) -> Backend
 
                         instructions.push(llvm::Instruction::Call(
                             Some(*result),
-                            Callable::External(jssatrt_constant_new),
+                            Callable::External(jssatrt_string_new),
                             vec![runtime_register, const_ptr, const_len],
                         ));
                     }

@@ -146,7 +146,7 @@ impl FunctionBuilder {
         register
     }
 
-    pub fn start_block(&self, name: DebugName) -> BlockBuilder {
+    pub fn start_block(&self) -> BlockBuilder {
         let id = self.gen_block_id.next();
 
         BlockBuilder {

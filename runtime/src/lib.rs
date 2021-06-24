@@ -62,7 +62,6 @@ pub extern "C" fn jssatrt_runtime_drop(runtime_ptr: *mut Runtime) {
 
 #[derive(Debug, Clone)]
 pub enum Value {
-    Constant(&'static [u8]),
     List(Vec<u8>),
     // strings could be classified as a List, but we're not doing that just so
     // it's easier.
@@ -200,7 +199,7 @@ pub extern "C" fn jssatrt_key_new_fromslot(_runtime: *const Runtime, slot: usize
 }
 
 #[no_mangle]
-pub extern "C" fn jssatrt_constant_new(
+pub extern "C" fn jssatrt_string_new(
     _runtime: *const Runtime,
     ptr: *const u8,
     len: usize,
@@ -209,11 +208,15 @@ pub extern "C" fn jssatrt_constant_new(
     notnull!(ptr);
     not0!(len);
 
-    // TODO: validate this code
-    let slice = unsafe { std::slice::from_raw_parts::<'static>(ptr, len) };
+    debug_assert!(
+        len % 2 == 0,
+        "UTF-16 strings' length should be divisible by 2"
+    );
+
+    let string = unsafe { U16String::from_ptr(ptr as *const u16, len / 2) };
 
     // TODO: this is inefficient, need to rethink this
-    let constant_ptr = Box::into_raw(Box::new(Value::Constant(slice)));
+    let constant_ptr = Box::into_raw(Box::new(Value::String(string)));
     constant_ptr
 }
 
@@ -224,11 +227,16 @@ pub extern "C" fn jssatrt_print(
     arguments: *const Value,
 ) {
     notnull!(_runtime);
-    // notnull!(_environment);
+    notnull!(_environment);
     notnull!(arguments);
 
     // TODO: validate safety
     let arguments = unsafe { &*arguments };
 
-    println!("{:?}", arguments);
+    match arguments {
+        Value::String(v) => println!("{}", v.to_string_lossy()),
+        Value::Number(v) => println!("{}", v),
+        Value::Boolean(v) => println!("{}", v),
+        _ => todo!(),
+    };
 }

@@ -5,7 +5,7 @@ use inkwell::{
     context::Context,
     module::{Linkage, Module},
     targets::{CodeModel, FileType, RelocMode, Target, TargetMachine},
-    types::{BasicType, BasicTypeEnum, FunctionType, IntType, StructType},
+    types::{BasicType, BasicTypeEnum, IntType, StructType},
     values::{BasicValue, BasicValueEnum, FunctionValue, GlobalValue},
     AddressSpace, OptimizationLevel,
 };
@@ -343,9 +343,9 @@ impl<'c> BackendCompiler<'c, '_> {
         &self,
         mut function: PartialFunction<'c>,
         constant_resolver: &ConstantResolver<'_, 'c>,
-        opaque_struct_resolver: &OpaqueStructResolver<'_, 'c>,
+        _opaque_struct_resolver: &OpaqueStructResolver<'_, 'c>,
         external_function_resolver: &ExternalFunctionResolver<'_, 'c>,
-        function_resolver: &FunctionResolver<'_, 'c>,
+        _function_resolver: &FunctionResolver<'_, 'c>,
     ) {
         println!("llvm_function_end: {:?} -> {:#?}", function, function);
 

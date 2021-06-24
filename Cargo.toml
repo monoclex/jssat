@@ -3,3 +3,6 @@ members = [
     "compiler",
     "runtime",
 ]
+
+[profile.release]
+lto = true

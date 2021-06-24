@@ -110,22 +110,6 @@ pub enum ControlFlowInstruction {
     Ret(Option<RegisterId>),
 }
 
-impl Instruction {
-    pub fn assigned_to(&self) -> Option<RegisterId> {
-        match self {
-            // Self::LoadGlobal(to, _)
-            // | Self::RecordGet(to, _, _)
-            // | Self::RefIsEmpty(to, _)
-            // | Self::RefDeref(to, _)
-            // | Self::MakePrimitive(to, _)
-            // | Self::GcMakeRegion(to)
-            // | Self::Phi(to, _) => Some(*to),
-            Self::Call(to, _, _) => *to,
-            _ => None,
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub enum Callable {
     External(ExternalFunctionId),
@@ -134,35 +118,9 @@ pub enum Callable {
     Virtual(RegisterId),
 }
 
-#[derive(Debug)]
-pub enum RecordKey {
-    /// An ECMAScript internal slot. `[[str]]`
-    InternalSlot(&'static str),
-    Register(RegisterId),
-    Constant(TopLevelId),
-}
-
-#[derive(Debug)]
-pub enum Value {
-    Runtime,
-    Register(RegisterId),
-    Constant(ConstantId),
-    Number(f64),
-}
-
-#[derive(Debug)]
-pub enum PrimtiveCreationDetails {
-    Record,
-    List,
-}
-
-impl IR {
-    pub fn new() -> Self {
-        IR {
-            entrypoint: FunctionId::new(),
-            constants: FxHashMap::default(),
-            external_functions: FxHashMap::default(),
-            functions: FxHashMap::default(),
-        }
-    }
-}
+// pub enum RecordKey {
+//     /// An ECMAScript internal slot. `[[str]]`
+//     InternalSlot(&'static str),
+//     Register(RegisterId),
+//     Constant(TopLevelId),
+// }

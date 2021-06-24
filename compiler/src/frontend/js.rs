@@ -24,7 +24,7 @@ pub fn traverse(_script: Script) -> IR {
     let mut main = builder.start_function(DebugName::new("main"));
     main.mark_main();
     {
-        let mut entry = main.start_block(DebugName::new("entry"));
+        let mut entry = main.start_block();
         entry.mark_entrypoint();
         let jssatrt = entry.get_runtime();
         let string = entry.make_string(hello_world);

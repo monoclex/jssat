@@ -232,7 +232,3 @@ fn ffi_value_type_to_value_type(ffi_value_type: &FFIValueType) -> ValueType {
         FFIValueType::Word => ValueType::Word,
     }
 }
-
-impl TypeAnnotations {
-    // pub fn
-}
