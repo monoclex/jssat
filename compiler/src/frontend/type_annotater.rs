@@ -153,6 +153,7 @@ impl SymbolicExecutionEngine<'_> {
 
         let (block_id, block) = function.blocks.iter().next().unwrap();
         let mut instructions = Vec::new();
+        let mut is_prematurely_exiting_due_to_infinite_recursion = false;
 
         for instruction in block.instructions.iter() {
             match instruction {
@@ -219,6 +220,7 @@ impl SymbolicExecutionEngine<'_> {
                                 args.clone(),
                             ));
                             instructions.push(Instruction::Unreachable);
+                            is_prematurely_exiting_due_to_infinite_recursion = true;
                             break;
                         }
                         (None, _) => {}
@@ -252,13 +254,23 @@ impl SymbolicExecutionEngine<'_> {
             }
         }
 
-        let end_instruction = block.end.clone();
-
-        let return_type = match block.end {
-            ControlFlowInstruction::Ret(Some(register)) => {
-                ReturnType::Value(register_types.get(&register).unwrap().clone())
-            }
-            ControlFlowInstruction::Ret(None) => ReturnType::Void,
+        let (end_instruction, return_type) = if is_prematurely_exiting_due_to_infinite_recursion {
+            // if we're infinitely recursing,
+            // that means the return type of this function is `Never`
+            //
+            // we can never return any data as we can never complete (Ret(none))
+            // and signal to the caller that we never return (ReturnType::Never)
+            (ControlFlowInstruction::Ret(None), ReturnType::Never)
+        } else {
+            (
+                block.end.clone(),
+                match block.end {
+                    ControlFlowInstruction::Ret(Some(register)) => {
+                        ReturnType::Value(register_types.get(&register).unwrap().clone())
+                    }
+                    ControlFlowInstruction::Ret(None) => ReturnType::Void,
+                },
+            )
         };
 
         typed_fn_blocks.insert(

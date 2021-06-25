@@ -34,12 +34,24 @@ pub fn traverse(_script: Script) -> IR {
     }
     builder.end_function(print_stub);
 
+    let mut recurse_me = builder.start_function(DebugName::new("recurse_me"));
+    let recurse_me_id = recurse_me.id;
+    {
+        let mut block = recurse_me.start_block();
+        block.mark_entrypoint();
+        let arg = recurse_me.parameter(DebugName::new("argument"));
+        let result = block.call_with_result(recurse_me_id, vec![arg]);
+        recurse_me.end_block(block.ret(Some(result)));
+    }
+    builder.end_function(recurse_me);
+
     let mut main = builder.start_function(DebugName::new("main"));
     main.mark_main();
     {
         let mut entry = main.start_block();
         entry.mark_entrypoint();
         let string = entry.make_string(hello_world);
+        let string = entry.call_with_result(recurse_me_id, vec![string]);
         entry.call(print_stub_id, vec![string]);
         main.end_block(entry.ret(None));
     }
