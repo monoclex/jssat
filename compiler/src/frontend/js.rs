@@ -26,9 +26,10 @@ pub fn traverse(_script: Script) -> IR {
     {
         let mut block = print_stub.start_block();
         block.mark_entrypoint();
-        let jssatrt = block.get_runtime();
+        // let jssatrt = block.get_runtime();
         let print_string = print_stub.parameter(DebugName::new("string"));
-        block.call_external_function(print, vec![jssatrt, print_string, print_string]);
+        block.call(print_stub_id, vec![print_string]);
+        // block.call_external_function(print, vec![jssatrt, print_string, print_string]);
         print_stub.end_block(block.ret(None));
     }
     builder.end_function(print_stub);

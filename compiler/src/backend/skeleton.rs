@@ -220,6 +220,9 @@ pub fn translate<'ir>(ir: &'ir IR, annotations: &'ir TypeAnnotations) -> Backend
                             vec![runtime_register, const_ptr, const_len],
                         ));
                     }
+                    Instruction::Unreachable => {
+                        instructions.push(llvm::Instruction::Unreachable);
+                    }
                 };
             }
 
@@ -275,6 +278,7 @@ fn map_ret_type(
     opaque: &OpaqueStructs,
 ) -> ReturnType {
     match r#type {
+        crate::frontend::type_annotater::ReturnType::Never => ReturnType::Void,
         crate::frontend::type_annotater::ReturnType::Void => ReturnType::Void,
         crate::frontend::type_annotater::ReturnType::Value(v) => {
             ReturnType::Value(map_val_type(v, opaque))
@@ -291,21 +295,15 @@ fn map_val_type(
         frontend::type_annotater::ValueType::Runtime => {
             map_ffi_val_type(&FFIValueType::Runtime, opaque)
         }
-        frontend::type_annotater::ValueType::String => todo!(),
-        // TODO: figure out a better type for a constant (v) and string (^)
-        frontend::type_annotater::ValueType::ExactString(_) => {
+        // TODO: figure out a better type for a string and constant string
+        frontend::type_annotater::ValueType::String
+        | frontend::type_annotater::ValueType::ExactString(_) => {
             map_ffi_val_type(&FFIValueType::Any, opaque)
         }
         frontend::type_annotater::ValueType::BytePointer => {
             map_ffi_val_type(&FFIValueType::BytePointer, opaque)
         }
         frontend::type_annotater::ValueType::Word => map_ffi_val_type(&FFIValueType::Word, opaque),
-        // `Never` is just used to show that a computation never completes. we
-        // could give any type here, so i've chosen word size. just an arbitrary
-        // choice, partially in hopes that it'd be the most efficient choice, but /shrug
-        //
-        // in the backend we emit unreachable instructions after computing the value of a Never
-        frontend::type_annotater::ValueType::Never => ValueType::WordSizeBitType,
         frontend::type_annotater::ValueType::Union(_) => todo!(),
     }
 }

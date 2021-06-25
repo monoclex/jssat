@@ -27,8 +27,14 @@ pub fn annotate(ir: &IR) -> TypeAnnotations {
 struct SymbolicExecutionEngine<'ir> {
     ir: &'ir IR,
     free_fn_id: FunctionId,
-    executions: FxHashMap<(FunctionId, Vec<ValueType>), Option<FunctionId>>,
+    executions: FxHashMap<(FunctionId, Vec<ValueType>), FnExecution>,
     typed_functions: FxHashMap<FunctionId, TypedFunction>,
+}
+
+#[derive(Debug)]
+pub enum FnExecution {
+    Finished(FunctionId),
+    Executing(FunctionId),
 }
 
 impl SymbolicExecutionEngine<'_> {
@@ -41,7 +47,11 @@ impl SymbolicExecutionEngine<'_> {
         &mut self,
         function_id: &FunctionId,
         parameters: Vec<ValueType>,
-    ) -> (FunctionId, &TypedFunction) {
+    ) -> (FunctionId, &ReturnType) {
+        // TODO: figure out a plan of action to not over-allocate function ids
+        // most times when executing `symbolically_execute` we won't ever use this
+        let self_fn_id = self.free_fn_id.next_and_mut();
+
         let function = (self.ir.functions.get(function_id)).expect("valid function id");
 
         debug_assert_eq!(function.parameters.len(), parameters.len());
@@ -55,18 +65,20 @@ impl SymbolicExecutionEngine<'_> {
         // this will handle edge cases like recursion
         match self.executions.get(&(*function_id, parameters.clone())) {
             // we've already symbolically executed this function before
-            Some(Some(_type_definition)) => {
+            Some(FnExecution::Finished(_type_definition)) => {
                 todo!("return type_definition?");
             }
             // nothing inserted
             None => {
                 // insert a "currently executing" status
-                self.executions
-                    .insert((*function_id, parameters.clone()), None);
+                self.executions.insert(
+                    (*function_id, parameters.clone()),
+                    FnExecution::Executing(self_fn_id),
+                );
             }
             // a record that the function is currently being symbolically executed
             // reaching here would mean that we are most likely in some sort of recursion
-            Some(None) => {
+            Some(FnExecution::Executing(_)) => {
                 // generalize the `ValueType` parameters.
                 // this is because we want to break out of the following scenarios:
                 //
@@ -90,27 +102,36 @@ impl SymbolicExecutionEngine<'_> {
                     .map(|t| t.generalize())
                     .collect::<Vec<_>>();
 
-                let _generic_definition =
-                    match self.executions.get(&(*function_id, generalized.clone())) {
-                        // we've already executed it and we have a definition for it
-                        Some(Some(type_definition)) => type_definition,
-                        // TODO: if we're executing multiple paths, we should wait for all paths
-                        //       of execution to finish before making the call that the function
-                        //       never returns.
-                        //
-                        // if we are currently working on symbolically executing the general function,
-                        // it's probably a recursive function. conclude that we should return a Never.
-                        Some(None) => {
-                            todo!("function returns `Never`")
-                        }
-                        // haven't executed the generic function yet, execute it.
-                        None => {
-                            self.symbolically_execute(function_id, generalized);
-                            todo!("what now");
-                        }
-                    };
-
-                todo!("return info using the generic definition");
+                match self.executions.get(&(*function_id, generalized.clone())) {
+                    // we've already executed it and we have a definition for it
+                    Some(FnExecution::Finished(fn_id)) => {
+                        return (
+                            *fn_id,
+                            &self.typed_functions.get(fn_id).unwrap().return_type,
+                        );
+                    }
+                    // TODO: if we're executing multiple paths, we should wait for all paths
+                    //       of execution to finish before making the call that the function
+                    //       never returns.
+                    //
+                    // if we are currently working on symbolically executing the general function,
+                    // it's probably a recursive function. conclude that we should return a Never.
+                    Some(FnExecution::Executing(function_id)) => {
+                        return (*function_id, &ReturnType::Never);
+                    }
+                    // haven't executed the generic function yet, execute it.
+                    //
+                    // if we end up going from a specific form of execution
+                    // to a more generic one, that means that the definition
+                    // of the specific function should really just be the generic
+                    // definition.
+                    None => {
+                        // TODO: maybe it could cause problems to claim that the specific
+                        // and generic function are exactly one and the same, when they have
+                        // different IDs and stuff? oh well, /shrug
+                        return self.symbolically_execute(function_id, generalized);
+                    }
+                };
             }
         };
 
@@ -165,13 +186,13 @@ impl SymbolicExecutionEngine<'_> {
                     }
 
                     // aassign type to register, if one is wanted
-                    let return_type = ffi_return_type_to_return_type(&external_fn.return_type);
-                    match (result, return_type) {
+                    match (result, &external_fn.return_type) {
                         (None, _) => {}
-                        (Some(result_register), ReturnType::Value(v)) => {
-                            register_types.insert(*result_register, v);
+                        (Some(result_register), FFIReturnType::Value(v)) => {
+                            register_types
+                                .insert(*result_register, ffi_value_type_to_value_type(v));
                         }
-                        (Some(_), ReturnType::Void) => {
+                        (Some(_), FFIReturnType::Void) => {
                             panic!("cannot assign void to register at {:?}", instruction);
                         }
                     };
@@ -188,10 +209,18 @@ impl SymbolicExecutionEngine<'_> {
                         .map(|r| register_types.get(r).unwrap().clone())
                         .collect::<Vec<_>>();
 
-                    let (id, symbolically_executed_fn) =
-                        self.symbolically_execute(&fn_id, parameter_types);
+                    let (id, return_type) = self.symbolically_execute(&fn_id, parameter_types);
 
-                    match (result, &symbolically_executed_fn.return_type) {
+                    match (result, return_type) {
+                        (_, ReturnType::Never) => {
+                            instructions.push(Instruction::Call(
+                                None,
+                                Callable::Static(id),
+                                args.clone(),
+                            ));
+                            instructions.push(Instruction::Unreachable);
+                            break;
+                        }
                         (None, _) => {}
                         (Some(register), ReturnType::Value(v)) => {
                             register_types.insert(*register, v.clone());
@@ -216,6 +245,9 @@ impl SymbolicExecutionEngine<'_> {
                     register_types.insert(*register, ValueType::ExactString(*constant));
 
                     instructions.push(Instruction::MakeString(*register, *constant));
+                }
+                Instruction::Unreachable => {
+                    instructions.push(Instruction::Unreachable);
                 }
             }
         }
@@ -256,8 +288,6 @@ impl SymbolicExecutionEngine<'_> {
             })
             .collect::<Vec<_>>();
 
-        let self_fn_id = self.free_fn_id.next_and_mut();
-
         self.typed_functions.insert(
             self_fn_id,
             TypedFunction {
@@ -271,10 +301,15 @@ impl SymbolicExecutionEngine<'_> {
             },
         );
 
-        self.executions
-            .insert((*function_id, parameters.clone()), Some(self_fn_id));
+        self.executions.insert(
+            (*function_id, parameters.clone()),
+            FnExecution::Finished(self_fn_id),
+        );
 
-        (self_fn_id, self.typed_functions.get(&self_fn_id).unwrap())
+        (
+            self_fn_id,
+            &self.typed_functions.get(&self_fn_id).unwrap().return_type,
+        )
     }
 }
 
@@ -311,6 +346,11 @@ pub struct Parameter {
 pub enum ReturnType {
     Void,
     Value(ValueType),
+    /// # [`ValueType::Never`]
+    ///
+    /// The type assigned to a function when it recurses to infinity, with no
+    /// end in sight.
+    Never,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -343,11 +383,6 @@ pub enum ValueType {
     ExactString(ConstantId),
     BytePointer,
     Word,
-    /// # [`ValueType::Never`]
-    ///
-    /// The type assigned to a function when it recurses to infinity, with no
-    /// end in sight.
-    Never,
     /// # [`ValueType::Union`]
     ///
     /// The type assigned to a value if it is determined to take two possible
@@ -364,7 +399,6 @@ impl ValueType {
             ValueType::ExactString(_) => ValueType::String,
             ValueType::BytePointer => ValueType::BytePointer,
             ValueType::Word => ValueType::Word,
-            ValueType::Never => ValueType::Never,
             ValueType::Union(inner) => {
                 // TODO: if there are inner `Union`s, flat_map 'em
                 ValueType::Union(inner.iter().map(|v| v.generalize()).collect())
@@ -378,11 +412,7 @@ impl ValueType {
             ValueType::Any => panic!("cannot generalize up one for an Any"),
             ValueType::String => ValueType::Any,
             ValueType::ExactString(_) => ValueType::String,
-            ValueType::Runtime
-            | ValueType::Union(_)
-            | ValueType::BytePointer
-            | ValueType::Word
-            | ValueType::Never => {
+            ValueType::Runtime | ValueType::Union(_) | ValueType::BytePointer | ValueType::Word => {
                 panic!("expected inheritable")
             }
         }
@@ -392,20 +422,6 @@ impl ValueType {
         // two types that are equivalent are always assignable to one another
         if self == target {
             return true;
-        }
-
-        {
-            // anything is assignable to a `Never` value
-            if let ValueType::Never = target {
-                return true;
-            }
-
-            // we can assign a value of type `Never` to any other value, as once a
-            // value is given a `Never` type it will never be computed, so any code
-            // that wants to use that value is fine in doing so
-            if let ValueType::Never = self {
-                return true;
-            }
         }
 
         {
@@ -476,13 +492,6 @@ impl ValueType {
             //       and self == Any -> false in a loop
             return self.generalize_up_one().assignable_to(target);
         }
-    }
-}
-
-fn ffi_return_type_to_return_type(ffi_return_type: &FFIReturnType) -> ReturnType {
-    match ffi_return_type {
-        FFIReturnType::Void => ReturnType::Void,
-        FFIReturnType::Value(value) => ReturnType::Value(ffi_value_type_to_value_type(value)),
     }
 }
 

@@ -101,6 +101,13 @@ pub enum Instruction {
     /// the value of the string. JS strings are UTF-16, so it is expected that
     /// the constant referenced is a valid UTF-16 string.
     MakeString(RegisterId, ConstantId),
+    /// # [`Instruction::Unreachable`]
+    ///
+    /// Indicates that the executing code path will never reach this instruction.
+    /// It is undefined behavior for code to reach an Unreachable instruction.
+    /// This is used to implement functions that recurse an unknown amount of
+    /// times.
+    Unreachable,
 }
 
 #[derive(Debug, Clone)]

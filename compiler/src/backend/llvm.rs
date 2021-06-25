@@ -78,6 +78,12 @@ pub enum Instruction {
     /// Loads the length of the payload of the constant as a word-sized valaue
     /// into the register specified.
     LoadConstantLen(RegisterId, ConstantId),
+    /// # [`Instruction::Unreachable`]
+    ///
+    /// Indicates that it is impossible for the current path of execution to
+    /// reach this instruction. It is undefined behavior if the code reaches
+    /// this instruction.
+    Unreachable,
     Call(Option<RegisterId>, Callable, Vec<RegisterId>),
     /// # [`Instruction::Return`]
     ///
@@ -474,6 +480,9 @@ impl<'c> BackendCompiler<'c, '_> {
 
                         register_values
                             .insert(result, self.word_size.const_int(len as u64, false).into());
+                    }
+                    Instruction::Unreachable => {
+                        self.builder.build_unreachable();
                     }
                     Instruction::Return(None) => {
                         self.builder.build_return(None);
