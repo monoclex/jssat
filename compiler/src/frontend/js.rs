@@ -56,8 +56,8 @@ pub fn traverse(source: String) -> IR {
 
     let hello_world = builder.constant(DebugName::new("hello_world"), utf16_message);
     let print = builder.external_function(
-        "jssatrt_print".into(),
-        vec![FFIValueType::Runtime, FFIValueType::Any, FFIValueType::Any],
+        "jssatrt_print_any".into(),
+        vec![FFIValueType::Runtime, FFIValueType::Any],
         FFIReturnType::Void,
     );
 
@@ -66,10 +66,10 @@ pub fn traverse(source: String) -> IR {
     {
         let mut block = print_stub.start_block();
         block.mark_entrypoint();
-        // let jssatrt = block.get_runtime();
+        let jssatrt = block.get_runtime();
         let print_string = print_stub.parameter(DebugName::new("string"));
-        block.call(print_stub_id, vec![print_string]);
-        // block.call_external_function(print, vec![jssatrt, print_string, print_string]);
+        // block.call(print_stub_id, vec![print_string]);
+        block.call_external_function(print, vec![jssatrt, print_string]);
         print_stub.end_block(block.ret(None));
     }
     builder.end_function(print_stub);
@@ -91,7 +91,7 @@ pub fn traverse(source: String) -> IR {
         let mut entry = main.start_block();
         entry.mark_entrypoint();
         let string = entry.make_string(hello_world);
-        let string = entry.call_with_result(recurse_me_id, vec![string]);
+        // let string = entry.call_with_result(recurse_me_id, vec![string]);
         entry.call(print_stub_id, vec![string]);
         main.end_block(entry.ret(None));
     }

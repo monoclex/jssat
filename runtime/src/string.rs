@@ -3,7 +3,7 @@ use std::fmt::Display;
 use crate::runtime::Runtime;
 use widestring::U16String;
 
-pub struct String(U16String);
+pub struct String(pub(crate) U16String);
 
 /// Creates a new UTF-16 string, associating the string with the specified runtime.
 ///

@@ -39,9 +39,14 @@ pub enum FFIValueType {
     Runtime,
     /// Pointer to a contiguous amount of bytes, `*const u8` or `void*`
     BytePointer,
+    /// Pointer to bits of some size.
+    /// Pointer(2) would be `i2*`, Pointer(16) would be `i16*`.
+    Pointer(u16),
     /// A value dependent on the machine's size - akin to `usize`, or `size_t`.
     /// Either 32 bits or 64 bits.
     Word,
+    /// A parameter of the [`jssatrt::string::String`] type.
+    String,
 }
 
 #[derive(Debug)]

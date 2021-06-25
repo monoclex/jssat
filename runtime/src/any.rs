@@ -11,6 +11,7 @@ pub enum Any {
     String(String),
 }
 
+#[no_mangle]
 pub unsafe extern "C" fn jssatrt_any_new_string(
     runtime: *const Runtime,
     string: *const String,

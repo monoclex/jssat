@@ -394,6 +394,8 @@ pub enum ValueType {
     // ExactnessGuarantee to be exactly a type of a constant
     ExactString(ConstantId),
     BytePointer,
+    /// Pointer to data of the specified size. Pointer(16) -> `i16*`.
+    Pointer(u16),
     Word,
     /// # [`ValueType::Union`]
     ///
@@ -410,6 +412,7 @@ impl ValueType {
             ValueType::String => ValueType::String,
             ValueType::ExactString(_) => ValueType::String,
             ValueType::BytePointer => ValueType::BytePointer,
+            ValueType::Pointer(s) => ValueType::Pointer(*s),
             ValueType::Word => ValueType::Word,
             ValueType::Union(inner) => {
                 // TODO: if there are inner `Union`s, flat_map 'em
@@ -424,7 +427,11 @@ impl ValueType {
             ValueType::Any => panic!("cannot generalize up one for an Any"),
             ValueType::String => ValueType::Any,
             ValueType::ExactString(_) => ValueType::String,
-            ValueType::Runtime | ValueType::Union(_) | ValueType::BytePointer | ValueType::Word => {
+            ValueType::Runtime
+            | ValueType::Union(_)
+            | ValueType::BytePointer
+            | ValueType::Pointer(_)
+            | ValueType::Word => {
                 panic!("expected inheritable")
             }
         }
@@ -507,11 +514,13 @@ impl ValueType {
     }
 }
 
-fn ffi_value_type_to_value_type(ffi_value_type: &FFIValueType) -> ValueType {
+pub fn ffi_value_type_to_value_type(ffi_value_type: &FFIValueType) -> ValueType {
     match ffi_value_type {
         FFIValueType::Any => ValueType::Any,
         FFIValueType::Runtime => ValueType::Runtime,
         FFIValueType::BytePointer => ValueType::BytePointer,
+        FFIValueType::Pointer(size) => ValueType::Pointer(*size),
         FFIValueType::Word => ValueType::Word,
+        FFIValueType::String => ValueType::String,
     }
 }

@@ -11,7 +11,7 @@ use inkwell::{
     module::{Linkage, Module},
     targets::{CodeModel, FileType, RelocMode, Target, TargetMachine},
     types::{BasicType, BasicTypeEnum, IntType, StructType},
-    values::{BasicValue, BasicValueEnum, FunctionValue, GlobalValue},
+    values::{BasicValue, BasicValueEnum, FunctionValue, GlobalValue, IntValue},
     AddressSpace, OptimizationLevel,
 };
 
@@ -68,16 +68,47 @@ pub struct Parameter {
 }
 
 #[derive(Debug)]
+pub enum NumberValue {
+    UnsignedNative(usize),
+    SignedNative(isize),
+    UnsignedArbitrary(u16, u64),
+    SignedArbitrary(u16, i64),
+}
+
+#[derive(Debug)]
 pub enum Instruction {
     /// # [`Instruction::LoadConstantPtr`]
     ///
     /// Loads the value of the constant as a `i8*` into the register specified.
     LoadConstantPtr(RegisterId, ConstantId),
+    /// # [`Instruction::ChangePtr`]
+    ///
+    /// Given an input pointer, will bitcase it to the pointer of the desired size.
+    ChangePtrSize {
+        result: RegisterId,
+        input: RegisterId,
+        size: ValueType,
+    },
     /// # [`Instruction::LoadConstantLen`]
     ///
     /// Loads the length of the payload of the constant as a word-sized valaue
     /// into the register specified.
     LoadConstantLen(RegisterId, ConstantId),
+    /// # [`Instruction::LoadNumber`]
+    ///
+    /// Loads a number into a register.
+    LoadNumber {
+        result: RegisterId,
+        value: NumberValue,
+    },
+    /// # [`Instruction::MathDivide`]
+    ///
+    /// Divides the register by the input.
+    MathDivide {
+        result: RegisterId,
+        dividend: RegisterId,
+        divisor: RegisterId,
+    },
     /// # [`Instruction::Unreachable`]
     ///
     /// Indicates that it is impossible for the current path of execution to
@@ -104,6 +135,7 @@ pub enum ReturnType {
     Value(ValueType),
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum ValueType {
     WordSizeBitType,
     BitType(u16),
@@ -400,7 +432,7 @@ impl<'c> BackendCompiler<'c, '_> {
         &self,
         mut function: PartialFunction<'c>,
         constant_resolver: &ConstantResolver<'_, 'c>,
-        _opaque_struct_resolver: &OpaqueStructResolver<'_, 'c>,
+        opaque_struct_resolver: &OpaqueStructResolver<'_, 'c>,
         external_function_resolver: &ExternalFunctionResolver<'_, 'c>,
         function_resolver: &FunctionResolver<'_, 'c>,
     ) {
@@ -475,6 +507,43 @@ impl<'c> BackendCompiler<'c, '_> {
 
                         register_values.insert(result, get_element_ptr);
                     }
+                    Instruction::ChangePtrSize {
+                        result,
+                        input,
+                        size,
+                    } => {
+                        let source_ptr_type = register_values.get(&input).unwrap();
+                        let target_ptr_type = self
+                            .llvm_typeify_value(size, &opaque_struct_resolver)
+                            .ptr_type(AddressSpace::Generic);
+
+                        let casted =
+                            self.builder
+                                .build_bitcast(*source_ptr_type, target_ptr_type, "");
+
+                        register_values.insert(result, casted);
+                    }
+                    Instruction::LoadNumber { result, value } => {
+                        let number = self.llvm_manifest_number(value);
+                        register_values.insert(result, number.as_basic_value_enum());
+                    }
+                    Instruction::MathDivide {
+                        result,
+                        dividend,
+                        divisor,
+                    } => {
+                        let lhs = register_values.get(&dividend).unwrap();
+                        let rhs = register_values.get(&divisor).unwrap();
+
+                        debug_assert!(lhs.is_int_value());
+                        debug_assert!(rhs.is_int_value());
+
+                        let lhs = lhs.into_int_value();
+                        let rhs = rhs.into_int_value();
+
+                        let division = self.builder.build_int_unsigned_div(lhs, rhs, "");
+                        register_values.insert(result, division.as_basic_value_enum());
+                    }
                     Instruction::LoadConstantLen(result, constant) => {
                         let (len, _) = constant_resolver.resolve(&constant);
 
@@ -493,6 +562,21 @@ impl<'c> BackendCompiler<'c, '_> {
                     }
                 }
             }
+        }
+    }
+
+    fn llvm_manifest_number(&self, number_value: NumberValue) -> IntValue<'c> {
+        match number_value {
+            NumberValue::UnsignedNative(v) => self.word_size.const_int(v as u64, false),
+            NumberValue::SignedNative(v) => self.word_size.const_int(v as u64, true),
+            NumberValue::UnsignedArbitrary(bits, v) => self
+                .context
+                .custom_width_int_type(bits as u32)
+                .const_int(v, false),
+            NumberValue::SignedArbitrary(bits, v) => self
+                .context
+                .custom_width_int_type(bits as u32)
+                .const_int(v as u64, true),
         }
     }
 

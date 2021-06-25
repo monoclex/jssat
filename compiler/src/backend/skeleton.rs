@@ -4,7 +4,7 @@ use crate::backend::llvm::{
     self, BackendIR, Callable, Constant, ExternalFunction, LLVMLinkage, OpaqueStruct,
 };
 use crate::frontend::ir::{FFIReturnType, FFIValueType, Instruction};
-use crate::frontend::{self};
+use crate::frontend::{self, type_annotater};
 use crate::frontend::{ir::IR, type_annotater::TypeAnnotations};
 use crate::id::*;
 
@@ -13,6 +13,7 @@ use super::llvm::{Function, Parameter, ReturnType, ValueType};
 struct OpaqueStructs {
     runtime: OpaqueStructId,
     any: OpaqueStructId,
+    string: OpaqueStructId,
 }
 
 pub fn translate<'ir>(ir: &'ir IR, annotations: &'ir TypeAnnotations) -> BackendIR<'ir> {
@@ -33,23 +34,32 @@ pub fn translate<'ir>(ir: &'ir IR, annotations: &'ir TypeAnnotations) -> Backend
 
     // TODO: shove JSSATRT stuff into its own space
     let mut opaque_structs = FxHashMap::default();
-    let runtime_id = OpaqueStructId::new();
+    let mut free_id = OpaqueStructId::new();
+    let runtime_id = free_id.next_and_mut();
     opaque_structs.insert(
         runtime_id,
         OpaqueStruct {
             name: "struct.Runtime",
         },
     );
-    let any_id = runtime_id.next();
+    let any_id = free_id.next_and_mut();
     opaque_structs.insert(
         any_id,
         OpaqueStruct {
             name: "struct.Value",
         },
     );
+    let string_id = free_id.next_and_mut();
+    opaque_structs.insert(
+        string_id,
+        OpaqueStruct {
+            name: "struct.String",
+        },
+    );
     let opaque_map = OpaqueStructs {
         runtime: runtime_id,
         any: any_id,
+        string: string_id,
     };
 
     let mut external_functions = FxHashMap::default();
@@ -66,8 +76,9 @@ pub fn translate<'ir>(ir: &'ir IR, annotations: &'ir TypeAnnotations) -> Backend
         .map(|r| r.next())
         .unwrap_or(ExternalFunctionId::new());
 
-    let jssatrt_runtime_new = unused_id;
-    let jssatrt_string_new = jssatrt_runtime_new.next();
+    let jssatrt_runtime_new = unused_id.next_and_mut();
+    let jssatrt_string_new_utf16 = unused_id.next_and_mut();
+    let jssatrt_any_new_string = unused_id.next_and_mut();
     let jssatrt_ext_fns = std::array::IntoIter::new([
         (
             jssatrt_runtime_new,
@@ -78,14 +89,22 @@ pub fn translate<'ir>(ir: &'ir IR, annotations: &'ir TypeAnnotations) -> Backend
             },
         ),
         (
-            jssatrt_string_new,
+            jssatrt_string_new_utf16,
             frontend::ir::ExternalFunction {
-                name: "jssatrt_string_new".into(),
+                name: "jssatrt_string_new_utf16".into(),
                 parameters: vec![
                     FFIValueType::Runtime,
-                    FFIValueType::BytePointer,
+                    FFIValueType::Pointer(16),
                     FFIValueType::Word,
                 ],
+                return_type: FFIReturnType::Value(FFIValueType::String),
+            },
+        ),
+        (
+            jssatrt_any_new_string,
+            frontend::ir::ExternalFunction {
+                name: "jssatrt_any_new_string".into(),
+                parameters: vec![FFIValueType::Runtime, FFIValueType::String],
                 return_type: FFIReturnType::Value(FFIValueType::Any),
             },
         ),
@@ -170,6 +189,11 @@ pub fn translate<'ir>(ir: &'ir IR, annotations: &'ir TypeAnnotations) -> Backend
         let runtime_register = runtime_parameter;
         let mut free_register = runtime_parameter.next();
 
+        let mut register_types = FxHashMap::default();
+        register_types.insert(
+            runtime_register,
+            map_ffi_val_type(&FFIValueType::Runtime, &opaque_map),
+        );
         let mut is_runtime_register = FxHashSet::default();
 
         for (id, block) in function.blocks.iter() {
@@ -179,6 +203,7 @@ pub fn translate<'ir>(ir: &'ir IR, annotations: &'ir TypeAnnotations) -> Backend
             for instruction in block.instructions.iter() {
                 match instruction {
                     Instruction::Call(result, callable, args) => {
+                        let raw_args = args;
                         let mut args = args
                             .iter()
                             .map(|r| {
@@ -189,15 +214,84 @@ pub fn translate<'ir>(ir: &'ir IR, annotations: &'ir TypeAnnotations) -> Backend
                             })
                             .collect::<Vec<_>>();
 
+                        let arg_types = match callable {
+                            frontend::ir::Callable::External(id) => ir
+                                .external_functions
+                                .get(id)
+                                .unwrap()
+                                .parameters
+                                .iter()
+                                .map(|p| type_annotater::ffi_value_type_to_value_type(p))
+                                .collect::<Vec<_>>(),
+                            frontend::ir::Callable::Static(id) => annotations
+                                .functions
+                                .get(id)
+                                .unwrap()
+                                .parameters
+                                .iter()
+                                .map(|p| p.r#type.clone())
+                                .collect::<Vec<_>>(),
+                        };
+
+                        for (register, (original_register, actual_fn_arg_type)) in
+                            args.iter_mut().zip(raw_args.iter().zip(arg_types.iter()))
+                        {
+                            let register_type =
+                                function.register_types.get(original_register).unwrap();
+                            let target_type = actual_fn_arg_type;
+
+                            make_arg_match(
+                                register,
+                                register_type,
+                                target_type,
+                                instructions,
+                                &mut free_register,
+                                runtime_register,
+                                jssatrt_any_new_string,
+                                &mut register_types,
+                                any_id,
+                            );
+                        }
+
+                        for (idx, (r#type, register)) in
+                            arg_types.iter().zip(args.iter()).enumerate()
+                        {
+                            debug_assert_eq!(
+                                register_types.get(register).unwrap(),
+                                &map_val_type(r#type, &opaque_map),
+                                "position {}",
+                                idx
+                            );
+                        }
+
                         let callable = match callable {
                             frontend::ir::Callable::External(id) => Callable::External(*id),
                             frontend::ir::Callable::Static(id) => {
                                 // for jssat <-> jssat function calls, the runtime register is
                                 // always the first parameter to the function
                                 args.insert(0, runtime_register);
+
                                 Callable::Static(*id)
                             } // frontend::ir::Callable::Virtual(_) => todo!(),
                         };
+
+                        // insert type of register for type checking
+                        if let Some(result) = result {
+                            if let ReturnType::Value(return_type) = match &callable {
+                                Callable::External(id) => map_ffi_ret_type(
+                                    &ir.external_functions.get(&id).unwrap().return_type,
+                                    &opaque_map,
+                                ),
+                                Callable::Static(id) => map_ret_type(
+                                    &annotations.functions.get(&id).unwrap().return_type,
+                                    &opaque_map,
+                                ),
+                            } {
+                                register_types.insert(*result, return_type);
+                            } else {
+                                panic!("attempting to assign return type to something without return type");
+                            }
+                        }
 
                         instructions.push(llvm::Instruction::Call(*result, callable, args));
                     }
@@ -206,19 +300,53 @@ pub fn translate<'ir>(ir: &'ir IR, annotations: &'ir TypeAnnotations) -> Backend
                         // register, we'll directly inline the actual runtime
                         // register into whereever that register is used
                         is_runtime_register.insert(*register);
+                        // don't insert a type entry as the register is for the type annotation ir,
+                        // not the backend llvm ir
                     }
                     Instruction::MakeString(result, payload) => {
                         let const_ptr = free_register.next_and_mut();
-                        let const_len = free_register.next_and_mut();
-
                         instructions.push(llvm::Instruction::LoadConstantPtr(const_ptr, *payload));
+
+                        let const_len = free_register.next_and_mut();
                         instructions.push(llvm::Instruction::LoadConstantLen(const_len, *payload));
+
+                        // need to convert our `*const u8` to `*const u16` so we can invoke
+                        // `jssatrt_string_new_utf16`
+                        let u16_const_ptr = free_register.next_and_mut();
+                        instructions.push(llvm::Instruction::ChangePtrSize {
+                            result: u16_const_ptr,
+                            input: const_ptr,
+                            size: ValueType::BitType(16),
+                        });
+
+                        // UTF16 constructor goes by number of elements, we have number of bytes,
+                        // convert from bytes to elements
+                        // TODO: should we just put this logic in the runtime itself?
+                        //       on one hand, being able to express these concepts is good,
+                        //       on the other, it's additional complexity
+                        let divide_by_2 = free_register.next_and_mut();
+                        instructions.push(llvm::Instruction::LoadNumber {
+                            result: divide_by_2,
+                            value: llvm::NumberValue::UnsignedNative(2),
+                        });
+
+                        let u16_len = free_register.next_and_mut();
+                        instructions.push(llvm::Instruction::MathDivide {
+                            result: u16_len,
+                            dividend: const_len,
+                            divisor: divide_by_2,
+                        });
 
                         instructions.push(llvm::Instruction::Call(
                             Some(*result),
-                            Callable::External(jssatrt_string_new),
-                            vec![runtime_register, const_ptr, const_len],
+                            Callable::External(jssatrt_string_new_utf16),
+                            vec![runtime_register, u16_const_ptr, u16_len],
                         ));
+
+                        register_types.insert(
+                            *result,
+                            map_ffi_val_type(&FFIValueType::String, &opaque_map),
+                        );
                     }
                     Instruction::Unreachable => {
                         instructions.push(llvm::Instruction::Unreachable);
@@ -257,6 +385,43 @@ pub fn translate<'ir>(ir: &'ir IR, annotations: &'ir TypeAnnotations) -> Backend
     }
 }
 
+fn make_arg_match(
+    source_register: &mut RegisterId,
+    source_type: &type_annotater::ValueType,
+    target_type: &type_annotater::ValueType,
+    instructions: &mut Vec<llvm::Instruction>,
+    free_register: &mut RegisterId,
+    runtime: RegisterId,
+    jssatrt_any_new_string: ExternalFunctionId,
+    register_types: &mut FxHashMap<RegisterId, llvm::ValueType>,
+    any_id: OpaqueStructId,
+) {
+    if source_type == target_type {
+        return;
+    }
+
+    match (source_type, target_type) {
+        (type_annotater::ValueType::ExactString(_), type_annotater::ValueType::Any)
+        | (type_annotater::ValueType::String, type_annotater::ValueType::Any) => {
+            // widen `String` to `Any` via `jssatrt_any_new_string`
+            let result = free_register.next_and_mut();
+
+            instructions.push(llvm::Instruction::Call(
+                Some(result),
+                Callable::External(jssatrt_any_new_string),
+                vec![runtime, *source_register],
+            ));
+            register_types.insert(
+                result,
+                llvm::ValueType::Pointer(Box::new(llvm::ValueType::Opaque(any_id))),
+            );
+            *source_register = result;
+        }
+        (a, b) if a == b => {}
+        (a, b) => todo!("{:?} -> {:?}", a, b),
+    };
+}
+
 fn map_ffi_ret_type(ffi: &FFIReturnType, opaque: &OpaqueStructs) -> ReturnType {
     match ffi {
         FFIReturnType::Void => ReturnType::Void,
@@ -269,7 +434,9 @@ fn map_ffi_val_type(ffi: &FFIValueType, opaque: &OpaqueStructs) -> ValueType {
         FFIValueType::Any => ValueType::Pointer(Box::new(ValueType::Opaque(opaque.any))),
         FFIValueType::Runtime => ValueType::Pointer(Box::new(ValueType::Opaque(opaque.runtime))),
         FFIValueType::BytePointer => ValueType::Pointer(Box::new(ValueType::BitType(8))), // i8*
+        &FFIValueType::Pointer(size) => ValueType::Pointer(Box::new(ValueType::BitType(size))),
         FFIValueType::Word => ValueType::WordSizeBitType,
+        FFIValueType::String => ValueType::Pointer(Box::new(ValueType::Opaque(opaque.string))),
     }
 }
 
@@ -298,10 +465,13 @@ fn map_val_type(
         // TODO: figure out a better type for a string and constant string
         frontend::type_annotater::ValueType::String
         | frontend::type_annotater::ValueType::ExactString(_) => {
-            map_ffi_val_type(&FFIValueType::Any, opaque)
+            map_ffi_val_type(&FFIValueType::String, opaque)
         }
         frontend::type_annotater::ValueType::BytePointer => {
             map_ffi_val_type(&FFIValueType::BytePointer, opaque)
+        }
+        frontend::type_annotater::ValueType::Pointer(size) => {
+            map_ffi_val_type(&FFIValueType::Pointer(*size), opaque)
         }
         frontend::type_annotater::ValueType::Word => map_ffi_val_type(&FFIValueType::Word, opaque),
         frontend::type_annotater::ValueType::Union(_) => todo!(),
