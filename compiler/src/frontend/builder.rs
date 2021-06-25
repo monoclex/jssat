@@ -221,6 +221,27 @@ impl BlockBuilder {
         result
     }
 
+    pub fn call(&mut self, function: FunctionId, values: Vec<RegisterId>) {
+        self.instructions
+            .push(Instruction::Call(None, Callable::Static(function), values));
+    }
+
+    pub fn call_with_result(
+        &mut self,
+        function: FunctionId,
+        values: Vec<RegisterId>,
+    ) -> RegisterId {
+        let result = self.gen_register_id.next();
+
+        self.instructions.push(Instruction::Call(
+            Some(result),
+            Callable::Static(function),
+            values,
+        ));
+
+        result
+    }
+
     pub fn ret(self, value: Option<RegisterId>) -> FinishedBlockBuilder {
         self.finish(ControlFlowInstruction::Ret(value))
     }

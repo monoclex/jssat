@@ -4,11 +4,15 @@ version = "0.1.0"
 authors = ["SirJosh3917 <SirJosh3917@users.noreply.github.com>"]
 edition = "2018"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[features]
+default = []
+
+# Linking LLVM can take a minute or more. This feature is made optional so that
+# debug builds, which often don't test the LLVM backend, can be faster.
+link-llvm = ["inkwell"]
 
 [dependencies]
 cc = "1.0.67"
-inkwell = { git = "https://github.com/TheDan64/inkwell", branch = "master", features = ["llvm11-0"] }
 petgraph = "0.5.1"
 rustc-hash = "1.1.0"
 swc_atoms = "0.2.6"
@@ -16,3 +20,9 @@ swc_common = { version = "0.10.20", features = ["tty-emitter"] }
 swc_ecmascript = { version = "0.36.0", features = ["parser", "utils"] }
 tempfile = "3.2.0"
 thiserror = "1.0.24"
+
+[dependencies.inkwell]
+git = "https://github.com/TheDan64/inkwell"
+branch = "master"
+features = ["llvm11-0"]
+optional = true

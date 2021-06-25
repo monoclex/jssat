@@ -1,7 +1,8 @@
-use inkwell::module::Linkage;
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::backend::llvm::{self, BackendIR, Callable, Constant, ExternalFunction, OpaqueStruct};
+use crate::backend::llvm::{
+    self, BackendIR, Callable, Constant, ExternalFunction, LLVMLinkage, OpaqueStruct,
+};
 use crate::frontend::ir::{FFIReturnType, FFIValueType, Instruction};
 use crate::frontend::{self};
 use crate::frontend::{ir::IR, type_annotater::TypeAnnotations};
@@ -125,7 +126,7 @@ pub fn translate<'ir>(ir: &'ir IR, annotations: &'ir TypeAnnotations) -> Backend
             .value()
             .unwrap_or(if is_main { "main" } else { "" });
 
-        let linkage = is_main.then_some(Linkage::External);
+        let linkage = is_main.then_some(LLVMLinkage::External);
 
         let return_type = map_ret_type(&function.return_type, &opaque_map);
 
@@ -190,8 +191,8 @@ pub fn translate<'ir>(ir: &'ir IR, annotations: &'ir TypeAnnotations) -> Backend
 
                         let callable = match callable {
                             frontend::ir::Callable::External(id) => Callable::External(*id),
-                            frontend::ir::Callable::Static(_) => todo!(),
-                            frontend::ir::Callable::Virtual(_) => todo!(),
+                            frontend::ir::Callable::Static(id) => Callable::Static(*id),
+                            // frontend::ir::Callable::Virtual(_) => todo!(),
                         };
 
                         instructions.push(llvm::Instruction::Call(*result, callable, args));
@@ -288,7 +289,16 @@ fn map_val_type(
         }
         frontend::type_annotater::ValueType::String => todo!(),
         frontend::type_annotater::ValueType::ExactString(_) => todo!(),
-        frontend::type_annotater::ValueType::BytePointer => todo!(),
-        frontend::type_annotater::ValueType::Word => todo!(),
+        frontend::type_annotater::ValueType::BytePointer => {
+            map_ffi_val_type(&FFIValueType::BytePointer, opaque)
+        }
+        frontend::type_annotater::ValueType::Word => map_ffi_val_type(&FFIValueType::Word, opaque),
+        // `Never` is just used to show that a computation never completes. we
+        // could give any type here, so i've chosen word size. just an arbitrary
+        // choice, partially in hopes that it'd be the most efficient choice, but /shrug
+        //
+        // in the backend we emit unreachable instructions after computing the value of a Never
+        frontend::type_annotater::ValueType::Never => ValueType::WordSizeBitType,
+        frontend::type_annotater::ValueType::Union(_) => todo!(),
     }
 }

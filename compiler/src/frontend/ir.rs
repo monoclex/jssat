@@ -114,8 +114,8 @@ pub enum ControlFlowInstruction {
 pub enum Callable {
     External(ExternalFunctionId),
     Static(FunctionId),
-    /// virtual just means fn pointer
-    Virtual(RegisterId),
+    // virtual just means fn pointer
+    // Virtual(RegisterId),
 }
 
 // pub enum RecordKey {

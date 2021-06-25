@@ -4,7 +4,6 @@
 
 use std::{io::Write, process::Command};
 
-use inkwell::targets::TargetMachine;
 use swc_common::{
     errors::{ColorConfig, Handler},
     input::StringInput,
@@ -54,13 +53,11 @@ fn link_binary(build: &[u8]) {
     }
 
     if let Err(_) = std::env::var("TARGET") {
-        let triplet = TargetMachine::get_default_triple();
-        build.target(triplet.as_str().to_str().unwrap());
+        build.target(crate::backend::llvm::target_triplet().as_str());
     }
 
     if let Err(_) = std::env::var("HOST") {
-        let triplet = TargetMachine::get_default_triple();
-        build.host(triplet.as_str().to_str().unwrap());
+        build.host(crate::backend::llvm::target_triplet().as_str());
     }
 
     build.flag_if_supported("-flto");

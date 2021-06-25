@@ -1,5 +1,10 @@
-use std::hash::Hash;
+use rustc_hash::FxHashMap;
+use std::{hash::Hash, marker::PhantomData};
 
+use super::BuildArtifact;
+use crate::id::*;
+
+#[cfg(feature = "link-llvm")]
 use inkwell::{
     builder::Builder,
     context::Context,
@@ -9,10 +14,10 @@ use inkwell::{
     values::{BasicValue, BasicValueEnum, FunctionValue, GlobalValue},
     AddressSpace, OptimizationLevel,
 };
-use rustc_hash::FxHashMap;
 
-use super::BuildArtifact;
-use crate::id::*;
+#[cfg(not(feature = "link-llvm"))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct FunctionValue<'a>(PhantomData<&'a ()>);
 
 pub struct BackendIR<'name> {
     pub constants: FxHashMap<ConstantId, Constant<'name>>,
@@ -42,7 +47,7 @@ pub struct ExternalFunction {
 
 pub struct Function<'name> {
     pub name: &'name str,
-    pub linkage: Option<Linkage>,
+    pub linkage: Option<LLVMLinkage>,
     pub return_type: ReturnType,
     pub parameters: Vec<Parameter>,
     pub entry_block: BlockId,
@@ -85,7 +90,7 @@ pub enum Instruction {
 pub enum Callable {
     External(ExternalFunctionId),
     Static(FunctionId),
-    Virtual(RegisterId),
+    // Virtual(RegisterId),
 }
 
 pub enum ReturnType {
@@ -100,6 +105,39 @@ pub enum ValueType {
     Pointer(Box<ValueType>),
 }
 
+pub enum LLVMLinkage {
+    External,
+}
+
+impl LLVMLinkage {
+    #[cfg(feature = "link-llvm")]
+    pub fn to_llvm(&self) -> Linkage {
+        match self {
+            LLVMLinkage::External => Linkage::External,
+        }
+    }
+}
+
+#[cfg(not(feature = "link-llvm"))]
+pub fn target_triplet() -> String {
+    "not implemented".into()
+}
+
+#[cfg(feature = "link-llvm")]
+pub fn target_triplet() -> String {
+    TargetMachine::get_default_triple()
+        .as_str()
+        .to_str()
+        .unwrap()
+        .to_owned()
+}
+
+#[cfg(not(feature = "link-llvm"))]
+pub fn compile(_ir: BackendIR) -> BuildArtifact {
+    panic!("link-llvm not enabled");
+}
+
+#[cfg(feature = "link-llvm")]
 pub fn compile(ir: BackendIR) -> BuildArtifact {
     let context = Context::create();
     let builder = context.create_builder();
@@ -208,16 +246,25 @@ pub fn compile(ir: BackendIR) -> BuildArtifact {
     }
 }
 
+#[cfg(feature = "link-llvm")]
 type ConstantResolver<'structs, 'ctx> = Resolver<'structs, ConstantId, (usize, GlobalValue<'ctx>)>;
+
+#[cfg(feature = "link-llvm")]
 type OpaqueStructResolver<'structs, 'ctx> = Resolver<'structs, OpaqueStructId, StructType<'ctx>>;
+
+#[cfg(feature = "link-llvm")]
 type ExternalFunctionResolver<'structs, 'ctx> =
     Resolver<'structs, ExternalFunctionId, FunctionValue<'ctx>>;
+
+#[cfg(feature = "link-llvm")]
 type FunctionResolver<'structs, 'ctx> = Resolver<'structs, FunctionId, FunctionValue<'ctx>>;
 
+#[cfg(feature = "link-llvm")]
 struct Resolver<'map, K, V> {
     things: &'map FxHashMap<K, V>,
 }
 
+#[cfg(feature = "link-llvm")]
 impl<K, V> Resolver<'_, K, V>
 where
     K: Hash + Eq,
@@ -228,6 +275,7 @@ where
     }
 }
 
+#[cfg(feature = "link-llvm")]
 struct BackendCompiler<'ctx, 'module> {
     context: &'ctx Context,
     builder: Builder<'ctx>,
@@ -235,6 +283,7 @@ struct BackendCompiler<'ctx, 'module> {
     word_size: IntType<'ctx>,
 }
 
+#[cfg(feature = "link-llvm")]
 impl<'c> BackendCompiler<'c, '_> {
     pub fn llvm_constant(&self, constant: Constant) -> GlobalValue<'c> {
         let raw_const = self.constant_payload_to_basic_value(constant.payload);
@@ -330,9 +379,11 @@ impl<'c> BackendCompiler<'c, '_> {
         };
 
         PartialFunction {
-            llvm: self
-                .module
-                .add_function(function.name, llvm_function, function.linkage),
+            llvm: self.module.add_function(
+                function.name,
+                llvm_function,
+                function.linkage.map(|l| l.to_llvm()),
+            ),
             parameters: parameter_registers,
             entry_block: function.entry_block,
             blocks: function.blocks,
@@ -345,7 +396,7 @@ impl<'c> BackendCompiler<'c, '_> {
         constant_resolver: &ConstantResolver<'_, 'c>,
         _opaque_struct_resolver: &OpaqueStructResolver<'_, 'c>,
         external_function_resolver: &ExternalFunctionResolver<'_, 'c>,
-        _function_resolver: &FunctionResolver<'_, 'c>,
+        function_resolver: &FunctionResolver<'_, 'c>,
     ) {
         println!("llvm_function_end: {:?} -> {:#?}", function, function);
 
@@ -367,8 +418,8 @@ impl<'c> BackendCompiler<'c, '_> {
                     Instruction::Call(result, function, args) => {
                         let llvm_callable = match function {
                             Callable::External(id) => external_function_resolver.resolve(&id),
-                            Callable::Static(_) => todo!(),
-                            Callable::Virtual(_) => todo!(),
+                            Callable::Static(id) => function_resolver.resolve(&id),
+                            // Callable::Virtual(_) => todo!(),
                         };
 
                         let o_args = args.clone();
