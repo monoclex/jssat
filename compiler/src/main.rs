@@ -4,14 +4,6 @@
 
 use std::{io::Write, process::Command};
 
-use swc_common::{
-    errors::{ColorConfig, Handler},
-    input::StringInput,
-    sync::Lrc,
-    FileName, SourceMap,
-};
-use swc_ecmascript::parser::{Parser, Syntax};
-
 pub mod backend;
 pub mod frontend;
 pub mod id;
@@ -101,25 +93,7 @@ fn main() {
     // let content = std::fs::read_to_string(file_name).expect("expected to read file");
     let content = "print('Hello, World!');".to_owned();
 
-    // https://github.com/Starlight-JS/starlight/blob/4c4ce5d0178fb28c3b2a044d572473baaf057b73/crates/starlight/src/vm.rs#L275-L300
-    let cm: Lrc<SourceMap> = Default::default();
-    let handler = Handler::with_tty_emitter(ColorConfig::Auto, true, false, Some(cm.clone()));
-    let fm = cm.new_source_file(FileName::Anon, content);
-
-    let mut parser = Parser::new(
-        Syntax::Es(Default::default()),
-        StringInput::from(fm.as_ref()),
-        None,
-    );
-
-    for err in parser.take_errors() {
-        err.into_diagnostic(&handler).emit();
-    }
-
-    let script = parser.parse_script().expect("script to parse");
-    println!("{:#?}", script);
-
-    let ir = frontend::js::traverse(script);
+    let ir = frontend::js::traverse(content);
     eprintln!("{:#?}", ir);
 
     let annotations = frontend::type_annotater::annotate(&ir);

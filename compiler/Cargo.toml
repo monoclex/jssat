@@ -11,13 +11,18 @@ default = []
 # debug builds, which often don't test the LLVM backend, can be faster.
 link-llvm = ["inkwell"]
 
+# Including SWC increases compile times by a significant amount, and at the time
+# of writing this comment, the project is no-where near any sort of state to start
+# parsing JS and emitting our typeless IR, so excluding it entirely is ideal.
+link-swc = ["swc_atoms", "swc_common", "swc_ecmascript"]
+
 [dependencies]
 cc = "1.0.67"
 petgraph = "0.5.1"
 rustc-hash = "1.1.0"
-swc_atoms = "0.2.6"
-swc_common = { version = "0.10.20", features = ["tty-emitter"] }
-swc_ecmascript = { version = "0.36.0", features = ["parser", "utils"] }
+swc_atoms = { version = "0.2.6", optional = true }
+swc_common = { version = "0.10.20", features = ["tty-emitter"], optional = true }
+swc_ecmascript = { version = "0.36.0", features = ["parser", "utils"], optional = true }
 tempfile = "3.2.0"
 thiserror = "1.0.24"
 
