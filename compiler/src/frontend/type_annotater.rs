@@ -10,17 +10,25 @@ use crate::name::DebugName;
 pub fn annotate(ir: &IR) -> TypeAnnotations {
     let mut symb_exec_eng = SymbolicExecutionEngine {
         ir,
+        free_fn_id: FunctionId::new(),
         executions: FxHashMap::default(),
+        typed_functions: FxHashMap::default(),
     };
 
-    symb_exec_eng.symbolically_execute(&ir.entrypoint, vec![]);
+    let (main_fn_id, _) = symb_exec_eng.symbolically_execute(&ir.entrypoint, vec![]);
 
-    todo!()
+    TypeAnnotations {
+        entrypoint: main_fn_id,
+        functions: symb_exec_eng.typed_functions,
+    }
 }
 
+#[derive(Debug)]
 struct SymbolicExecutionEngine<'ir> {
     ir: &'ir IR,
-    executions: FxHashMap<(FunctionId, Vec<ValueType>), Option<TypedFunction>>,
+    free_fn_id: FunctionId,
+    executions: FxHashMap<(FunctionId, Vec<ValueType>), Option<FunctionId>>,
+    typed_functions: FxHashMap<FunctionId, TypedFunction>,
 }
 
 impl SymbolicExecutionEngine<'_> {
@@ -29,7 +37,11 @@ impl SymbolicExecutionEngine<'_> {
     /// This function will symbolically execute a function until completion,
     /// taking all possible paths of execution until a return type is found for
     /// the function.
-    fn symbolically_execute(&mut self, function_id: &FunctionId, parameters: Vec<ValueType>) {
+    fn symbolically_execute(
+        &mut self,
+        function_id: &FunctionId,
+        parameters: Vec<ValueType>,
+    ) -> (FunctionId, &TypedFunction) {
         let function = (self.ir.functions.get(function_id)).expect("valid function id");
 
         debug_assert_eq!(function.parameters.len(), parameters.len());
@@ -43,7 +55,7 @@ impl SymbolicExecutionEngine<'_> {
         // this will handle edge cases like recursion
         match self.executions.get(&(*function_id, parameters.clone())) {
             // we've already symbolically executed this function before
-            Some(Some(type_definition)) => {
+            Some(Some(_type_definition)) => {
                 todo!("return type_definition?");
             }
             // nothing inserted
@@ -78,7 +90,7 @@ impl SymbolicExecutionEngine<'_> {
                     .map(|t| t.generalize())
                     .collect::<Vec<_>>();
 
-                let generic_definition =
+                let _generic_definition =
                     match self.executions.get(&(*function_id, generalized.clone())) {
                         // we've already executed it and we have a definition for it
                         Some(Some(type_definition)) => type_definition,
@@ -105,9 +117,21 @@ impl SymbolicExecutionEngine<'_> {
         // at this point, we've confirmed that we're not in a recursive loop
         // (as recursiveness will be handled by the previous match)
 
+        let mut typed_fn_blocks = FxHashMap::default();
         let mut register_types = FxHashMap::<RegisterId, ValueType>::default();
 
-        let (id, block) = function.blocks.iter().next().unwrap();
+        // annotate the parameter registers with types
+        for (register_id, parameter) in function
+            .parameters
+            .iter()
+            .map(|p| p.register)
+            .zip(parameters.iter())
+        {
+            register_types.insert(register_id, parameter.clone());
+        }
+
+        let (block_id, block) = function.blocks.iter().next().unwrap();
+        let mut instructions = Vec::new();
 
         for instruction in block.instructions.iter() {
             match instruction {
@@ -131,10 +155,11 @@ impl SymbolicExecutionEngine<'_> {
                         .zip(parameter_types.iter())
                         .enumerate()
                     {
-                        if !ffi_value_type_to_value_type(ext_fn_type).assignable_to(arg_type) {
+                        let ffi_as_value_type = ffi_value_type_to_value_type(ext_fn_type);
+                        if !arg_type.assignable_to(&ffi_as_value_type) {
                             panic!(
-                                "register {:?} not assignable to FFI type {:?} in instruction {:?}",
-                                args[idx], ext_fn_type, instruction
+                                "register {:?} type {:?} not assignable FFI type {:?} type {:?} to in instruction {:?}",
+                                args[idx], arg_type, ext_fn_type, ffi_as_value_type, instruction
                             );
                         }
                     }
@@ -150,6 +175,12 @@ impl SymbolicExecutionEngine<'_> {
                             panic!("cannot assign void to register at {:?}", instruction);
                         }
                     };
+
+                    instructions.push(Instruction::Call(
+                        *result,
+                        Callable::External(*fn_id),
+                        args.clone(),
+                    ));
                 }
                 Instruction::Call(result, Callable::Static(fn_id), args) => {
                     let parameter_types = args
@@ -157,16 +188,39 @@ impl SymbolicExecutionEngine<'_> {
                         .map(|r| register_types.get(r).unwrap().clone())
                         .collect::<Vec<_>>();
 
-                    self.symbolically_execute(&fn_id, parameter_types);
+                    let (id, symbolically_executed_fn) =
+                        self.symbolically_execute(&fn_id, parameter_types);
+
+                    match (result, &symbolically_executed_fn.return_type) {
+                        (None, _) => {}
+                        (Some(register), ReturnType::Value(v)) => {
+                            register_types.insert(*register, v.clone());
+                        }
+                        (Some(_), ReturnType::Void) => {
+                            panic!("cannot assign void to register at {:?}", instruction);
+                        }
+                    };
+
+                    instructions.push(Instruction::Call(
+                        *result,
+                        Callable::Static(id),
+                        args.clone(),
+                    ));
                 }
                 Instruction::GetRuntime(register) => {
                     register_types.insert(*register, ValueType::Runtime);
+
+                    instructions.push(Instruction::GetRuntime(*register));
                 }
                 Instruction::MakeString(register, constant) => {
                     register_types.insert(*register, ValueType::ExactString(*constant));
+
+                    instructions.push(Instruction::MakeString(*register, *constant));
                 }
             }
         }
+
+        let end_instruction = block.end.clone();
 
         let return_type = match block.end {
             ControlFlowInstruction::Ret(Some(register)) => {
@@ -175,10 +229,18 @@ impl SymbolicExecutionEngine<'_> {
             ControlFlowInstruction::Ret(None) => ReturnType::Void,
         };
 
+        typed_fn_blocks.insert(
+            *block_id,
+            FunctionBlock {
+                instructions,
+                end: end_instruction,
+            },
+        );
+
         // now we've annotated the function totally. we can insert the information we know about the function
         let top_free_register = register_types
             .iter()
-            .map(|(k, v)| *k)
+            .map(|(k, _)| *k)
             .max_by(|a, b| a.value().cmp(&b.value()))
             .map(|r| r.next())
             .unwrap_or(RegisterId::new());
@@ -194,18 +256,25 @@ impl SymbolicExecutionEngine<'_> {
             })
             .collect::<Vec<_>>();
 
-        self.executions.insert(
-            (*function_id, parameters.clone()),
-            Some(TypedFunction {
+        let self_fn_id = self.free_fn_id.next_and_mut();
+
+        self.typed_functions.insert(
+            self_fn_id,
+            TypedFunction {
                 name: function.name.clone(),
                 top_free_register,
                 parameters: typed_parameters,
                 return_type,
                 entry_block: function.entry_block,
-                blocks: function.blocks.clone(),
+                blocks: typed_fn_blocks,
                 register_types,
-            }),
+            },
         );
+
+        self.executions
+            .insert((*function_id, parameters.clone()), Some(self_fn_id));
+
+        (self_fn_id, self.typed_functions.get(&self_fn_id).unwrap())
     }
 }
 
@@ -238,7 +307,7 @@ pub struct Parameter {
     pub r#type: ValueType,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ReturnType {
     Void,
     Value(ValueType),
@@ -306,11 +375,14 @@ impl ValueType {
     /// Panics if the input type isn't an inheritence type.
     fn generalize_up_one(&self) -> ValueType {
         match self {
-            ValueType::Any => todo!(),
-            ValueType::String => todo!(),
-            ValueType::ExactString(_) => todo!(),
-            ValueType::Runtime => todo!(),
-            ValueType::Union(_) | ValueType::BytePointer | ValueType::Word | ValueType::Never => {
+            ValueType::Any => panic!("cannot generalize up one for an Any"),
+            ValueType::String => ValueType::Any,
+            ValueType::ExactString(_) => ValueType::String,
+            ValueType::Runtime
+            | ValueType::Union(_)
+            | ValueType::BytePointer
+            | ValueType::Word
+            | ValueType::Never => {
                 panic!("expected inheritable")
             }
         }

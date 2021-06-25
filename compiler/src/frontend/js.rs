@@ -22,6 +22,7 @@ pub fn traverse(_script: Script) -> IR {
     );
 
     let mut print_stub = builder.start_function(DebugName::new("print_stub"));
+    let print_stub_id = print_stub.id;
     {
         let mut block = print_stub.start_block();
         block.mark_entrypoint();
@@ -30,6 +31,7 @@ pub fn traverse(_script: Script) -> IR {
         block.call_external_function(print, vec![jssatrt, print_string, print_string]);
         print_stub.end_block(block.ret(None));
     }
+    builder.end_function(print_stub);
 
     let mut main = builder.start_function(DebugName::new("main"));
     main.mark_main();
@@ -37,7 +39,7 @@ pub fn traverse(_script: Script) -> IR {
         let mut entry = main.start_block();
         entry.mark_entrypoint();
         let string = entry.make_string(hello_world);
-        entry.call(print_stub.id, vec![string]);
+        entry.call(print_stub_id, vec![string]);
         main.end_block(entry.ret(None));
     }
     builder.end_function(main);

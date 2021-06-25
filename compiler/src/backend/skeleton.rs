@@ -179,7 +179,7 @@ pub fn translate<'ir>(ir: &'ir IR, annotations: &'ir TypeAnnotations) -> Backend
             for instruction in block.instructions.iter() {
                 match instruction {
                     Instruction::Call(result, callable, args) => {
-                        let args = args
+                        let mut args = args
                             .iter()
                             .map(|r| {
                                 is_runtime_register
@@ -191,8 +191,12 @@ pub fn translate<'ir>(ir: &'ir IR, annotations: &'ir TypeAnnotations) -> Backend
 
                         let callable = match callable {
                             frontend::ir::Callable::External(id) => Callable::External(*id),
-                            frontend::ir::Callable::Static(id) => Callable::Static(*id),
-                            // frontend::ir::Callable::Virtual(_) => todo!(),
+                            frontend::ir::Callable::Static(id) => {
+                                // for jssat <-> jssat function calls, the runtime register is
+                                // always the first parameter to the function
+                                args.insert(0, runtime_register);
+                                Callable::Static(*id)
+                            } // frontend::ir::Callable::Virtual(_) => todo!(),
                         };
 
                         instructions.push(llvm::Instruction::Call(*result, callable, args));
@@ -288,7 +292,10 @@ fn map_val_type(
             map_ffi_val_type(&FFIValueType::Runtime, opaque)
         }
         frontend::type_annotater::ValueType::String => todo!(),
-        frontend::type_annotater::ValueType::ExactString(_) => todo!(),
+        // TODO: figure out a better type for a constant (v) and string (^)
+        frontend::type_annotater::ValueType::ExactString(_) => {
+            map_ffi_val_type(&FFIValueType::Any, opaque)
+        }
         frontend::type_annotater::ValueType::BytePointer => {
             map_ffi_val_type(&FFIValueType::BytePointer, opaque)
         }

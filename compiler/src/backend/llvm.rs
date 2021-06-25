@@ -409,6 +409,10 @@ impl<'c> BackendCompiler<'c, '_> {
 
         let mut register_values = FxHashMap::default();
 
+        for (idx, parameter) in function.parameters.iter().enumerate() {
+            register_values.insert(*parameter, function.llvm.get_nth_param(idx as u32).unwrap());
+        }
+
         for block in std::iter::once(entry_block).chain(non_entry_blocks) {
             let basic_block = self.context.append_basic_block(function.llvm, "");
             self.builder.position_at_end(basic_block);
