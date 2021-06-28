@@ -1,3 +1,5 @@
+use std::{marker::PhantomData, sync::atomic::AtomicUsize};
+
 macro_rules! gen_id {
     ($name:ident) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -68,3 +70,24 @@ gen_id!(BlockId);
 gen_id!(RegisterId);
 gen_id!(InternalSlotId);
 gen_id!(OpaqueStructId);
+
+pub struct Counter<I> {
+    current: AtomicUsize,
+    phantom: PhantomData<I>,
+}
+
+impl<I: IdCompat> Counter<I> {
+    pub fn new() -> Self {
+        Counter {
+            current: AtomicUsize::new(1),
+            phantom: PhantomData::default(),
+        }
+    }
+
+    pub fn next(&self) -> I {
+        I::new_with_value(
+            self.current
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+        )
+    }
+}

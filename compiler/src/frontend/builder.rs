@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use std::{marker::PhantomData, sync::atomic::AtomicUsize};
 
 use rustc_hash::FxHashMap;
 
@@ -269,26 +268,5 @@ impl FinishedBlockBuilder {
             instructions: self.instructions,
             end: self.end,
         }
-    }
-}
-
-struct Counter<I> {
-    current: AtomicUsize,
-    phantom: PhantomData<I>,
-}
-
-impl<I: IdCompat> Counter<I> {
-    pub fn new() -> Self {
-        Counter {
-            current: AtomicUsize::new(1),
-            phantom: PhantomData::default(),
-        }
-    }
-
-    pub fn next(&self) -> I {
-        I::new_with_value(
-            self.current
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
-        )
     }
 }

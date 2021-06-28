@@ -8,12 +8,7 @@ use crate::name::DebugName;
 ///
 /// This works by symbolically executing the JSSAT IR, and emitting equivalent functions.
 pub fn annotate(ir: &IR) -> TypeAnnotations {
-    let mut symb_exec_eng = SymbolicExecutionEngine {
-        ir,
-        free_fn_id: FunctionId::new(),
-        executions: FxHashMap::default(),
-        typed_functions: FxHashMap::default(),
-    };
+    let mut symb_exec_eng = SymbolicExecutionEngine::new(ir);
 
     let (main_fn_id, _) = symb_exec_eng.symbolically_execute(&ir.entrypoint, vec![]);
 
@@ -38,6 +33,15 @@ pub enum FnExecution {
 }
 
 impl SymbolicExecutionEngine<'_> {
+    pub fn new<'ir>(ir: &'ir IR) -> SymbolicExecutionEngine<'ir> {
+        SymbolicExecutionEngine {
+            ir,
+            free_fn_id: FunctionId::new(),
+            executions: FxHashMap::default(),
+            typed_functions: FxHashMap::default(),
+        }
+    }
+
     /// # symbolically_execute
     ///
     /// This function will symbolically execute a function until completion,
