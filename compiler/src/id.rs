@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, sync::atomic::AtomicUsize};
+use std::{hash::Hash, marker::PhantomData, sync::atomic::AtomicUsize};
 
 macro_rules! gen_id {
     ($name:ident) => {
@@ -7,7 +7,16 @@ macro_rules! gen_id {
 
         impl $name {
             pub fn new() -> Self {
-                <Self as crate::id::IdCompat>::new_with_value(0)
+                Self::new_const()
+            }
+
+            pub const fn new_const() -> Self {
+                Self::new_with_value_const(0)
+            }
+
+            pub const fn new_with_value_const(value: usize) -> Self {
+                debug_assert!(value != usize::MAX);
+                Self(::std::num::NonZeroUsize::new(value + 1).unwrap())
             }
 
             pub fn next(&self) -> Self {
@@ -29,8 +38,7 @@ macro_rules! gen_id {
 
         impl crate::id::IdCompat for $name {
             fn new_with_value(value: usize) -> Self {
-                debug_assert!(value != usize::MAX);
-                Self(::std::num::NonZeroUsize::new(value + 1).unwrap())
+                $name::new_with_value_const(value)
             }
 
             fn value(&self) -> usize {
@@ -46,7 +54,11 @@ macro_rules! gen_id {
     };
 }
 
-pub trait IdCompat {
+pub trait IdCompat: PartialEq + Eq + Hash + Sized {
+    fn new() -> Self {
+        Self::new_with_value(0)
+    }
+
     fn new_with_value(value: usize) -> Self;
 
     fn value(&self) -> usize;

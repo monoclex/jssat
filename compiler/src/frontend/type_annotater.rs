@@ -280,6 +280,7 @@ impl SymbolicExecutionEngine<'_> {
         typed_fn_blocks.insert(
             *block_id,
             FunctionBlock {
+                parameters: todo!(),
                 instructions,
                 end: end_instruction,
             },

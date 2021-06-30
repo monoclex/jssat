@@ -11,8 +11,6 @@ pub struct IR {
     pub constants: FxHashMap<ConstantId, Constant>,
     pub external_functions: FxHashMap<ExternalFunctionId, ExternalFunction>,
     pub functions: FxHashMap<FunctionId, Function>,
-    // TODO: `pub data: Vec<DataDeclaration>`
-    // ^ todo: remember why (i think this is only applicable after type analysis)
 }
 
 #[derive(Debug)]
@@ -28,7 +26,7 @@ pub struct ExternalFunction {
     pub return_type: FFIReturnType,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum FFIValueType {
     /// Useful to box a value into the largest possible idea of what it may be.
     /// Primarily used during prototyping, and is only really useful if our
@@ -59,10 +57,11 @@ pub enum FFIReturnType {
 pub struct Function {
     pub name: DebugName,
     pub parameters: Vec<Parameter>,
-    // pub control_flow: ControlFlowGraph,
-    // pub register_flow: ValueFlowGraph,
+    // require that the entry block has 0 parameters
     pub entry_block: BlockId,
     pub blocks: FxHashMap<BlockId, FunctionBlock>,
+    // pub control_flow: ControlFlowGraph,
+    // pub register_flow: ValueFlowGraph,
 }
 
 #[derive(Debug)]
@@ -73,15 +72,16 @@ pub struct Parameter {
 
 #[derive(Debug, Clone)]
 pub struct FunctionBlock {
+    pub parameters: Vec<RegisterId>,
     pub instructions: Vec<Instruction>,
     pub end: ControlFlowInstruction,
 }
 
-#[derive(Debug)]
-pub struct BlockImpliesRegister {
-    pub block: BlockId,
-    pub implies: RegisterId,
-}
+// #[derive(Debug)]
+// pub struct BlockImpliesRegister {
+//     pub block: BlockId,
+//     pub implies: RegisterId,
+// }
 
 #[derive(Debug, Clone)]
 pub enum Instruction {

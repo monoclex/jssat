@@ -1,8 +1,15 @@
 #![feature(command_access)]
 #![feature(box_patterns)]
 #![feature(bool_to_option)]
+#![feature(const_panic)]
+#![feature(const_fn)]
+#![feature(const_option)]
 
 use std::{io::Write, process::Command};
+
+use rustc_hash::FxHashMap;
+
+use crate::name::DebugName;
 
 pub mod backend;
 pub mod frontend;
@@ -84,6 +91,16 @@ fn link_binary(build: &[u8]) {
 }
 
 fn main() {
+    let f = crate::frontend::ir::Function {
+        name: DebugName::new("asdf"),
+        parameters: vec![crate::frontend::ir::Parameter {
+            name: DebugName::new("jkl;"),
+            register: crate::id::RegisterId::new(),
+        }],
+        entry_block: crate::id::BlockId::new(),
+        blocks: FxHashMap::default(),
+    };
+
     // let file_name = std::env::args()
     //     .into_iter()
     //     .skip(1)
