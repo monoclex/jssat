@@ -361,6 +361,12 @@ pub fn translate<'ir>(ir: &'ir IR, annotations: &'ir TypeAnnotations) -> Backend
 
                     instructions.push(llvm::Instruction::Return(register));
                 }
+                frontend::ir::ControlFlowInstruction::Jmp(_) => todo!(),
+                frontend::ir::ControlFlowInstruction::JmpIf {
+                    condition: _,
+                    true_path: _,
+                    false_path: _,
+                } => todo!(),
             };
         }
 

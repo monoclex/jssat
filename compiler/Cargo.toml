@@ -27,6 +27,7 @@ tempfile = "3.2.0"
 thiserror = "1.0.24"
 elsa = "1.4.0"
 static_assertions = "1.1.0"
+bimap = "0.6.1"
 
 [dependencies.inkwell]
 git = "https://github.com/TheDan64/inkwell"

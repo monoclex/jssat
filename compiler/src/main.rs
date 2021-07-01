@@ -4,6 +4,7 @@
 #![feature(const_panic)]
 #![feature(const_fn)]
 #![feature(const_option)]
+#![feature(option_expect_none)]
 
 use std::{io::Write, process::Command};
 
@@ -112,6 +113,10 @@ fn main() {
 
     let ir = frontend::js::traverse(content);
     eprintln!("{:#?}", ir);
+
+    let converted = frontend::conv_only_bb::translate(&ir);
+    eprintln!("{:#?}", converted);
+    panic!();
 
     let annotations = frontend::type_annotater::annotate(&ir);
     eprintln!("{:#?}", annotations);

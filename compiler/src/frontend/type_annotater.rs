@@ -268,11 +268,13 @@ impl SymbolicExecutionEngine<'_> {
         } else {
             (
                 block.end.clone(),
-                match block.end {
+                match &block.end {
                     ControlFlowInstruction::Ret(Some(register)) => {
-                        ReturnType::Value(register_types.get(&register).unwrap().clone())
+                        ReturnType::Value(register_types.get(register).unwrap().clone())
                     }
                     ControlFlowInstruction::Ret(None) => ReturnType::Void,
+                    ControlFlowInstruction::Jmp(_) => todo!(),
+                    ControlFlowInstruction::JmpIf { .. } => todo!(),
                 },
             )
         };

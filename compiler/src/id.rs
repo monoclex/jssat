@@ -90,10 +90,18 @@ pub struct Counter<I> {
 
 impl<I: IdCompat> Counter<I> {
     pub fn new() -> Self {
+        Self::new_with_value(0)
+    }
+
+    pub fn new_with_value(current: usize) -> Self {
         Counter {
-            current: AtomicUsize::new(1),
+            current: AtomicUsize::new(current + 1),
             phantom: PhantomData::default(),
         }
+    }
+
+    pub fn after(current: I) -> Self {
+        Self::new_with_value(current.value() + 1)
     }
 
     pub fn next(&self) -> I {

@@ -2,9 +2,6 @@ use rustc_hash::FxHashMap;
 
 use crate::{id::*, name::DebugName};
 
-pub type ControlFlowGraph = petgraph::graph::DiGraph<BlockId, (), usize>;
-pub type ValueFlowGraph = petgraph::graph::DiGraph<RegisterId, (), usize>;
-
 #[derive(Debug)]
 pub struct IR {
     pub entrypoint: FunctionId,
@@ -53,7 +50,7 @@ pub enum FFIReturnType {
     Value(FFIValueType),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Function {
     pub name: DebugName,
     pub parameters: Vec<Parameter>,
@@ -64,7 +61,7 @@ pub struct Function {
     // pub register_flow: ValueFlowGraph,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Parameter {
     pub name: DebugName,
     pub register: RegisterId,
@@ -76,12 +73,6 @@ pub struct FunctionBlock {
     pub instructions: Vec<Instruction>,
     pub end: ControlFlowInstruction,
 }
-
-// #[derive(Debug)]
-// pub struct BlockImpliesRegister {
-//     pub block: BlockId,
-//     pub implies: RegisterId,
-// }
 
 #[derive(Debug, Clone)]
 pub enum Instruction {
@@ -116,9 +107,16 @@ pub enum Instruction {
 }
 
 #[derive(Debug, Clone)]
+pub struct BasicBlockJump(pub BlockId, pub Vec<RegisterId>);
+
+#[derive(Debug, Clone)]
 pub enum ControlFlowInstruction {
-    // Jmp(BlockId),
-    // JmpIf(BlockImpliesRegister, BlockId),
+    Jmp(BasicBlockJump),
+    JmpIf {
+        condition: RegisterId,
+        true_path: BasicBlockJump,
+        false_path: BasicBlockJump,
+    },
     Ret(Option<RegisterId>),
 }
 
@@ -136,3 +134,73 @@ pub enum Callable {
 //     Register(RegisterId),
 //     Constant(TopLevelId),
 // }
+
+impl Instruction {
+    pub fn assigned_to(&self) -> Option<RegisterId> {
+        match self {
+            Instruction::Call(result, _, _) => *result,
+            Instruction::GetRuntime(result) | Instruction::MakeString(result, _) => Some(*result),
+            Instruction::Unreachable => None,
+        }
+    }
+
+    pub fn used_registers(&self) -> Vec<RegisterId> {
+        match self {
+            Instruction::Call(_, _, params) => params.clone(),
+            Instruction::GetRuntime(_)
+            | Instruction::MakeString(_, _)
+            | Instruction::Unreachable => Vec::new(),
+        }
+    }
+
+    pub fn used_registers_mut(&mut self) -> Vec<&mut RegisterId> {
+        match self {
+            Instruction::Call(_, _, params) => params.iter_mut().collect(),
+            Instruction::GetRuntime(_)
+            | Instruction::MakeString(_, _)
+            | Instruction::Unreachable => Vec::new(),
+        }
+    }
+}
+
+impl ControlFlowInstruction {
+    pub fn used_registers(&self) -> Option<RegisterId> {
+        match self {
+            ControlFlowInstruction::Jmp(_) => None,
+            ControlFlowInstruction::JmpIf { condition, .. } => Some(*condition),
+            ControlFlowInstruction::Ret(register) => *register,
+        }
+    }
+
+    pub fn used_registers_mut(&mut self) -> Option<&mut RegisterId> {
+        match self {
+            ControlFlowInstruction::Jmp(_) => None,
+            ControlFlowInstruction::JmpIf { condition, .. } => Some(condition),
+            ControlFlowInstruction::Ret(register) => register.as_mut(),
+        }
+    }
+
+    pub fn children(&self) -> Vec<&BasicBlockJump> {
+        match self {
+            ControlFlowInstruction::Jmp(block) => vec![block],
+            ControlFlowInstruction::JmpIf {
+                true_path,
+                false_path,
+                ..
+            } => vec![true_path, false_path],
+            ControlFlowInstruction::Ret(_) => Vec::new(),
+        }
+    }
+
+    pub fn children_mut(&mut self) -> Vec<&mut BasicBlockJump> {
+        match self {
+            ControlFlowInstruction::Jmp(block) => vec![block],
+            ControlFlowInstruction::JmpIf {
+                true_path,
+                false_path,
+                ..
+            } => vec![true_path, false_path],
+            ControlFlowInstruction::Ret(_) => Vec::new(),
+        }
+    }
+}
