@@ -1,4 +1,3 @@
-use std::mem::ManuallyDrop;
 use std::sync::Arc;
 
 use rustc_hash::FxHashMap;
@@ -320,6 +319,26 @@ impl<const P: usize> BlockBuilder<P> {
         result
     }
 
+    pub fn make_number_decimal(&mut self, value: f64) -> RegisterId {
+        let result = self.gen_register_id.next();
+        self.instructions
+            .push(Instruction::MakeNumber(result, value));
+        result
+    }
+
+    pub fn add(&mut self, lhs: RegisterId, rhs: RegisterId) -> RegisterId {
+        let result = self.gen_register_id.next();
+        self.instructions.push(Instruction::Add(result, lhs, rhs));
+        result
+    }
+
+    pub fn compare_less_than(&mut self, lhs: RegisterId, rhs: RegisterId) -> RegisterId {
+        let result = self.gen_register_id.next();
+        self.instructions
+            .push(Instruction::CompareLessThan(result, lhs, rhs));
+        result
+    }
+
     pub fn call<const PARAMETERS: usize>(
         &mut self,
         function_signature: FnSignature<PARAMETERS>,
@@ -404,12 +423,70 @@ impl<const P: usize> BlockBuilder<P> {
         result
     }
 
+    pub fn jmp<const PARAMETERS: usize>(
+        self,
+        block: BlkSignature<PARAMETERS>,
+        values: [RegisterId; PARAMETERS],
+    ) -> FinalizedBlockBuilder<P> {
+        self.jmp_dynargs(block.id, values.to_vec())
+    }
+
+    pub fn jmp_dynargs(
+        mut self,
+        block: BlockId,
+        values: Vec<RegisterId>,
+    ) -> FinalizedBlockBuilder<P> {
+        self.is_ok_to_drop = true;
+        FinalizedBlockBuilder {
+            builder: self,
+            is_ok_to_drop: false,
+            end_control_flow: ControlFlowInstruction::Jmp(BasicBlockJump(block, values)),
+        }
+    }
+
     pub fn ret(mut self, value: Option<RegisterId>) -> FinalizedBlockBuilder<P> {
         self.is_ok_to_drop = true;
         FinalizedBlockBuilder {
             builder: self,
-            end_control_flow: ControlFlowInstruction::Ret(value),
             is_ok_to_drop: false,
+            end_control_flow: ControlFlowInstruction::Ret(value),
+        }
+    }
+
+    pub fn jmpif<const PARAMS_TRUE: usize, const PARAMS_FALSE: usize>(
+        self,
+        condition: RegisterId,
+        block_true: BlkSignature<PARAMS_TRUE>,
+        values_true: [RegisterId; PARAMS_TRUE],
+        block_false: BlkSignature<PARAMS_FALSE>,
+        values_false: [RegisterId; PARAMS_FALSE],
+    ) -> FinalizedBlockBuilder<P> {
+        self.jmpif_dynargs(
+            condition,
+            block_true.id,
+            values_true.to_vec(),
+            block_false.id,
+            values_false.to_vec(),
+        )
+    }
+
+    pub fn jmpif_dynargs(
+        mut self,
+        condition: RegisterId,
+        block_true: BlockId,
+        values_true: Vec<RegisterId>,
+        block_false: BlockId,
+        values_false: Vec<RegisterId>,
+    ) -> FinalizedBlockBuilder<P> {
+        self.is_ok_to_drop = true;
+        FinalizedBlockBuilder {
+            builder: self,
+            is_ok_to_drop: false,
+            end_control_flow: ControlFlowInstruction::JmpIf {
+                condition,
+                true_path: BasicBlockJump(block_true, values_true),
+                false_path: BasicBlockJump(block_false, values_false),
+            },
         }
     }
 
@@ -455,201 +532,3 @@ impl<const P: usize> Drop for FinalizedBlockBuilder<P> {
         }
     }
 }
-
-// pub struct FunctionBuilder<'program_builder> {
-//     pub id: FunctionId,
-//     program_builder: &'program_builder ProgramBuilder,
-//     marked_main: bool,
-//     name: DebugName,
-//     parameters: Vec<Parameter>,
-//     entry_block: Option<BlockId>,
-//     blocks: FxHashMap<BlockId, FunctionBlock>,
-//     gen_block_id: Counter<BlockId>,
-//     gen_register_id: Arc<Counter<RegisterId>>,
-// }
-
-// impl Drop for FunctionBuilder<'_> {
-//     fn drop(&mut self) {
-//         todo!()
-//     }
-// }
-
-// impl<'pb> FunctionBuilder<'pb> {
-//     fn finish(self) -> (bool, Function) {
-//         (
-//             self.marked_main,
-//             Function {
-//                 name: self.name,
-//                 parameters: self.parameters,
-//                 entry_block: self
-//                     .entry_block
-//                     .expect("expected a block to be marked as the entry block"),
-//                 blocks: self.blocks,
-//             },
-//         )
-//     }
-
-//     pub fn mark_main(&mut self) {
-//         if self.parameters.len() > 0 {
-//             panic!("cannot mark method with parameters as main");
-//         }
-
-//         self.marked_main = true;
-//     }
-
-//     pub fn parameter(&mut self, name: &str) -> RegisterId {
-//         if self.marked_main {
-//             panic!("cannot add parameters to main method");
-//         }
-
-//         let register = self.gen_register_id.next();
-
-//         self.parameters.push(Parameter {
-//             name: DebugName::new(name),
-//             register,
-//         });
-
-//         register
-//     }
-
-//     pub fn block<const P: usize>(&self) -> (u32, [u16; P]) {
-//         todo!()
-//     }
-
-//     pub fn start_block_0(&self) -> BlockBuilder {
-//         let id = self.gen_block_id.next();
-
-//         BlockBuilder {
-//             id,
-//             is_entry: false,
-//             instructions: vec![],
-//             gen_register_id: self.gen_register_id.clone(),
-//         }
-//     }
-
-//     pub fn start_block_1(&self) -> (BlockBuilder, RegisterId) {
-//         let id = self.gen_block_id.next();
-
-//         BlockBuilder {
-//             id,
-//             is_entry: false,
-//             instructions: vec![],
-//             gen_register_id: self.gen_register_id.clone(),
-//         }
-//     }
-
-//     pub fn end_block(&mut self, block: FinishedBlockBuilder) {
-//         match (self.entry_block, block.is_entry) {
-//             (None, true) => self.entry_block = Some(block.id),
-//             (_, false) => {}
-//             (_, _) => panic!("unexpected state of entrypoint-ness"),
-//         };
-
-//         self.blocks.insert(block.id, block.finish());
-//     }
-// }
-
-// pub struct BlockBuilder {
-//     pub id: BlockId,
-//     is_entry: bool,
-//     instructions: Vec<Instruction>,
-//     gen_register_id: Arc<Counter<RegisterId>>,
-// }
-
-// impl BlockBuilder {
-//     pub fn mark_entrypoint(&mut self) {
-//         self.is_entry = true;
-//     }
-
-//     pub fn get_runtime(&mut self) -> RegisterId {
-//         let result = self.gen_register_id.next();
-//         self.instructions.push(Instruction::GetRuntime(result));
-//         result
-//     }
-
-//     pub fn make_string(&mut self, payload: ConstantId) -> RegisterId {
-//         let result = self.gen_register_id.next();
-//         self.instructions
-//             .push(Instruction::MakeString(result, payload));
-//         result
-//     }
-
-//     pub fn call_external_function(
-//         &mut self,
-//         external_function: ExternalFunctionId,
-//         values: Vec<RegisterId>,
-//     ) {
-//         self.instructions.push(Instruction::Call(
-//             None,
-//             Callable::External(external_function),
-//             values,
-//         ));
-//     }
-
-//     pub fn call_external_function_with_result(
-//         &mut self,
-//         external_function: ExternalFunctionId,
-//         values: Vec<RegisterId>,
-//     ) -> RegisterId {
-//         let result = self.gen_register_id.next();
-
-//         self.instructions.push(Instruction::Call(
-//             Some(result),
-//             Callable::External(external_function),
-//             values,
-//         ));
-
-//         result
-//     }
-
-//     pub fn call(&mut self, function: FunctionId, values: Vec<RegisterId>) {
-//         self.instructions
-//             .push(Instruction::Call(None, Callable::Static(function), values));
-//     }
-
-//     pub fn call_with_result(
-//         &mut self,
-//         function: FunctionId,
-//         values: Vec<RegisterId>,
-//     ) -> RegisterId {
-//         let result = self.gen_register_id.next();
-
-//         self.instructions.push(Instruction::Call(
-//             Some(result),
-//             Callable::Static(function),
-//             values,
-//         ));
-
-//         result
-//     }
-
-//     pub fn ret(self, value: Option<RegisterId>) -> FinishedBlockBuilder {
-//         self.finish(ControlFlowInstruction::Ret(value))
-//     }
-
-//     fn finish(self, end: ControlFlowInstruction) -> FinishedBlockBuilder {
-//         FinishedBlockBuilder {
-//             id: self.id,
-//             is_entry: self.is_entry,
-//             instructions: self.instructions,
-//             end,
-//         }
-//     }
-// }
-
-// pub struct FinishedBlockBuilder {
-//     pub id: BlockId,
-//     is_entry: bool,
-//     instructions: Vec<Instruction>,
-//     end: ControlFlowInstruction,
-// }
-
-// impl FinishedBlockBuilder {
-//     fn finish(self) -> FunctionBlock {
-//         FunctionBlock {
-//             parameters: todo!(),
-//             instructions: self.instructions,
-//             end: self.end,
-//         }
-//     }
-// }

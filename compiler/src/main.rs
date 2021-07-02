@@ -116,7 +116,6 @@ fn main() {
 
     let converted = frontend::conv_only_bb::translate(&ir);
     eprintln!("{:#?}", converted);
-    panic!();
 
     let annotations = frontend::type_annotater::annotate(&ir);
     eprintln!("{:#?}", annotations);

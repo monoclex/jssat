@@ -351,6 +351,9 @@ pub fn translate<'ir>(ir: &'ir IR, annotations: &'ir TypeAnnotations) -> Backend
                     Instruction::Unreachable => {
                         instructions.push(llvm::Instruction::Unreachable);
                     }
+                    Instruction::MakeNumber(_, _) => todo!(),
+                    Instruction::CompareLessThan(_, _, _) => todo!(),
+                    Instruction::Add(_, _, _) => todo!(),
                 };
             }
 

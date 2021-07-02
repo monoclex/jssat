@@ -1,17 +1,12 @@
-use std::hash::{BuildHasherDefault, Hash};
-use std::panic::UnwindSafe;
-
-use bimap::{BiHashMap, BiMap};
-use petgraph::data::Build;
+use bimap::BiHashMap;
 use petgraph::graph::NodeIndex;
-use petgraph::visit::{EdgeRef, NodeIndexable};
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
+use std::hash::{BuildHasherDefault, Hash};
 
-use crate::frontend::ir::{ControlFlowInstruction, Function, FunctionBlock, Instruction, IR};
+use crate::frontend::ir::{
+    BasicBlockJump, ControlFlowInstruction, Function, FunctionBlock, Instruction, IR,
+};
 use crate::id::*;
-use crate::name::DebugName;
-
-use super::ir::BasicBlockJump;
 
 pub type ControlFlowGraph = petgraph::graph::DiGraph<BlockId, ()>;
 pub type ValueFlowGraph = petgraph::graph::DiGraph<RegisterId, ()>;
@@ -44,7 +39,7 @@ pub fn translate(ir: &IR) -> Vec<BasicBlock> {
 /// A function's representation, as it's being rewritten. The parameters of a
 /// function are merged into the first block
 struct RewritingFn {
-    entry: BlockId,
+    _entry: BlockId,
     blocks: FxHashMap<BlockId, FunctionBlock>,
 }
 
@@ -180,13 +175,6 @@ impl<'d> Algo<'d> {
     fn patch_arguments_to_children(&mut self, node: NodeIndex) -> bool {
         let block_id = self.flow.map.get_by_right(&node).unwrap();
 
-        let children = self
-            .flow
-            .cfg
-            .edges(node)
-            .map(|e| (e.target(), self.blocks.get(&e.target()).unwrap()))
-            .collect::<Vec<_>>();
-
         let block = self.function.blocks.get(block_id).unwrap();
         // var: map of { child block register <-> register in original function block }
         let mut deps_needed = Vec::new();
@@ -282,8 +270,9 @@ impl<'d> Algo<'d> {
         let block = self.function.blocks.get_mut(block_id).unwrap();
 
         for BasicBlockJump(child_id, params) in block.end.children_mut() {
-            let extend_params_with = final_provision_plan.remove(child_id).unwrap();
-            params.extend(extend_params_with);
+            if let Some(plan) = final_provision_plan.remove(child_id) {
+                params.extend(plan);
+            }
         }
 
         will_rewrite_any_children
@@ -404,7 +393,7 @@ fn compute_highest_register(f: &Function) -> Option<RegisterId> {
 
 fn to_rewriting_fn(f: &Function) -> RewritingFn {
     let mut result_fn = RewritingFn {
-        entry: f.entry_block,
+        _entry: f.entry_block,
         blocks: FxHashMap::default(),
     };
 

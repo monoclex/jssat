@@ -255,6 +255,9 @@ impl SymbolicExecutionEngine<'_> {
                 Instruction::Unreachable => {
                     instructions.push(Instruction::Unreachable);
                 }
+                Instruction::MakeNumber(_, _) => todo!(),
+                Instruction::CompareLessThan(_, _, _) => todo!(),
+                Instruction::Add(_, _, _) => todo!(),
             }
         }
 

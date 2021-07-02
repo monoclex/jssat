@@ -1,5 +1,3 @@
-use std::borrow::Borrow;
-
 #[cfg(feature = "link-swc")]
 use swc_common::{
     errors::{ColorConfig, Handler},
@@ -13,11 +11,7 @@ use swc_ecmascript::{
     parser::{Parser, Syntax},
 };
 
-use crate::{
-    frontend::{builder::*, ir::*},
-    id::IdCompat,
-    name::DebugName,
-};
+use crate::frontend::{builder::*, ir::*};
 
 #[cfg(not(feature = "link-swc"))]
 fn to_script(_source: String) -> () {}
@@ -51,6 +45,107 @@ pub fn traverse(source: String) -> IR {
 
     let mut builder = ProgramBuilder::new();
 
+    let fib = {
+        // let (mut fib, [n]) = builder.start_function("fib");
+
+        /*
+        def fib(n):
+            if n == 0:
+                ret 0
+            if n == 1:
+                ret 1
+            ret fib(n - 2) + fib(n - 1)
+
+        fib(n):
+            Entry():
+                is_zero = n < 1 // not implementing `==` rn lmfao
+                if (is_zero)
+                    jmp RetZero()
+                else
+                    jmp CheckOne()
+            RetZero():
+                ret 0
+            CheckOne():
+                is_one = n < 2
+                if (is_one)
+                    jmp RetOne()
+                else
+                    jmp ComputeFib()
+            RetOne():
+                ret 1
+            ComputeFib():
+                p0 = n - 2
+                lhs = call fib(p0)
+                p1 = n - 1
+                rhs = call fib(p1)
+                result = lhs + rhs
+                ret result
+        */
+    };
+
+    let sum = {
+        let (mut sum, [n]) = builder.start_function("sum");
+
+        /*
+        def sum(n):
+            total = 0
+            for i in range(0, n):
+                total += i
+            return total
+
+        sum(n):
+            Entry():
+                i = 0
+                total = 0
+                jmp Check(i, total)
+            Check(ci, ctotal):
+                should_iterate = ci < n
+                if (should_iterate)
+                    jmp Loop(ci, ctotal)
+                else
+                    jmp End(ctotal)
+            Loop(li, ltotal):
+                total2 = ltotal + li
+                i2 = li + 1
+                jmp Check(i2, total2)
+            End(etotal):
+                ret etotal
+        */
+        let mut entry = sum.start_block_main();
+        let (mut check, [ci, ctotal]) = sum.start_block();
+        let (mut bloop, [li, ltotal]) = sum.start_block();
+        let (end, [etotal]) = sum.start_block();
+
+        let check_sig = check.signature();
+
+        {
+            let i = entry.make_number_decimal(0.0);
+            let total = entry.make_number_decimal(0.0);
+            sum.end_block(entry.jmp(check.signature(), [i, total]));
+        }
+        {
+            let should_iterate = check.compare_less_than(ci, n);
+            sum.end_block(check.jmpif(
+                should_iterate,
+                bloop.signature(),
+                [ci, ctotal],
+                end.signature(),
+                [ctotal],
+            ));
+        }
+        {
+            let total2 = bloop.add(ltotal, li);
+            let one = bloop.make_number_decimal(1.0);
+            let i2 = bloop.add(li, one);
+            sum.end_block(bloop.jmp(check_sig, [i2, total2]));
+        }
+        {
+            sum.end_block(end.ret(Some(etotal)));
+        }
+
+        builder.end_function(sum)
+    };
+
     let print_stub = {
         let (mut print_stub, [any]) = builder.start_function("print_stub");
 
@@ -68,7 +163,7 @@ pub fn traverse(source: String) -> IR {
         builder.end_function(print_stub)
     };
 
-    let main = {
+    let _main = {
         let mut main = builder.start_function_main();
 
         let hello_world = builder.constant_str_utf16("hello_world", "Hello, World!".into());
@@ -76,6 +171,8 @@ pub fn traverse(source: String) -> IR {
         let mut block = main.start_block_main();
         let hello_world = block.make_string(hello_world);
         block.call(print_stub, [hello_world]);
+        let ten = block.make_number_decimal(10.0);
+        block.call(sum, [ten]);
         main.end_block(block.ret(None));
 
         builder.end_function(main)

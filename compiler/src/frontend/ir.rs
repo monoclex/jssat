@@ -104,6 +104,9 @@ pub enum Instruction {
     /// This is used to implement functions that recurse an unknown amount of
     /// times.
     Unreachable,
+    MakeNumber(RegisterId, f64),
+    CompareLessThan(RegisterId, RegisterId, RegisterId),
+    Add(RegisterId, RegisterId, RegisterId),
 }
 
 #[derive(Debug, Clone)]
@@ -139,26 +142,38 @@ impl Instruction {
     pub fn assigned_to(&self) -> Option<RegisterId> {
         match self {
             Instruction::Call(result, _, _) => *result,
-            Instruction::GetRuntime(result) | Instruction::MakeString(result, _) => Some(*result),
             Instruction::Unreachable => None,
+            Instruction::GetRuntime(result)
+            | Instruction::MakeString(result, _)
+            | Instruction::MakeNumber(result, _)
+            | Instruction::CompareLessThan(result, _, _)
+            | Instruction::Add(result, _, _) => Some(*result),
         }
     }
 
     pub fn used_registers(&self) -> Vec<RegisterId> {
         match self {
             Instruction::Call(_, _, params) => params.clone(),
-            Instruction::GetRuntime(_)
+            Instruction::CompareLessThan(_, lhs, rhs) | Instruction::Add(_, lhs, rhs) => {
+                vec![*lhs, *rhs]
+            }
+            Instruction::Unreachable
+            | Instruction::GetRuntime(_)
             | Instruction::MakeString(_, _)
-            | Instruction::Unreachable => Vec::new(),
+            | Instruction::MakeNumber(_, _) => Vec::new(),
         }
     }
 
     pub fn used_registers_mut(&mut self) -> Vec<&mut RegisterId> {
         match self {
             Instruction::Call(_, _, params) => params.iter_mut().collect(),
+            Instruction::CompareLessThan(_, lhs, rhs) | Instruction::Add(_, lhs, rhs) => {
+                vec![lhs, rhs]
+            }
             Instruction::GetRuntime(_)
             | Instruction::MakeString(_, _)
-            | Instruction::Unreachable => Vec::new(),
+            | Instruction::Unreachable
+            | Instruction::MakeNumber(_, _) => Vec::new(),
         }
     }
 }
