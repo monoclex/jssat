@@ -18,7 +18,7 @@ use super::conv_only_bb::Block;
 ///
 /// This works by symbolically executing the JSSAT IR, and emitting equivalent functions.
 // can't use references because we need them to live 'static for tokio::spawn to work
-pub fn annotate(ir: &IR, blocks: Vec<Block>) -> TypeAnnotations {
+pub fn annotate(ir: &IR, blocks: Vec<Block>) -> SymbolicEngine {
     let mut entrypoints = FxHashMap::default();
     for (id, func) in ir.functions.iter() {
         entrypoints.insert(*id, func.entry_block);
@@ -27,7 +27,7 @@ pub fn annotate(ir: &IR, blocks: Vec<Block>) -> TypeAnnotations {
     let mut symb_exec_eng =
         SymbolicEngineToken::new(blocks, entrypoints, ir.external_functions.clone());
 
-    let explore_req = symb_exec_eng.explore_fn(BlockExecutionKey {
+    let explore_req = symb_exec_eng.clone().explore_fn(BlockExecutionKey {
         function: ir.entrypoint,
         block: ir.functions.get(&ir.entrypoint).unwrap().entry_block,
         parameters: vec![],
@@ -37,21 +37,15 @@ pub fn annotate(ir: &IR, blocks: Vec<Block>) -> TypeAnnotations {
     let result = rt.block_on(explore_req);
     drop(rt);
 
-    println!("main ret: {:?}", result);
-
-    // let (main_fn_id, _) = symb_exec_eng.symbolically_execute(&ir.entrypoint, vec![]);
-
-    // TypeAnnotations {
-    //     entrypoint: main_fn_id,
-    //     functions: symb_exec_eng.typed_functions,
-    // }
-    todo!()
+    let mutex = Arc::try_unwrap(symb_exec_eng.0).expect("nothing should be using the mutex");
+    Mutex::into_inner(mutex)
 }
 
 #[derive(Clone)]
 struct SymbolicEngineToken(Arc<Mutex<SymbolicEngine>>);
 
-struct SymbolicEngine {
+#[derive(Debug)]
+pub struct SymbolicEngine {
     // can't use references because we need them to live 'static for tokio::spawn to work,
     // which is why it's Arc<T> and not &T
     //
@@ -59,15 +53,17 @@ struct SymbolicEngine {
     // a reference to a block which requires us to lock the engine, but we need to temporarily
     // unlock the engine in order to figure out the type of a function call. we'd need
     // to release and then regain our reference, but that's annoying, so Vec<Arc<T>> it is
-    blocks: Arc<Vec<Arc<Block>>>,
-    entrypoints: FxHashMap<FunctionId, BlockId>,
-    executions: Executions,
-    ext_fns: FxHashMap<ExternalFunctionId, ExternalFunction>,
-    typed_blocks: FxHashMap<BlockKey, TypedFunction>,
-    new_fn_ids: Counter<FunctionId>,
+    pub blocks: Arc<Vec<Arc<Block>>>,
+    pub entrypoints: FxHashMap<FunctionId, BlockId>,
+    pub executions: Executions,
+    pub ext_fns: FxHashMap<ExternalFunctionId, ExternalFunction>,
+    pub typed_blocks: FxHashMap<BlockKey, TypedFunction>,
+    pub new_fn_ids: Counter<FunctionId>,
 }
 
-struct Executions {
+
+#[derive(Debug)]
+pub struct Executions {
     executions: FxHashMap<(FunctionId, BlockId), Vec<(Vec<ValueType>, BlockExecution)>>,
 }
 
@@ -98,30 +94,46 @@ impl Executions {
 
         executions.push((key.parameters, execution));
     }
+
+    pub fn all_fn_invocations(&self) -> impl Iterator<Item = (FunctionId, BlockId, &Vec<ValueType>, &BlockExecution)> {
+        self.executions.iter()
+            .flat_map(|(k, v)| v.iter().map(move |e| (k, e)))
+            .map(|((fn_id, blk), (args, cf))| (*fn_id, *blk, args, cf))
+    }
 }
 
-#[derive(PartialEq, Eq, Hash, Clone, Copy)]
-struct BlockKey {
-    function: FunctionId,
-    block: BlockId,
+#[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
+pub struct BlockKey {
+    pub function: FunctionId,
+    pub block: BlockId,
 }
 
-#[derive(PartialEq, Clone)]
-struct BlockExecutionKey {
-    function: FunctionId,
-    block: BlockId,
-    parameters: Vec<ValueType>,
+#[derive(PartialEq, Debug, Clone)]
+pub struct BlockExecutionKey {
+    pub function: FunctionId,
+    pub block: BlockId,
+    pub parameters: Vec<ValueType>,
 }
 
-enum BlockExecution {
+#[derive(Debug)]
+pub enum BlockExecution {
     InProgress(BlockKey),
     Finished(BlockKey),
 }
 
+impl BlockExecution {
+    pub fn key(&self) -> BlockKey {
+        match self {
+            BlockExecution::InProgress(a) |
+            BlockExecution::Finished(a) => *a,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct TypedFunction {
-    return_type: ReturnType,
-    eval_blocks: Vec<(BlockId, Vec<ValueType>, FxHashMap<RegisterId, ValueType>)>,
+    pub return_type: ReturnType,
+    pub eval_blocks: Vec<(BlockId, Vec<ValueType>, ExplorationBranch, FxHashMap<RegisterId, ValueType>)>,
 }
 
 struct ExecutedFnBlock {}
@@ -186,6 +198,14 @@ impl SymbolicEngineToken {
         block_stack.push_back(block);
 
         while let Some(exec_key) = block_stack.pop_front() {
+            let has_evaled_block = {
+                eval_blocks.iter().any(|(block, keys, _, _)| *block == exec_key.block && keys == &exec_key.parameters)
+            };
+
+            if has_evaled_block {
+                continue;
+            }
+
             let block = exec_key.block;
             let params = exec_key.parameters.clone();
 
@@ -194,14 +214,14 @@ impl SymbolicEngineToken {
                 types,
             } = self.explore_block(exec_key).await;
 
-            match control_flow {
+            match &control_flow {
                 ExplorationBranch::Branch(next) => {
-                    block_stack.extend(next);
+                    block_stack.extend(next.clone());
                 }
-                ExplorationBranch::Complete(ret_type) => return_type.unify(ret_type),
+                ExplorationBranch::Complete(ret_type) => return_type.unify(ret_type.clone()),
             };
 
-            eval_blocks.push((block, params, types));
+            eval_blocks.push((block, params, control_flow, types));
         }
         
         let typed = TypedFunction {
@@ -378,7 +398,8 @@ struct Exploration {
     types: FxHashMap<RegisterId, ValueType>,
 }
 
-enum ExplorationBranch {
+#[derive(Debug)]
+pub enum ExplorationBranch {
     Branch(Vec<BlockExecutionKey>),
     Complete(ReturnType),
 }
@@ -699,12 +720,6 @@ enum ExplorationBranch {
 //         )
 //     }
 // }
-
-#[derive(Debug)]
-pub struct TypeAnnotations {
-    pub entrypoint: FunctionId,
-    pub functions: FxHashMap<FunctionId, TypedFunction>,
-}
 
 // #[derive(Debug)]
 // pub struct TypedFunction {

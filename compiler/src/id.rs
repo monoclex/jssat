@@ -83,6 +83,7 @@ gen_id!(RegisterId);
 gen_id!(InternalSlotId);
 gen_id!(OpaqueStructId);
 
+#[derive(Debug)]
 pub struct Counter<I> {
     current: AtomicUsize,
     phantom: PhantomData<I>,
@@ -104,10 +105,20 @@ impl<I: IdCompat> Counter<I> {
         Self::new_with_value(current.value() + 1)
     }
 
+    pub fn current(&self) -> I {
+        I::new_with_value(self.current.load(std::sync::atomic::Ordering::Relaxed))
+    }
+
     pub fn next(&self) -> I {
         I::new_with_value(
             self.current
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         )
+    }
+}
+
+impl<I: IdCompat> Default for Counter<I> {
+    fn default() -> Self {
+        Self::new()
     }
 }

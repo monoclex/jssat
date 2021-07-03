@@ -117,10 +117,13 @@ fn main() {
     let as_only_blocks = frontend::conv_only_bb::translate(&ir);
     eprintln!("{:#?}", as_only_blocks);
 
-    let annotations = frontend::type_annotater::annotate(&ir, as_only_blocks);
-    eprintln!("{:#?}", annotations);
+    let annotations = frontend::type_annotater::annotate(&ir, as_only_blocks.clone());
+    // eprintln!("{:#?}", annotations);
 
-    let build = backend::compile(&ir, &annotations);
+    let assembled = frontend::assembler::assemble(ir, as_only_blocks, annotations);
+    eprintln!("{:#?}", assembled);
+
+    let build = backend::compile(assembled);
     eprintln!("OUTPUT LLVM IR (use unix pipes to redirect this into a file):");
     println!("{}", build.llvm_ir);
 

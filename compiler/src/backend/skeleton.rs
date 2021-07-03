@@ -5,7 +5,7 @@ use crate::backend::llvm::{
 };
 use crate::frontend::ir::{FFIReturnType, FFIValueType, Instruction};
 use crate::frontend::{self, type_annotater};
-use crate::frontend::{ir::IR, type_annotater::TypeAnnotations};
+use crate::frontend::{ir::IR, type_annotater::SymbolicEngine};
 use crate::id::*;
 
 use super::llvm::{Function, Parameter, ReturnType, ValueType};
@@ -16,7 +16,7 @@ struct OpaqueStructs {
     string: OpaqueStructId,
 }
 
-pub fn translate<'ir>(ir: &'ir IR, annotations: &'ir TypeAnnotations) -> BackendIR<'ir> {
+pub fn translate<'ir>(ir: &'ir IR, annotations: &'ir SymbolicEngine) -> BackendIR<'ir> {
     //     //
     //     // let mut external_functions = FxHashMap::default();
     //     // let mut function = FxHashMap::default();

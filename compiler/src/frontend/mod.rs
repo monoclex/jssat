@@ -1,3 +1,4 @@
+pub mod assembler;
 pub mod builder;
 pub mod conv_only_bb;
 pub mod ir;
