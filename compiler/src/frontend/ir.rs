@@ -16,7 +16,7 @@ pub struct Constant {
     pub payload: Vec<u8>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ExternalFunction {
     pub name: String,
     pub parameters: Vec<FFIValueType>,
@@ -44,7 +44,7 @@ pub enum FFIValueType {
     String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum FFIReturnType {
     Void,
     Value(FFIValueType),

@@ -171,7 +171,7 @@ pub fn traverse(source: String) -> IR {
         let mut block = main.start_block_main();
         let hello_world = block.make_string(hello_world);
         block.call(print_stub, [hello_world]);
-        let ten = block.make_number_decimal(10.0);
+        let ten = block.make_number_decimal(100.0);
         block.call(sum, [ten]);
         main.end_block(block.ret(None));
 

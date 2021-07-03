@@ -19,14 +19,14 @@ fn new_bifxhashmap<K: Eq + Hash, V: Eq + Hash>() -> BiFxHashMap<K, V> {
 }
 
 #[derive(Debug, Clone)]
-pub struct BasicBlock {
+pub struct Block {
     pub derived_from: (FunctionId, BlockId),
     pub parameters: Vec<RegisterId>,
     pub instructions: Vec<Instruction>,
     pub end: ControlFlowInstruction,
 }
 
-pub fn translate(ir: &IR) -> Vec<BasicBlock> {
+pub fn translate(ir: &IR) -> Vec<Block> {
     let mut blocks = Vec::new();
 
     for (id, function) in ir.functions.iter() {
@@ -51,7 +51,7 @@ struct Algo<'duration> {
 }
 
 struct BlockState {
-    /// Map of [register present in function definition -> rewritten register]
+    /// Map of register present in function definition -> rewritten register
     replacements: BiFxHashMap<RegisterId, RegisterId>,
 }
 
@@ -217,10 +217,20 @@ impl<'d> Algo<'d> {
         // first, figure out dependencies that can be provided
         let block = self.function.blocks.get_mut(block_id).unwrap();
         let state = self.blocks.get_mut(&node).unwrap();
+        let declared_registers = block.declared_registers();
         for (child_block_register, register_in_original_fn) in deps_needed.into_iter() {
+            // does this block own the register?
+            if declared_registers.contains(&register_in_original_fn) {
+                // we can provision it
+                provision_plan
+                    .insert(child_block_register, register_in_original_fn)
+                    .expect_none("we shouldn't have duplicates, this is just in case")
+            } else
             // let x = reg in orig fn, a = replacement reg (in this block's params)
             // replacements | { x -> a },
-            if let Some(replacement) = state.replacements.get_by_left(&register_in_original_fn) {
+            if let Some(replacement) =
+                state.replacements.get_by_left(&register_in_original_fn)
+            {
                 // we can provision this register
                 provision_plan
                     .insert(child_block_register, *replacement)
@@ -279,7 +289,7 @@ impl<'d> Algo<'d> {
     }
 }
 
-pub fn translate_function(fn_id: FunctionId, func: &Function) -> Vec<BasicBlock> {
+pub fn translate_function(fn_id: FunctionId, func: &Function) -> Vec<Block> {
     let flow = compute_flow(func);
 
     let mut reg_counter = compute_highest_register(func)
@@ -300,7 +310,7 @@ pub fn translate_function(fn_id: FunctionId, func: &Function) -> Vec<BasicBlock>
     granular_rewrite
         .blocks
         .into_iter()
-        .map(|(id, block)| BasicBlock {
+        .map(|(id, block)| Block {
             derived_from: (fn_id, id),
             parameters: block.parameters,
             instructions: block.instructions,

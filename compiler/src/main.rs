@@ -6,7 +6,7 @@
 #![feature(const_option)]
 #![feature(option_expect_none)]
 
-use std::{io::Write, process::Command};
+use std::{io::Write, process::Command, sync::Arc};
 
 use rustc_hash::FxHashMap;
 
@@ -114,10 +114,10 @@ fn main() {
     let ir = frontend::js::traverse(content);
     eprintln!("{:#?}", ir);
 
-    let converted = frontend::conv_only_bb::translate(&ir);
-    eprintln!("{:#?}", converted);
+    let as_only_blocks = frontend::conv_only_bb::translate(&ir);
+    eprintln!("{:#?}", as_only_blocks);
 
-    let annotations = frontend::type_annotater::annotate(&ir);
+    let annotations = frontend::type_annotater::annotate(&ir, as_only_blocks);
     eprintln!("{:#?}", annotations);
 
     let build = backend::compile(&ir, &annotations);
