@@ -11,13 +11,13 @@ use super::{
     ir::{FFIValueType, IR},
     type_annotater::{BlockKey, ExplorationBranch, SymbolicEngine, ValueType},
 };
-use crate::id::*;
+use crate::id::{self, *};
 
 #[derive(Clone, Debug)]
 pub struct Program {
-    constants: FxHashMap<ConstantId, Vec<u8>>,
-    external_functions: FxHashMap<ExternalFunctionId, ExternalFunction>,
-    functions: FxHashMap<FunctionId, Function>,
+    constants: FxHashMap<ConstantId<AssemblerCtx>, Vec<u8>>,
+    external_functions: FxHashMap<ExternalFunctionId<AssemblerCtx>, ExternalFunction>,
+    functions: FxHashMap<FunctionId<AssemblerCtx>, Function>,
 }
 
 #[derive(Clone, Debug)]
@@ -29,8 +29,8 @@ pub struct ExternalFunction {
 
 #[derive(Clone, Debug)]
 pub struct Function {
-    entry_block: BlockId,
-    blocks: FxHashMap<BlockId, Block>,
+    entry_block: BlockId<AssemblerCtx>,
+    blocks: FxHashMap<BlockId<AssemblerCtx>, Block>,
 }
 
 #[derive(Clone, Debug)]
@@ -47,7 +47,7 @@ pub struct Parameter {
     // their index? it makes sense not to do this in the other IRs because of
     // mangling parameters, but here we have pretty much all the information
     // necessary to craft a final product
-    register: RegisterId,
+    register: RegisterId<AssemblerCtx>,
 }
 
 #[derive(Clone, Debug)]
@@ -104,16 +104,21 @@ struct Assembler {
     blocks: Vec<BBlock>,
     engine: SymbolicEngine,
     //
-    constants: FxHashMap<ConstantId, Vec<u8>>,
-    constant_id_gen: Counter<ConstantId>,
-    external_functions: FxHashMap<ExternalFunctionId, ExternalFunction>,
-    functions: FxHashMap<FunctionId, Function>,
+    constants: FxHashMap<ConstantId<AssemblerCtx>, Vec<u8>>,
+    constant_id_gen: Counter<ConstantId<AssemblerCtx>>,
+    external_functions: FxHashMap<ExternalFunctionId<AssemblerCtx>, ExternalFunction>,
+    functions: FxHashMap<FunctionId<AssemblerCtx>, Function>,
 }
 
 impl Assembler {
     pub fn new(mut ir: IR, blocks: Vec<BBlock>, engine: SymbolicEngine) -> Self {
         let external_functions = (ir.external_functions.into_iter())
-            .map(|(k, v)| (k, map_ext_fn(v)))
+            .map(|(k, v)| {
+                (
+                    id::convert::<_, ExternalFunctionId<AssemblerCtx>>(k),
+                    map_ext_fn(v),
+                )
+            })
             .collect::<FxHashMap<_, _>>();
 
         // hack so we can still have a owned `ir` everywhere
@@ -143,13 +148,8 @@ impl Assembler {
         {
             // at this point, we will have only function ids, their entry blocks,
             // and the pairs of arguments passed to the function to invoke
-            let fn_assembler = FnAssembler::new(
-                &self,
-                fn_id,
-                entry_blk,
-                args.iter().map(ValueType::to_type).collect(),
-                cntrl_flw.key(),
-            );
+            let fn_assembler =
+                FnAssembler::new(&self, fn_id, entry_blk, args.clone(), cntrl_flw.key());
 
             let assembled_fn = fn_assembler.assemble();
 
@@ -162,13 +162,21 @@ impl Assembler {
             functions: self.functions,
         }
     }
+
+    fn find_block(&self, fn_id: FunctionId, blk_id: BlockId) -> &BBlock {
+        self.blocks
+            .iter()
+            .filter(|b| b.derived_from == (fn_id, blk_id))
+            .next()
+            .unwrap()
+    }
 }
 
 struct FnAssembler<'duration> {
     assembler: &'duration Assembler,
     function_id: FunctionId,
     entry_block: BlockId,
-    invocation_args: Vec<Type>,
+    invocation_args: Vec<ValueType>,
     block_key: BlockKey,
 }
 
@@ -177,7 +185,7 @@ impl<'d> FnAssembler<'d> {
         assembler: &'d Assembler,
         function_id: FunctionId,
         entry_block: BlockId,
-        invocation_args: Vec<Type>,
+        invocation_args: Vec<ValueType>,
         block_key: BlockKey,
     ) -> Self {
         Self {
@@ -189,15 +197,57 @@ impl<'d> FnAssembler<'d> {
         }
     }
 
-    pub fn assemble(self) -> AssembledFn {
-        todo!()
+    pub fn assemble(self) -> Function {
+        let block_id = Counter::new();
+        let mut blocks = FxHashMap::default();
+        let mut entry_block = None;
+
+        let mut blocks_to_assemble = VecDeque::new();
+        blocks_to_assemble.push_back((self.entry_block, self.invocation_args));
+
+        let typed_fn = (self.assembler.engine.typed_blocks)
+            .get(&self.block_key)
+            .unwrap();
+
+        while let Some((block, args)) = blocks_to_assemble.pop_front() {
+            let id = block_id.next();
+
+            if block == self.entry_block {
+                entry_block = Some(id);
+            }
+
+            let (branch, register_types) = typed_fn.find(&block, &args);
+            let block_src = self.assembler.find_block(self.block_key.function, block);
+
+            todo!("assmeble block!!!");
+        }
+
+        let entry_block =
+            entry_block.expect("should've set this while executing fn. this is impossible");
+
+        Function {
+            entry_block,
+            blocks,
+        }
     }
 }
-
-pub struct AssembledFn {}
 
 impl ValueType {
     pub fn to_type(&self) -> Type {
         Type::Val(self.clone())
+    }
+
+    pub fn is_const(&self) -> bool {
+        match self {
+            ValueType::Any
+            | ValueType::Runtime
+            | ValueType::String
+            | ValueType::Number
+            | ValueType::BytePointer
+            | ValueType::Pointer(_)
+            | ValueType::Word
+            | ValueType::Boolean => false,
+            ValueType::ExactNumber(_) | ValueType::ExactString(_) | ValueType::Bool(_) => true,
+        }
     }
 }

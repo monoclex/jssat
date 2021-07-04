@@ -3,9 +3,12 @@ use std::{hash::Hash, marker::PhantomData, sync::atomic::AtomicUsize};
 macro_rules! gen_id {
     ($name:ident) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-        pub struct $name(::std::num::NonZeroUsize);
+        pub struct $name<Ctx = crate::id::NoContext>(
+            ::std::num::NonZeroUsize,
+            ::std::marker::PhantomData<Ctx>,
+        );
 
-        impl $name {
+        impl<C: PartialEq + Eq + Hash + Sized + Copy> $name<C> {
             pub fn new() -> Self {
                 Self::new_const()
             }
@@ -16,7 +19,10 @@ macro_rules! gen_id {
 
             pub const fn new_with_value_const(value: usize) -> Self {
                 debug_assert!(value != usize::MAX);
-                Self(::std::num::NonZeroUsize::new(value + 1).unwrap())
+                Self(
+                    ::std::num::NonZeroUsize::new(value + 1).unwrap(),
+                    ::std::marker::PhantomData,
+                )
             }
 
             pub fn next(&self) -> Self {
@@ -36,9 +42,9 @@ macro_rules! gen_id {
             }
         }
 
-        impl crate::id::IdCompat for $name {
+        impl<C: PartialEq + Eq + Hash + Sized + Copy> crate::id::IdCompat for $name<C> {
             fn new_with_value(value: usize) -> Self {
-                $name::new_with_value_const(value)
+                $name::<C>::new_with_value_const(value)
             }
 
             fn value(&self) -> usize {
@@ -71,6 +77,28 @@ where
 {
     B::new_with_value(a.value())
 }
+
+macro_rules! gen_id_ctx {
+    (
+        // https://amanjeev.com/blog/rust-document-macro-invocations
+        $(#[$meta:meta])*
+        $name:ident
+    ) => {
+        $(#[$meta])*
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+        pub enum $name {}
+    };
+}
+
+gen_id_ctx!(
+    /// Represents an ID that doesn't have an inherent context. Contexts are used
+    /// on IDs to differentiate them from different passes, as some passes may
+    /// generate their own IDs, and differentiating the two by the type is useful.
+    NoContext
+);
+
+// TODO: this should be in `assembler.rs` but meh
+gen_id_ctx!(AssemblerCtx);
 
 gen_id!(TypeId);
 gen_id!(TopLevelId);

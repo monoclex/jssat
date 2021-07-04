@@ -1,6 +1,5 @@
 
 use std::collections::VecDeque;
-use std::ops::{Deref, Index};
 use std::sync::Arc;
 
 use thiserror::Error;
@@ -24,7 +23,7 @@ pub fn annotate(ir: &IR, blocks: Vec<Block>) -> SymbolicEngine {
         entrypoints.insert(*id, func.entry_block);
     }
 
-    let mut symb_exec_eng =
+    let symb_exec_eng =
         SymbolicEngineToken::new(blocks, entrypoints, ir.external_functions.clone());
 
     let explore_req = symb_exec_eng.clone().explore_fn(BlockExecutionKey {
@@ -34,7 +33,7 @@ pub fn annotate(ir: &IR, blocks: Vec<Block>) -> SymbolicEngine {
     });
 
     let rt = tokio::runtime::Runtime::new().unwrap();
-    let result = rt.block_on(explore_req);
+    rt.block_on(explore_req);
     drop(rt);
 
     let mutex = Arc::try_unwrap(symb_exec_eng.0).expect("nothing should be using the mutex");
@@ -136,7 +135,15 @@ pub struct TypedFunction {
     pub eval_blocks: Vec<(BlockId, Vec<ValueType>, ExplorationBranch, FxHashMap<RegisterId, ValueType>)>,
 }
 
-struct ExecutedFnBlock {}
+impl TypedFunction {
+    pub fn find(&self, block: &BlockId, args: &Vec<ValueType>) -> (&ExplorationBranch, &FxHashMap<RegisterId, ValueType>) {
+        (self.eval_blocks.iter())
+            .filter(|(blk, blk_args, _, _)| blk == block && blk_args == args)
+            .map(|(_, _, branch, map)| (branch, map))
+            .next()
+            .unwrap()
+    }
+}
 
 impl SymbolicEngineToken {
     fn new(
@@ -1055,7 +1062,7 @@ impl FFICoerce {
 impl ReturnType {
     fn unify(&mut self, other: ReturnType) {
         match (&self, other) {
-            (ReturnType::Value(a), ReturnType::Value(b)) => todo!("unify 2 values"),
+            (ReturnType::Value(_), ReturnType::Value(_)) => todo!("unify 2 values"),
             (a, b) if *a == &b => {
                 // do nothing, as both types are the same
             },

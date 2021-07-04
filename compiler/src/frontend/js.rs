@@ -45,7 +45,7 @@ pub fn traverse(source: String) -> IR {
 
     let mut builder = ProgramBuilder::new();
 
-    let fib = {
+    let _fib = {
         // let (mut fib, [n]) = builder.start_function("fib");
 
         /*
