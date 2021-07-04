@@ -42,7 +42,7 @@ pub struct Block {
 
 #[derive(Clone, Debug)]
 pub struct Parameter {
-    kind: Type,
+    typ: Type,
     // TODO: maybe parameters should implicitly get the register accoridng to
     // their index? it makes sense not to do this in the other IRs because of
     // mangling parameters, but here we have pretty much all the information
@@ -54,7 +54,9 @@ pub struct Parameter {
 pub enum Instruction {}
 
 #[derive(Clone, Debug)]
-pub enum EndInstruction {}
+pub enum EndInstruction {
+    T,
+}
 
 #[derive(Clone, Debug)]
 pub enum ReturnType {
@@ -108,34 +110,36 @@ struct Assembler {
     constant_id_gen: Counter<ConstantId<AssemblerCtx>>,
     external_functions: FxHashMap<ExternalFunctionId<AssemblerCtx>, ExternalFunction>,
     functions: FxHashMap<FunctionId<AssemblerCtx>, Function>,
+    //
+    function_ids: FxHashMap<(FunctionId<NoContext>, BlockId<NoContext>), FunctionId<AssemblerCtx>>,
 }
 
 impl Assembler {
     pub fn new(mut ir: IR, blocks: Vec<BBlock>, engine: SymbolicEngine) -> Self {
         let external_functions = (ir.external_functions.into_iter())
-            .map(|(k, v)| {
-                (
-                    id::convert::<_, ExternalFunctionId<AssemblerCtx>>(k),
-                    map_ext_fn(v),
-                )
-            })
+            .map(|(k, v)| (k.map_context::<AssemblerCtx>(), map_ext_fn(v)))
             .collect::<FxHashMap<_, _>>();
 
         // hack so we can still have a owned `ir` everywhere
         ir.external_functions = Default::default();
 
         Self {
+            ir,
+            blocks,
+            engine,
             constants: Default::default(),
             constant_id_gen: Default::default(),
             external_functions,
             functions: Default::default(),
-            ir,
-            blocks,
-            engine,
+            function_ids: Default::default(),
         }
     }
 
     pub fn assemble(mut self) -> Program {
+        self.assign_fn_ids();
+
+        let mut built_fns = Vec::new();
+
         // go through every function in the program and assemble it
         for (fn_id, entry_blk, args, cntrl_flw) in self
             .engine
@@ -152,14 +156,42 @@ impl Assembler {
                 FnAssembler::new(&self, fn_id, entry_blk, args.clone(), cntrl_flw.key());
 
             let assembled_fn = fn_assembler.assemble();
+            built_fns.push((fn_id, entry_blk, assembled_fn));
+        }
 
-            todo!("add the assembled function into our list of functions");
+        for (fn_id, blk_id, func) in built_fns {
+            self.functions.insert(self.get_fn_id(fn_id, blk_id), func);
         }
 
         Program {
             constants: self.constants,
             external_functions: self.external_functions,
             functions: self.functions,
+        }
+    }
+
+    fn get_fn_id(
+        &self,
+        fn_id: FunctionId<NoContext>,
+        blk_id: BlockId<NoContext>,
+    ) -> FunctionId<AssemblerCtx> {
+        *self.function_ids.get(&(fn_id, blk_id)).unwrap()
+    }
+
+    fn assign_fn_ids(&mut self) {
+        let id_gen = Counter::new();
+
+        let functions = &self.ir.functions;
+        for (fn_id, entry_blk, _, _) in
+            self.engine
+                .executions
+                .all_fn_invocations()
+                .filter(|(fn_id, blk_id, _, _)| {
+                    // only allow blocks that are the entry block
+                    functions.get(fn_id).unwrap().entry_block == *blk_id
+                })
+        {
+            self.function_ids.insert((fn_id, entry_blk), id_gen.next());
         }
     }
 
@@ -174,17 +206,19 @@ impl Assembler {
 
 struct FnAssembler<'duration> {
     assembler: &'duration Assembler,
-    function_id: FunctionId,
-    entry_block: BlockId,
+    function_id: FunctionId<NoContext>,
+    entry_block: BlockId<NoContext>,
     invocation_args: Vec<ValueType>,
     block_key: BlockKey,
+    block_id_gen: Counter<BlockId<AssemblerCtx>>,
+    block_id_map: FxHashMap<BlockId<NoContext>, BlockId<AssemblerCtx>>,
 }
 
 impl<'d> FnAssembler<'d> {
     pub fn new(
         assembler: &'d Assembler,
-        function_id: FunctionId,
-        entry_block: BlockId,
+        function_id: FunctionId<NoContext>,
+        entry_block: BlockId<NoContext>,
         invocation_args: Vec<ValueType>,
         block_key: BlockKey,
     ) -> Self {
@@ -194,41 +228,64 @@ impl<'d> FnAssembler<'d> {
             entry_block,
             invocation_args,
             block_key,
+            block_id_gen: Counter::new(),
+            block_id_map: Default::default(),
         }
     }
 
-    pub fn assemble(self) -> Function {
-        let block_id = Counter::new();
+    pub fn assemble(mut self) -> Function {
         let mut blocks = FxHashMap::default();
-        let mut entry_block = None;
 
         let mut blocks_to_assemble = VecDeque::new();
-        blocks_to_assemble.push_back((self.entry_block, self.invocation_args));
+        blocks_to_assemble.push_back((
+            self.entry_block,
+            std::mem::replace(&mut self.invocation_args, Vec::new()),
+        ));
 
         let typed_fn = (self.assembler.engine.typed_blocks)
             .get(&self.block_key)
             .unwrap();
 
         while let Some((block, args)) = blocks_to_assemble.pop_front() {
-            let id = block_id.next();
-
-            if block == self.entry_block {
-                entry_block = Some(id);
-            }
+            let id = self.id_of(block);
 
             let (branch, register_types) = typed_fn.find(&block, &args);
             let block_src = self.assembler.find_block(self.block_key.function, block);
 
-            todo!("assmeble block!!!");
-        }
+            let parameters = (args.iter())
+                .zip(block_src.parameters.iter())
+                // we can ignore parameters with constant values, as we will
+                // always know their value
+                .filter(|(typ, _)| !typ.is_const())
+                .map(|(typ, register)| Parameter {
+                    typ: typ.to_type(),
+                    register: register.map_context::<AssemblerCtx>(),
+                })
+                .collect::<Vec<_>>();
 
-        let entry_block =
-            entry_block.expect("should've set this while executing fn. this is impossible");
+            let instructions = Vec::new();
+            let end = EndInstruction::T;
+
+            let block = Block {
+                parameters,
+                instructions,
+                end,
+            };
+
+            blocks.insert(id, block);
+        }
 
         Function {
-            entry_block,
+            entry_block: self.id_of(self.entry_block),
             blocks,
         }
+    }
+
+    fn id_of(&mut self, blk_id: BlockId<NoContext>) -> BlockId<AssemblerCtx> {
+        let id_gen = &self.block_id_gen;
+        *(self.block_id_map)
+            .entry(blk_id)
+            .or_insert_with(|| id_gen.next())
     }
 }
 

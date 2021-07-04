@@ -2,6 +2,8 @@ use std::{hash::Hash, marker::PhantomData, sync::atomic::AtomicUsize};
 
 macro_rules! gen_id {
     ($name:ident) => {
+        // TODO: remove the implicit `NoContext` attribute, this is just so that
+        // the codebase can gradually get accustomed to contexts
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
         pub struct $name<Ctx = crate::id::NoContext>(
             ::std::num::NonZeroUsize,
@@ -39,6 +41,10 @@ macro_rules! gen_id {
 
             pub fn convert<I: IdCompat>(&self) -> I {
                 convert::<Self, I>(*self)
+            }
+
+            pub fn map_context<C2: PartialEq + Eq + Hash + Sized + Copy>(&self) -> $name<C2> {
+                $name::<C2>::new_with_value_const(self.value())
             }
         }
 
