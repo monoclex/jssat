@@ -2,13 +2,8 @@ use std::{hash::Hash, marker::PhantomData, sync::atomic::AtomicUsize};
 
 macro_rules! gen_id {
     ($name:ident) => {
-        // TODO: remove the implicit `NoContext` attribute, this is just so that
-        // the codebase can gradually get accustomed to contexts
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-        pub struct $name<Ctx = crate::id::NoContext>(
-            ::std::num::NonZeroUsize,
-            ::std::marker::PhantomData<Ctx>,
-        );
+        pub struct $name<Ctx>(::std::num::NonZeroUsize, ::std::marker::PhantomData<Ctx>);
 
         impl<C: PartialEq + Eq + Hash + Sized + Copy> $name<C> {
             pub fn new() -> Self {
@@ -58,7 +53,7 @@ macro_rules! gen_id {
             }
         }
 
-        impl ::std::fmt::Display for $name {
+        impl<C> ::std::fmt::Display for $name<C> {
             fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
                 write!(f, "{}", self.0)
             }
@@ -105,6 +100,22 @@ gen_id_ctx!(
 
 // TODO: this should be in `assembler.rs` but meh
 gen_id_ctx!(AssemblerCtx);
+gen_id_ctx!(
+    /// Context used by [`crate::frontend::ir`]
+    IrCtx
+);
+gen_id_ctx!(
+    /// Context used by [`crate::frontend::type_annotator`]
+    AnnotatedCtx
+);
+gen_id_ctx!(
+    /// Context used by [`crate::frontend::conv_only_bb`]
+    PureBbCtx
+);
+gen_id_ctx!(
+    /// Context used by [`crate::backend::llvm`]
+    LlvmCtx
+);
 
 gen_id!(TypeId);
 gen_id!(TopLevelId);
@@ -148,6 +159,10 @@ impl<I: IdCompat> Counter<I> {
             self.current
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         )
+    }
+
+    pub fn dup(&self) -> Self {
+        Self::new_with_value(self.current.load(std::sync::atomic::Ordering::Relaxed))
     }
 }
 

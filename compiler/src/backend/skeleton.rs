@@ -11,9 +11,9 @@ use crate::id::*;
 use super::llvm::{Function, Parameter, ReturnType, ValueType};
 
 struct OpaqueStructs {
-    runtime: OpaqueStructId,
-    any: OpaqueStructId,
-    string: OpaqueStructId,
+    runtime: OpaqueStructId<NoContext>,
+    any: OpaqueStructId<NoContext>,
+    string: OpaqueStructId<NoContext>,
 }
 
 pub fn translate<'ir>(ir: &'ir IR, annotations: &'ir SymbolicEngine) -> BackendIR<'ir> {

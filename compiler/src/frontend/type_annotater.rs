@@ -53,11 +53,11 @@ pub struct SymbolicEngine {
     // unlock the engine in order to figure out the type of a function call. we'd need
     // to release and then regain our reference, but that's annoying, so Vec<Arc<T>> it is
     pub blocks: Arc<Vec<Arc<Block>>>,
-    pub entrypoints: FxHashMap<FunctionId, BlockId>,
+    pub entrypoints: FxHashMap<FunctionId<IrCtx>, BlockId<IrCtx>>,
     pub executions: Executions,
-    pub ext_fns: FxHashMap<ExternalFunctionId, ExternalFunction>,
+    pub ext_fns: FxHashMap<ExternalFunctionId<IrCtx>, ExternalFunction>,
     pub typed_blocks: FxHashMap<BlockKey, TypedFunction>,
-    pub new_fn_ids: Counter<FunctionId>,
+    pub new_fn_ids: Counter<FunctionId<AnnotatedCtx>>,
 }
 
 
@@ -65,7 +65,7 @@ pub struct SymbolicEngine {
 pub struct Executions {
     // mapping of ORIGINAL fn id + block id to NEW fn id + block id
     // TODO: annotate these Contexts
-    executions: FxHashMap<(FunctionId, BlockId), Vec<(Vec<ValueType>, BlockExecution)>>,
+    executions: FxHashMap<(FunctionId<IrCtx>, BlockId<IrCtx>), Vec<(Vec<ValueType>, BlockExecution)>>,
 }
 
 impl Executions {
@@ -96,7 +96,7 @@ impl Executions {
         executions.push((key.parameters, execution));
     }
 
-    pub fn all_fn_invocations(&self) -> impl Iterator<Item = (FunctionId, BlockId, &Vec<ValueType>, &BlockExecution)> {
+    pub fn all_fn_invocations(&self) -> impl Iterator<Item = (FunctionId<IrCtx>, BlockId<IrCtx>, &Vec<ValueType>, &BlockExecution)> {
         self.executions.iter()
             .flat_map(|(k, v)| v.iter().map(move |e| (k, e)))
             .map(|((fn_id, blk), (args, cf))| (*fn_id, *blk, args, cf))
@@ -111,24 +111,15 @@ impl Default for Executions {
 
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub struct BlockKey {
-    pub function: FunctionId,
-    pub block: BlockId,
+    pub function: FunctionId<AnnotatedCtx>,
+    pub block: BlockId<AnnotatedCtx>,
 }
 
 #[derive(PartialEq, Debug, Clone)]
 pub struct BlockExecutionKey {
-    pub function: FunctionId,
-    pub block: BlockId,
+    pub function: FunctionId<IrCtx>,
+    pub block: BlockId<IrCtx>,
     pub parameters: Vec<ValueType>,
-}
-
-impl BlockExecutionKey {
-    fn key(&self) -> BlockKey {
-        BlockKey {
-            function: self.function,
-            block: self.block,
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -149,11 +140,11 @@ impl BlockExecution {
 #[derive(Debug)]
 pub struct TypedFunction {
     pub return_type: ReturnType,
-    pub eval_blocks: Vec<(BlockId, Vec<ValueType>, ExplorationBranch, FxHashMap<RegisterId, ValueType>)>,
+    pub eval_blocks: Vec<(BlockId<IrCtx>, Vec<ValueType>, ExplorationBranch, FxHashMap<RegisterId<PureBbCtx>, ValueType>)>,
 }
 
 impl TypedFunction {
-    pub fn find(&self, block: &BlockId, args: &Vec<ValueType>) -> (&ExplorationBranch, &FxHashMap<RegisterId, ValueType>) {
+    pub fn find(&self, block: &BlockId<IrCtx>, args: &Vec<ValueType>) -> (&ExplorationBranch, &FxHashMap<RegisterId<PureBbCtx>, ValueType>) {
         (self.eval_blocks.iter())
             .filter(|(blk, blk_args, _, _)| blk == block && blk_args == args)
             .map(|(_, _, branch, map)| (branch, map))
@@ -165,8 +156,8 @@ impl TypedFunction {
 impl SymbolicEngineToken {
     fn new(
         blocks: Vec<Block>,
-        entrypoints: FxHashMap<FunctionId, BlockId>,
-        ext_fns: FxHashMap<ExternalFunctionId, ExternalFunction>,
+        entrypoints: FxHashMap<FunctionId<IrCtx>, BlockId<IrCtx>>,
+        ext_fns: FxHashMap<ExternalFunctionId<IrCtx>, ExternalFunction>,
     ) -> Self {
         Self(Arc::new(Mutex::new(SymbolicEngine {
             blocks: Arc::new(blocks.into_iter().map(Arc::new).collect()),
@@ -277,7 +268,7 @@ impl SymbolicEngineToken {
         }
 
         for inst in block.instructions.iter() {
-            let map = |r: &RegisterId| types.get(r).unwrap();
+            let map = |r: &RegisterId<PureBbCtx>| types.get(r).unwrap();
 
             match inst {
                 Instruction::GetRuntime(reg) => {
@@ -422,7 +413,7 @@ impl SymbolicEngineToken {
 
 struct Exploration {
     control_flow: ExplorationBranch,
-    types: FxHashMap<RegisterId, ValueType>,
+    types: FxHashMap<RegisterId<PureBbCtx>, ValueType>,
 }
 
 #[derive(Debug)]
@@ -767,7 +758,7 @@ pub enum ExplorationBranch {
 #[derive(Debug)]
 pub struct Parameter {
     pub name: DebugName,
-    pub register: RegisterId,
+    pub register: RegisterId<NoContext>,
     pub r#type: ValueType,
 }
 
@@ -809,7 +800,7 @@ pub enum ValueType {
     String,
     // TODO: an "ExactString" should just be a String with some kind of
     // ExactnessGuarantee to be exactly a type of a constant
-    ExactString(ConstantId),
+    ExactString(ConstantId<PureBbCtx>),
     Number,
     ExactNumber(f64),
     BytePointer,

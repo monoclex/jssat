@@ -2,7 +2,13 @@ use rustc_hash::FxHashMap;
 use std::{hash::Hash, marker::PhantomData};
 
 use super::BuildArtifact;
-use crate::id::*;
+
+type BlockId = crate::id::BlockId<crate::id::LlvmCtx>;
+type FunctionId = crate::id::FunctionId<crate::id::LlvmCtx>;
+type ConstantId = crate::id::ConstantId<crate::id::LlvmCtx>;
+type RegisterId = crate::id::RegisterId<crate::id::LlvmCtx>;
+type OpaqueStructId = crate::id::OpaqueStructId<crate::id::LlvmCtx>;
+type ExternalFunctionId = crate::id::ExternalFunctionId<crate::id::LlvmCtx>;
 
 #[cfg(feature = "link-llvm")]
 use inkwell::{

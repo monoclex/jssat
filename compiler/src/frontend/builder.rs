@@ -3,7 +3,14 @@ use std::sync::Arc;
 use rustc_hash::FxHashMap;
 
 use crate::frontend::ir::*;
-use crate::{id::*, name::DebugName};
+use crate::id::{Counter, IdCompat};
+use crate::name::DebugName;
+
+type BlockId = crate::id::BlockId<crate::id::IrCtx>;
+type FunctionId = crate::id::FunctionId<crate::id::IrCtx>;
+type ConstantId = crate::id::ConstantId<crate::id::IrCtx>;
+type RegisterId = crate::id::RegisterId<crate::id::IrCtx>;
+type ExternalFunctionId = crate::id::ExternalFunctionId<crate::id::IrCtx>;
 
 // TODO: these should be doctests probably, but those don't run in a binary crate
 #[test]

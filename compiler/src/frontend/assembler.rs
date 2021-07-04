@@ -111,7 +111,7 @@ struct Assembler {
     external_functions: FxHashMap<ExternalFunctionId<AssemblerCtx>, ExternalFunction>,
     functions: FxHashMap<FunctionId<AssemblerCtx>, Function>,
     //
-    function_ids: FxHashMap<(FunctionId<NoContext>, BlockId<NoContext>), FunctionId<AssemblerCtx>>,
+    function_ids: FxHashMap<(FunctionId<IrCtx>, BlockId<IrCtx>), FunctionId<AssemblerCtx>>,
 }
 
 impl Assembler {
@@ -172,8 +172,8 @@ impl Assembler {
 
     fn get_fn_id(
         &self,
-        fn_id: FunctionId<NoContext>,
-        blk_id: BlockId<NoContext>,
+        fn_id: FunctionId<IrCtx>,
+        blk_id: BlockId<IrCtx>,
     ) -> FunctionId<AssemblerCtx> {
         *self.function_ids.get(&(fn_id, blk_id)).unwrap()
     }
@@ -195,7 +195,7 @@ impl Assembler {
         }
     }
 
-    fn find_block(&self, fn_id: FunctionId, blk_id: BlockId) -> &BBlock {
+    fn find_block(&self, fn_id: FunctionId<IrCtx>, blk_id: BlockId<IrCtx>) -> &BBlock {
         let matches = self
             .blocks
             .iter()
@@ -210,21 +210,21 @@ impl Assembler {
 struct FnAssembler<'duration> {
     assembler: &'duration Assembler,
     /// ~~**original** function ID, present in IR~~ not true?????
-    function_id: FunctionId<NoContext>,
+    function_id: FunctionId<IrCtx>,
     /// ~~**original** entry block, present in IR~~ not true?????
-    entry_block: BlockId<NoContext>,
+    entry_block: BlockId<IrCtx>,
     invocation_args: Vec<ValueType>,
     /// **modified** key, present in basic block
     block_key: BlockKey,
     block_id_gen: Counter<BlockId<AssemblerCtx>>,
-    block_id_map: FxHashMap<BlockId<NoContext>, BlockId<AssemblerCtx>>,
+    block_id_map: FxHashMap<BlockId<IrCtx>, BlockId<AssemblerCtx>>,
 }
 
 impl<'d> FnAssembler<'d> {
     pub fn new(
         assembler: &'d Assembler,
-        function_id: FunctionId<NoContext>,
-        entry_block: BlockId<NoContext>,
+        function_id: FunctionId<IrCtx>,
+        entry_block: BlockId<IrCtx>,
         invocation_args: Vec<ValueType>,
         block_key: BlockKey,
     ) -> Self {
@@ -302,7 +302,7 @@ impl<'d> FnAssembler<'d> {
         }
     }
 
-    fn id_of(&mut self, blk_id: BlockId<NoContext>) -> BlockId<AssemblerCtx> {
+    fn id_of(&mut self, blk_id: BlockId<IrCtx>) -> BlockId<AssemblerCtx> {
         let id_gen = &self.block_id_gen;
         *(self.block_id_map)
             .entry(blk_id)

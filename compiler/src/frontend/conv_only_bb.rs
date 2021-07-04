@@ -9,8 +9,8 @@ use crate::frontend::ir::{
 use crate::id::*;
 use crate::UnwrapNone;
 
-pub type ControlFlowGraph = petgraph::graph::DiGraph<BlockId, ()>;
-pub type ValueFlowGraph = petgraph::graph::DiGraph<RegisterId, ()>;
+pub type ControlFlowGraph = petgraph::graph::DiGraph<BlockId<IrCtx>, ()>;
+pub type ValueFlowGraph = petgraph::graph::DiGraph<RegisterId<IrCtx>, ()>;
 
 pub type BiFxHashMap<K, V> =
     BiHashMap<K, V, BuildHasherDefault<FxHasher>, BuildHasherDefault<FxHasher>>;
@@ -21,10 +21,10 @@ fn new_bifxhashmap<K: Eq + Hash, V: Eq + Hash>() -> BiFxHashMap<K, V> {
 
 #[derive(Debug, Clone)]
 pub struct Block {
-    pub derived_from: (FunctionId, BlockId),
-    pub parameters: Vec<RegisterId>,
-    pub instructions: Vec<Instruction>,
-    pub end: ControlFlowInstruction,
+    pub derived_from: (FunctionId<IrCtx>, BlockId<IrCtx>),
+    pub parameters: Vec<RegisterId<PureBbCtx>>,
+    pub instructions: Vec<Instruction<PureBbCtx>>,
+    pub end: ControlFlowInstruction<PureBbCtx, IrCtx>,
 }
 
 pub fn translate(ir: &IR) -> Vec<Block> {
@@ -40,27 +40,34 @@ pub fn translate(ir: &IR) -> Vec<Block> {
 /// A function's representation, as it's being rewritten. The parameters of a
 /// function are merged into the first block
 struct RewritingFn {
-    _entry: BlockId,
-    blocks: FxHashMap<BlockId, FunctionBlock>,
+    _entry: BlockId<IrCtx>,
+    blocks: FxHashMap<BlockId<IrCtx>, RewritingFunctionBlock>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RewritingFunctionBlock {
+    pub parameters: Vec<RegisterId<PureBbCtx>>,
+    pub instructions: Vec<Instruction<PureBbCtx>>,
+    pub end: ControlFlowInstruction<PureBbCtx, IrCtx>,
 }
 
 struct Algo<'duration> {
     flow: &'duration Flow,
     function: &'duration mut RewritingFn,
-    reg_counter: &'duration mut Counter<RegisterId>,
+    reg_counter: &'duration mut Counter<RegisterId<PureBbCtx>>,
     blocks: FxHashMap<NodeIndex, BlockState>,
 }
 
 struct BlockState {
-    /// Map of register present in function definition -> rewritten register
-    replacements: BiFxHashMap<RegisterId, RegisterId>,
+    /// Map of register present in function definition OR new registers -> rewritten register
+    replacements: BiFxHashMap<RegisterId<PureBbCtx>, RegisterId<PureBbCtx>>,
 }
 
 impl<'d> Algo<'d> {
     pub fn new(
         flow: &'d Flow,
         function: &'d mut RewritingFn,
-        reg_counter: &'d mut Counter<RegisterId>,
+        reg_counter: &'d mut Counter<RegisterId<PureBbCtx>>,
     ) -> Self {
         Self {
             flow,
@@ -305,12 +312,23 @@ impl<'d> Algo<'d> {
     }
 }
 
-pub fn translate_function(fn_id: FunctionId, func: &Function) -> Vec<Block> {
+pub fn translate_function(fn_id: FunctionId<IrCtx>, func: &Function) -> Vec<Block> {
     let flow = compute_flow(func);
 
-    let mut reg_counter = compute_highest_register(func)
+    let highest_register = compute_highest_register(func);
+    let mut reg_counter = highest_register
+        // SAFETY: we will be generating registers that belong to the pure blocks
+        // after all IR registers
+        .map(|r| r.map_context::<PureBbCtx>())
         .map(Counter::after)
         .unwrap_or_else(Counter::new);
+
+    // we want to guarantee that `reg_counter.next()` will be greater than the
+    // highest register's value
+    // this invariant should be covered, but i'm sanity checking myself ok?!?!?
+    debug_assert!(
+        reg_counter.dup().next().value() > highest_register.map(|r| r.value()).unwrap_or(0)
+    );
 
     // we will need to mutate something as we gradually get every basic block
     // into slowly a purer and purer state
@@ -336,7 +354,12 @@ pub fn translate_function(fn_id: FunctionId, func: &Function) -> Vec<Block> {
 }
 
 struct Flow {
-    map: BiHashMap<BlockId, NodeIndex, BuildHasherDefault<FxHasher>, BuildHasherDefault<FxHasher>>,
+    map: BiHashMap<
+        BlockId<IrCtx>,
+        NodeIndex,
+        BuildHasherDefault<FxHasher>,
+        BuildHasherDefault<FxHasher>,
+    >,
     cfg: ControlFlowGraph,
 }
 
@@ -378,13 +401,13 @@ fn compute_flow(f: &Function) -> Flow {
     }
 }
 
-fn compute_highest_register(f: &Function) -> Option<RegisterId> {
+fn compute_highest_register(f: &Function) -> Option<RegisterId<IrCtx>> {
     // we aren't assigning `highest` to an `Option<RegisterId>` because moving
     // it out of an option pattern repeaatedly is kinda meh
     let mut has_encountered_register = false;
     let mut highest = RegisterId::new();
 
-    let mut compare_highest = |current: RegisterId| {
+    let mut compare_highest = |current: RegisterId<IrCtx>| {
         // if we have compared another register with the initial register being
         // the lowest possible value, we can only be comparing it to registers
         // of also the lowest value (meaning that the highest value is 0) or
@@ -427,23 +450,43 @@ fn to_rewriting_fn(f: &Function) -> RewritingFn {
         // we already handled the entry block specially
         if *id == f.entry_block {
             // for the entry block, merge parameters as parameters on the block
-            let block = FunctionBlock {
-                parameters: f.parameters.iter().map(|p| p.register).collect(),
-                instructions: block.instructions.clone(),
-                end: block.end.clone(),
+            let block = RewritingFunctionBlock {
+                parameters: (f.parameters.iter())
+                    .map(|p| {
+                        // SAFETY: we're going from a block in the IR to a basic block
+                        p.register.map_context::<PureBbCtx>()
+                    })
+                    .collect(),
+                instructions: (block.instructions.iter())
+                    .map(|i| i.clone().map_context::<PureBbCtx>())
+                    .collect(),
+                end: block.end.clone().map_context::<PureBbCtx, IrCtx>(),
             };
 
             result_fn.blocks.insert(*id, block);
         } else {
-            result_fn.blocks.insert(*id, block.clone());
+            let block = RewritingFunctionBlock {
+                parameters: (block.parameters.iter())
+                    .map(|p| {
+                        // SAFETY: we're going from a block in the IR to a basic block
+                        p.map_context::<PureBbCtx>()
+                    })
+                    .collect(),
+                instructions: (block.instructions.iter())
+                    .map(|i| i.clone().map_context::<PureBbCtx>())
+                    .collect(),
+                end: block.end.clone().map_context::<PureBbCtx, IrCtx>(),
+            };
+
+            result_fn.blocks.insert(*id, block);
         }
     }
 
     result_fn
 }
 
-impl FunctionBlock {
-    fn declared_registers(&self) -> FxHashSet<RegisterId> {
+impl RewritingFunctionBlock {
+    fn declared_registers(&self) -> FxHashSet<RegisterId<PureBbCtx>> {
         let mut declared = self
             .parameters
             .clone()
@@ -459,7 +502,7 @@ impl FunctionBlock {
         declared
     }
 
-    fn used_registers(&self) -> FxHashSet<RegisterId> {
+    fn used_registers(&self) -> FxHashSet<RegisterId<PureBbCtx>> {
         let mut used = FxHashSet::default();
 
         for inst in self.instructions.iter() {

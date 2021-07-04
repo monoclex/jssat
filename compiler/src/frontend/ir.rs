@@ -1,6 +1,16 @@
+use std::hash::Hash;
+
 use rustc_hash::FxHashMap;
 
-use crate::{id::*, name::DebugName};
+use crate::name::DebugName;
+
+use crate::id::IrCtx;
+type BlockId = crate::id::BlockId<IrCtx>;
+type FunctionId = crate::id::FunctionId<IrCtx>;
+type ConstantId = crate::id::ConstantId<IrCtx>;
+use crate::id::RegisterId;
+type PlainRegisterId = RegisterId<IrCtx>;
+type ExternalFunctionId = crate::id::ExternalFunctionId<IrCtx>;
 
 #[derive(Debug)]
 pub struct IR {
@@ -64,18 +74,18 @@ pub struct Function {
 #[derive(Debug, Clone)]
 pub struct Parameter {
     pub name: DebugName,
-    pub register: RegisterId,
+    pub register: PlainRegisterId,
 }
 
 #[derive(Debug, Clone)]
 pub struct FunctionBlock {
-    pub parameters: Vec<RegisterId>,
+    pub parameters: Vec<PlainRegisterId>,
     pub instructions: Vec<Instruction>,
     pub end: ControlFlowInstruction,
 }
 
 #[derive(Debug, Clone)]
-pub enum Instruction {
+pub enum Instruction<C = crate::id::IrCtx> {
     // RecordGet(RegisterId /*=*/, RegisterId, RecordKey),
     // RecordSet(RegisterId, RecordKey, Value),
     // RefIsEmpty(RegisterId /*=*/, RegisterId),
@@ -85,18 +95,22 @@ pub enum Instruction {
     // FAR FUTURE: GcEndRegion(RegisterId),
     // FAR FUTURE: GcTracingMarkRoot(RegisterId),
     // FAR FUTURE: GcTracingUnmarkRoot(RegisterId),
-    Call(Option<RegisterId> /*=*/, Callable, Vec<RegisterId>),
+    Call(
+        Option<RegisterId<C>>, /*=*/
+        Callable,
+        Vec<RegisterId<C>>,
+    ),
     // Phi(RegisterId /*=*/, Vec<BlockImpliesRegister>),
     /// # `GetRuntime`
     ///
     /// Stores a pointer to the JSSAT Runtime in the specified register.
-    GetRuntime(RegisterId),
+    GetRuntime(RegisterId<C>),
     /// # `MakeString`
     ///
     /// Will instantiate a string, using the constant referenced as payload for
     /// the value of the string. JS strings are UTF-16, so it is expected that
     /// the constant referenced is a valid UTF-16 string.
-    MakeString(RegisterId, ConstantId),
+    MakeString(RegisterId<C>, crate::id::ConstantId<C>),
     /// # [`Instruction::Unreachable`]
     ///
     /// Indicates that the executing code path will never reach this instruction.
@@ -104,23 +118,26 @@ pub enum Instruction {
     /// This is used to implement functions that recurse an unknown amount of
     /// times.
     Unreachable,
-    MakeNumber(RegisterId, f64),
-    CompareLessThan(RegisterId, RegisterId, RegisterId),
-    Add(RegisterId, RegisterId, RegisterId),
+    MakeNumber(RegisterId<C>, f64),
+    CompareLessThan(RegisterId<C>, RegisterId<C>, RegisterId<C>),
+    Add(RegisterId<C>, RegisterId<C>, RegisterId<C>),
 }
 
 #[derive(Debug, Clone)]
-pub struct BasicBlockJump(pub BlockId, pub Vec<RegisterId>);
+pub struct BasicBlockJump<C = IrCtx, Path = IrCtx>(
+    pub crate::id::BlockId<Path>,
+    pub Vec<RegisterId<C>>,
+);
 
 #[derive(Debug, Clone)]
-pub enum ControlFlowInstruction {
-    Jmp(BasicBlockJump),
+pub enum ControlFlowInstruction<Ctx = IrCtx, Path = IrCtx> {
+    Jmp(BasicBlockJump<Ctx, Path>),
     JmpIf {
-        condition: RegisterId,
-        true_path: BasicBlockJump,
-        false_path: BasicBlockJump,
+        condition: RegisterId<Ctx>,
+        true_path: BasicBlockJump<Ctx, Path>,
+        false_path: BasicBlockJump<Ctx, Path>,
     },
-    Ret(Option<RegisterId>),
+    Ret(Option<RegisterId<Ctx>>),
 }
 
 #[derive(Debug, Clone)]
@@ -138,8 +155,81 @@ pub enum Callable {
 //     Constant(TopLevelId),
 // }
 
-impl Instruction {
-    pub fn assigned_to(&self) -> Option<RegisterId> {
+impl<C: PartialEq + Eq + Hash + Copy> Instruction<C> {
+    // this should turn into a no-op lol
+    pub fn map_context<C2: PartialEq + Eq + Hash + Copy>(self) -> Instruction<C2> {
+        match self {
+            Instruction::Call(result, callable, args) => Instruction::Call(
+                result.map(|r| r.map_context::<C2>()),
+                callable,
+                args.into_iter().map(|r| r.map_context::<C2>()).collect(),
+            ),
+            Instruction::GetRuntime(r) => Instruction::GetRuntime(r.map_context::<C2>()),
+            Instruction::MakeString(r, s) => {
+                Instruction::MakeString(r.map_context::<C2>(), s.map_context::<C2>())
+            }
+            Instruction::Unreachable => Instruction::Unreachable,
+            Instruction::MakeNumber(r, n) => Instruction::MakeNumber(r.map_context::<C2>(), n),
+            Instruction::CompareLessThan(r, l, rhs) => Instruction::CompareLessThan(
+                r.map_context::<C2>(),
+                l.map_context::<C2>(),
+                rhs.map_context::<C2>(),
+            ),
+            Instruction::Add(r, l, rh) => Instruction::Add(
+                r.map_context::<C2>(),
+                l.map_context::<C2>(),
+                rh.map_context::<C2>(),
+            ),
+        }
+    }
+}
+
+impl<CO: PartialEq + Eq + Hash + Copy, PO: PartialEq + Eq + Hash + Copy>
+    ControlFlowInstruction<CO, PO>
+{
+    // this should turn into a no-op lol
+    pub fn map_context<CD: PartialEq + Eq + Hash + Copy, PD: PartialEq + Eq + Hash + Copy>(
+        self,
+    ) -> ControlFlowInstruction<CD, PD> {
+        match self {
+            ControlFlowInstruction::Jmp(BasicBlockJump(p, a)) => {
+                ControlFlowInstruction::Jmp(BasicBlockJump(
+                    p.map_context::<PD>(),
+                    a.into_iter().map(|r| r.map_context::<CD>()).collect(),
+                ))
+            }
+            ControlFlowInstruction::JmpIf {
+                condition,
+                true_path,
+                false_path,
+            } => ControlFlowInstruction::JmpIf {
+                condition: condition.map_context::<CD>(),
+                true_path: BasicBlockJump(
+                    true_path.0.map_context::<PD>(),
+                    true_path
+                        .1
+                        .into_iter()
+                        .map(|r| r.map_context::<CD>())
+                        .collect(),
+                ),
+                false_path: BasicBlockJump(
+                    false_path.0.map_context::<PD>(),
+                    false_path
+                        .1
+                        .into_iter()
+                        .map(|r| r.map_context::<CD>())
+                        .collect(),
+                ),
+            },
+            ControlFlowInstruction::Ret(v) => {
+                ControlFlowInstruction::Ret(v.map(|r| r.map_context::<CD>()))
+            }
+        }
+    }
+}
+
+impl<C: Copy> Instruction<C> {
+    pub fn assigned_to(&self) -> Option<RegisterId<C>> {
         match self {
             Instruction::Call(result, _, _) => *result,
             Instruction::Unreachable => None,
@@ -151,7 +241,7 @@ impl Instruction {
         }
     }
 
-    pub fn used_registers(&self) -> Vec<RegisterId> {
+    pub fn used_registers(&self) -> Vec<RegisterId<C>> {
         match self {
             Instruction::Call(_, _, params) => params.clone(),
             Instruction::CompareLessThan(_, lhs, rhs) | Instruction::Add(_, lhs, rhs) => {
@@ -164,7 +254,7 @@ impl Instruction {
         }
     }
 
-    pub fn used_registers_mut(&mut self) -> Vec<&mut RegisterId> {
+    pub fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
         match self {
             Instruction::Call(_, _, params) => params.iter_mut().collect(),
             Instruction::CompareLessThan(_, lhs, rhs) | Instruction::Add(_, lhs, rhs) => {
@@ -178,8 +268,8 @@ impl Instruction {
     }
 }
 
-impl ControlFlowInstruction {
-    pub fn used_registers(&self) -> Option<RegisterId> {
+impl<C: Copy, P> ControlFlowInstruction<C, P> {
+    pub fn used_registers(&self) -> Option<RegisterId<C>> {
         match self {
             ControlFlowInstruction::Jmp(_) => None,
             ControlFlowInstruction::JmpIf { condition, .. } => Some(*condition),
@@ -187,7 +277,7 @@ impl ControlFlowInstruction {
         }
     }
 
-    pub fn used_registers_mut(&mut self) -> Option<&mut RegisterId> {
+    pub fn used_registers_mut(&mut self) -> Option<&mut RegisterId<C>> {
         match self {
             ControlFlowInstruction::Jmp(_) => None,
             ControlFlowInstruction::JmpIf { condition, .. } => Some(condition),
@@ -195,7 +285,7 @@ impl ControlFlowInstruction {
         }
     }
 
-    pub fn children(&self) -> Vec<&BasicBlockJump> {
+    pub fn children(&self) -> Vec<&BasicBlockJump<C, P>> {
         match self {
             ControlFlowInstruction::Jmp(block) => vec![block],
             ControlFlowInstruction::JmpIf {
@@ -207,7 +297,7 @@ impl ControlFlowInstruction {
         }
     }
 
-    pub fn children_mut(&mut self) -> Vec<&mut BasicBlockJump> {
+    pub fn children_mut(&mut self) -> Vec<&mut BasicBlockJump<C, P>> {
         match self {
             ControlFlowInstruction::Jmp(block) => vec![block],
             ControlFlowInstruction::JmpIf {
