@@ -171,7 +171,7 @@ impl<'n, const P: usize> FunctionBuilder<'n, P> {
             id,
             name,
             gen_block_id: Counter::new(),
-            gen_register_id: Arc::new(Counter::new()),
+            gen_register_id: Arc::new(Counter::new_with_value(P)),
             entrypoint: None,
             blocks: FxHashMap::default(),
             is_ok_to_drop: false,

@@ -1,0 +1,6 @@
+disallowed-methods = [
+    # When iterators are of unequal length, `zip` silently bails. This may
+    # cause unsoundness in other areas of the code.
+    # https://github.com/rust-lang/rust-clippy/issues/7430
+    "std::iter::Iterator::zip"
+]

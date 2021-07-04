@@ -4,14 +4,30 @@
 #![feature(const_panic)]
 #![feature(const_fn)]
 #![feature(const_option)]
-#![feature(option_expect_none)]
-
+#![feature(const_fn_trait_bound)]
+#![deny(clippy::disallowed_method)]
 use std::{io::Write, process::Command};
 
 pub mod backend;
 pub mod frontend;
 pub mod id;
 pub mod name;
+
+/// can't have nice things :'( https://github.com/rust-lang/rust/issues/62633
+pub trait UnwrapNone {
+    fn expect_none(self, msg: &str);
+    fn unwrap_none(self);
+}
+
+impl<T> UnwrapNone for Option<T> {
+    fn expect_none(self, msg: &str) {
+        assert!(matches!(self, None), "{}", msg);
+    }
+
+    fn unwrap_none(self) {
+        assert!(matches!(self, None))
+    }
+}
 
 fn preview(command: &Command) -> String {
     let mut preview = String::new();

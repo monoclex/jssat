@@ -130,7 +130,7 @@ impl<I: IdCompat> Counter<I> {
 
     pub fn new_with_value(current: usize) -> Self {
         Counter {
-            current: AtomicUsize::new(current + 1),
+            current: AtomicUsize::new(current),
             phantom: PhantomData::default(),
         }
     }

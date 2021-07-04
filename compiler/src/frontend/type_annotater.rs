@@ -63,6 +63,8 @@ pub struct SymbolicEngine {
 
 #[derive(Debug)]
 pub struct Executions {
+    // mapping of ORIGINAL fn id + block id to NEW fn id + block id
+    // TODO: annotate these Contexts
     executions: FxHashMap<(FunctionId, BlockId), Vec<(Vec<ValueType>, BlockExecution)>>,
 }
 
@@ -101,6 +103,12 @@ impl Executions {
     }
 }
 
+impl Default for Executions {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub struct BlockKey {
     pub function: FunctionId,
@@ -112,6 +120,15 @@ pub struct BlockExecutionKey {
     pub function: FunctionId,
     pub block: BlockId,
     pub parameters: Vec<ValueType>,
+}
+
+impl BlockExecutionKey {
+    fn key(&self) -> BlockKey {
+        BlockKey {
+            function: self.function,
+            block: self.block,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -254,6 +271,7 @@ impl SymbolicEngineToken {
 
         let mut types = FxHashMap::default();
 
+        debug_assert_eq!(block.parameters.len(), key.parameters.len(), "at {:?}", key);
         for (parameter, r#type) in block.parameters.iter().zip(key.parameters.iter()) {
             types.insert(*parameter, r#type.clone());
         }
@@ -305,6 +323,7 @@ impl SymbolicEngineToken {
 
                             types.insert(result.unwrap(), ret_type);
 
+                            debug_assert_eq!(args.len(), ext_fn.parameters.len());
                             for (arg_typ, ffi_typ) in args.iter().zip(ext_fn.parameters.iter()) {
                                 assert!(FFICoerce::can_coerce(arg_typ, ffi_typ));
                             }
@@ -314,8 +333,9 @@ impl SymbolicEngineToken {
                             // TODO: dedup code?
                             let ext_fn = me.ext_fns.get(id).unwrap();
 
+                            debug_assert_eq!(args.len(), ext_fn.parameters.len());
                             for (arg_typ, ffi_typ) in args.iter().zip(ext_fn.parameters.iter()) {
-                                assert!(FFICoerce::can_coerce(arg_typ, ffi_typ));
+                                assert!(FFICoerce::can_coerce(arg_typ, ffi_typ), "cannot coerce {:?} to {:?} on {:?}", arg_typ, ffi_typ, inst);
                             }
                         }
                         Callable::Static(id) => {
@@ -362,7 +382,7 @@ impl SymbolicEngineToken {
             block,
             parameters: args
                 .into_iter()
-                .map(|r| types.get(&r).unwrap().clone())
+                .map(|r| types.get(&r).expect(&format!("in {:?} -> {:?}({:?})", &key, &block, r)).clone())
                 .collect(),
         };
 

@@ -196,19 +196,25 @@ impl Assembler {
     }
 
     fn find_block(&self, fn_id: FunctionId, blk_id: BlockId) -> &BBlock {
-        self.blocks
+        let matches = self
+            .blocks
             .iter()
             .filter(|b| b.derived_from == (fn_id, blk_id))
-            .next()
-            .unwrap()
+            .collect::<Vec<_>>();
+
+        debug_assert_eq!(matches.len(), 1);
+        matches[0]
     }
 }
 
 struct FnAssembler<'duration> {
     assembler: &'duration Assembler,
+    /// ~~**original** function ID, present in IR~~ not true?????
     function_id: FunctionId<NoContext>,
+    /// ~~**original** entry block, present in IR~~ not true?????
     entry_block: BlockId<NoContext>,
     invocation_args: Vec<ValueType>,
+    /// **modified** key, present in basic block
     block_key: BlockKey,
     block_id_gen: Counter<BlockId<AssemblerCtx>>,
     block_id_map: FxHashMap<BlockId<NoContext>, BlockId<AssemblerCtx>>,
@@ -237,7 +243,10 @@ impl<'d> FnAssembler<'d> {
         let mut blocks = FxHashMap::default();
 
         let mut blocks_to_assemble = VecDeque::new();
+
         blocks_to_assemble.push_back((
+            // entry block
+            // TODO: is the context of this the OG IR or the function?
             self.entry_block,
             std::mem::replace(&mut self.invocation_args, Vec::new()),
         ));
@@ -246,12 +255,24 @@ impl<'d> FnAssembler<'d> {
             .get(&self.block_key)
             .unwrap();
 
+        let mut iterations = 0;
         while let Some((block, args)) = blocks_to_assemble.pop_front() {
+            iterations += 1;
             let id = self.id_of(block);
 
             let (branch, register_types) = typed_fn.find(&block, &args);
-            let block_src = self.assembler.find_block(self.block_key.function, block);
+            let block_src = self.assembler.find_block(self.function_id, block);
 
+            println!("----");
+            println!("current bn;ocks: {:?}", self.assembler.blocks);
+            debug_assert_eq!(
+                args.len(),
+                block_src.parameters.len(),
+                "fn.block {:?}.{:?} on {:?}th time",
+                self.function_id,
+                block,
+                iterations
+            );
             let parameters = (args.iter())
                 .zip(block_src.parameters.iter())
                 // we can ignore parameters with constant values, as we will

@@ -4,9 +4,10 @@ use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
 use std::hash::{BuildHasherDefault, Hash};
 
 use crate::frontend::ir::{
-    BasicBlockJump, ControlFlowInstruction, Function, FunctionBlock, Instruction, IR,
+    BasicBlockJump, Callable, ControlFlowInstruction, Function, FunctionBlock, Instruction, IR,
 };
 use crate::id::*;
+use crate::UnwrapNone;
 
 pub type ControlFlowGraph = petgraph::graph::DiGraph<BlockId, ()>;
 pub type ValueFlowGraph = petgraph::graph::DiGraph<RegisterId, ()>;
@@ -96,18 +97,23 @@ impl<'d> Algo<'d> {
         // ^ step 4.75: if B was patched, re-patch A
         // done!
         for forward in 0..stack.len() {
+            println!("FORWARD -> {}", forward);
             let node = stack[forward];
 
             let did_patch = self.patch_arguments_to_children(node);
-            if did_patch {
-                for backward in forward..0 {
-                    let node = stack[backward];
-                    let did_patch = self.patch_arguments_to_children(node);
-                    if !did_patch {
-                        break;
-                    }
-                }
+            // TODO: uncomment `did_patch` stuff if it works, but there might
+            // be a correctness issue regarding the entire thought process behind
+            // it
+            // if did_patch {
+            for backward in (0..forward).rev() {
+                println!("FORWARD -> {} :: BACKWARD <- {}", forward, backward);
+                let node = stack[backward];
+                let did_patch = self.patch_arguments_to_children(node);
+                // if !did_patch {
+                // break;
+                // }
             }
+            // }
         }
 
         // now we should have a completely rewritten function properly!
@@ -210,6 +216,8 @@ impl<'d> Algo<'d> {
             }
         }
 
+        let are_deps = deps_needed.len();
+
         // now, we know all dependencies children need
         // var: map of { child block register <-> register in this block }
         let mut provision_plan = FxHashMap::default();
@@ -251,6 +259,8 @@ impl<'d> Algo<'d> {
             }
         }
 
+        let are_provisions = provision_plan.len();
+
         let block = self.function.blocks.get(block_id).unwrap();
 
         // provision parameters accordingly
@@ -276,14 +286,20 @@ impl<'d> Algo<'d> {
         }
 
         let will_rewrite_any_children = final_provision_plan.len() > 0;
+        debug_assert_eq!(are_deps, are_provisions);
+        debug_assert_eq!(will_rewrite_any_children, are_provisions > 0);
 
         let block = self.function.blocks.get_mut(block_id).unwrap();
 
+        let mut did_extend_params = false;
         for BasicBlockJump(child_id, params) in block.end.children_mut() {
             if let Some(plan) = final_provision_plan.remove(child_id) {
                 params.extend(plan);
+                did_extend_params = true;
             }
         }
+
+        debug_assert_eq!(did_extend_params, will_rewrite_any_children);
 
         will_rewrite_any_children
     }

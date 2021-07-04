@@ -18,3 +18,8 @@ cargo make dev
 ```shell
 cargo make release
 ```
+
+# Guidelines
+
+- When zipping two iterators, always assert that the length of both iterators
+  are equal.
