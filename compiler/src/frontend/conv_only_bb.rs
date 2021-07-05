@@ -107,7 +107,7 @@ impl<'d> Algo<'d> {
             println!("FORWARD -> {}", forward);
             let node = stack[forward];
 
-            let did_patch = self.patch_arguments_to_children(node);
+            let _did_patch = self.patch_arguments_to_children(node);
             // TODO: uncomment `did_patch` stuff if it works, but there might
             // be a correctness issue regarding the entire thought process behind
             // it
@@ -115,7 +115,7 @@ impl<'d> Algo<'d> {
             for backward in (0..forward).rev() {
                 println!("FORWARD -> {} :: BACKWARD <- {}", forward, backward);
                 let node = stack[backward];
-                let did_patch = self.patch_arguments_to_children(node);
+                let _did_patch = self.patch_arguments_to_children(node);
                 // if !did_patch {
                 // break;
                 // }
@@ -292,7 +292,7 @@ impl<'d> Algo<'d> {
             final_provision_plan.insert(*child_id, extend_params_with);
         }
 
-        let will_rewrite_any_children = final_provision_plan.len() > 0;
+        let will_rewrite_any_children = !final_provision_plan.is_empty();
         debug_assert_eq!(are_deps, are_provisions);
         debug_assert_eq!(will_rewrite_any_children, are_provisions > 0);
 

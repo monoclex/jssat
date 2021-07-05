@@ -1,4 +1,11 @@
-use std::{hash::Hash, marker::PhantomData, sync::atomic::AtomicUsize};
+use std::{
+    collections::{HashMap, VecDeque},
+    hash::Hash,
+    marker::PhantomData,
+    sync::atomic::AtomicUsize,
+};
+
+use rustc_hash::{FxHashMap, FxHashSet};
 
 macro_rules! gen_id {
     ($name:ident) => {
@@ -167,6 +174,41 @@ impl<I: IdCompat> Counter<I> {
 }
 
 impl<I: IdCompat> Default for Counter<I> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+pub struct RegIdMap<T, U> {
+    registers: FxHashMap<RegisterId<T>, RegisterId<U>>,
+    reg_counter: Counter<RegisterId<U>>,
+}
+
+impl<T, U> RegIdMap<T, U>
+where
+    T: PartialEq + Eq + Hash + Sized + Copy,
+    U: PartialEq + Eq + Hash + Sized + Copy,
+{
+    pub fn new() -> Self {
+        Self {
+            registers: Default::default(),
+            reg_counter: Default::default(),
+        }
+    }
+
+    pub fn map(&mut self, source: RegisterId<T>) -> RegisterId<U> {
+        let reg_counter = &self.reg_counter;
+        *(self.registers)
+            .entry(source)
+            .or_insert_with(|| reg_counter.next())
+    }
+}
+
+impl<T, U> Default for RegIdMap<T, U>
+where
+    T: PartialEq + Eq + Hash + Sized + Copy,
+    U: PartialEq + Eq + Hash + Sized + Copy,
+{
     fn default() -> Self {
         Self::new()
     }

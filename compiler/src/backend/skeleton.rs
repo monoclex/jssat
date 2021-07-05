@@ -1,14 +1,14 @@
-use rustc_hash::{FxHashMap, FxHashSet};
+
 
 use crate::backend::llvm::{
     self, BackendIR, Callable, Constant, ExternalFunction, LLVMLinkage, OpaqueStruct,
 };
-use crate::frontend::ir::{FFIReturnType, FFIValueType, Instruction};
-use crate::frontend::{self, type_annotater};
+
+
 use crate::frontend::{ir::IR, type_annotater::SymbolicEngine};
 use crate::id::*;
 
-use super::llvm::{Function, Parameter, ReturnType, ValueType};
+
 
 struct OpaqueStructs {
     runtime: OpaqueStructId<NoContext>,
@@ -16,7 +16,7 @@ struct OpaqueStructs {
     string: OpaqueStructId<NoContext>,
 }
 
-pub fn translate<'ir>(ir: &'ir IR, annotations: &'ir SymbolicEngine) -> BackendIR<'ir> {
+pub fn translate<'ir>(_ir: &'ir IR, _annotations: &'ir SymbolicEngine) -> BackendIR<'ir> {
     //     //
     //     // let mut external_functions = FxHashMap::default();
     //     // let mut function = FxHashMap::default();

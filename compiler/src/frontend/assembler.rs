@@ -9,9 +9,9 @@ use super::{
     conv_only_bb::Block as BBlock,
     ir,
     ir::{FFIValueType, IR},
-    type_annotater::{BlockKey, ExplorationBranch, SymbolicEngine, ValueType},
+    type_annotater::{BlockKey, SymbolicEngine, ValueType},
 };
-use crate::id::{self, *};
+use crate::id::*;
 
 #[derive(Clone, Debug)]
 pub struct Program {
@@ -51,7 +51,9 @@ pub struct Parameter {
 }
 
 #[derive(Clone, Debug)]
-pub enum Instruction {}
+pub enum Instruction {
+    GetRuntime(RegisterId<AssemblerCtx>),
+}
 
 #[derive(Clone, Debug)]
 pub enum EndInstruction {
@@ -248,7 +250,7 @@ impl<'d> FnAssembler<'d> {
             // entry block
             // TODO: is the context of this the OG IR or the function?
             self.entry_block,
-            std::mem::replace(&mut self.invocation_args, Vec::new()),
+            std::mem::take(&mut self.invocation_args),
         ));
 
         let typed_fn = (self.assembler.engine.typed_blocks)
@@ -260,7 +262,7 @@ impl<'d> FnAssembler<'d> {
             iterations += 1;
             let id = self.id_of(block);
 
-            let (branch, register_types) = typed_fn.find(&block, &args);
+            let (_branch, _register_types) = typed_fn.find(&block, &args);
             let block_src = self.assembler.find_block(self.function_id, block);
 
             println!("----");
@@ -284,7 +286,24 @@ impl<'d> FnAssembler<'d> {
                 })
                 .collect::<Vec<_>>();
 
-            let instructions = Vec::new();
+            let mut reg_map = RegIdMap::new();
+
+            let mut instructions = Vec::new();
+
+            for inst in block_src.instructions.iter() {
+                match inst {
+                    ir::Instruction::Call(_, _, _) => todo!(),
+                    ir::Instruction::GetRuntime(reg) => {
+                        instructions.push(Instruction::GetRuntime(reg_map.map(*reg)));
+                    }
+                    ir::Instruction::MakeString(_, _) => todo!(),
+                    ir::Instruction::Unreachable => todo!(),
+                    ir::Instruction::MakeNumber(_, _) => todo!(),
+                    ir::Instruction::CompareLessThan(_, _, _) => todo!(),
+                    ir::Instruction::Add(_, _, _) => todo!(),
+                }
+            }
+
             let end = EndInstruction::T;
 
             let block = Block {

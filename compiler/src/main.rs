@@ -60,15 +60,15 @@ fn link_binary(build: &[u8]) {
     let mut build = cc::Build::new();
 
     // sensible defaults for `OPT_LEVEL`, `TARGET`, and `HOST`
-    if let Err(_) = std::env::var("OPT_LEVEL") {
+    if std::env::var("OPT_LEVEL").is_err() {
         build.opt_level(3);
     }
 
-    if let Err(_) = std::env::var("TARGET") {
+    if std::env::var("TARGET").is_err() {
         build.target(crate::backend::llvm::target_triplet().as_str());
     }
 
-    if let Err(_) = std::env::var("HOST") {
+    if std::env::var("HOST").is_err() {
         build.host(crate::backend::llvm::target_triplet().as_str());
     }
 

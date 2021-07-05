@@ -254,9 +254,7 @@ impl SymbolicEngineToken {
         let mut me = (self.0.try_lock()).expect("Lock should be contentionless");
 
         // TODO: use a hashmap
-        let block = (me.blocks.iter())
-            .filter(|b| b.derived_from == (key.function, key.block))
-            .next()
+        let block = (me.blocks.iter()).find(|b| b.derived_from == (key.function, key.block))
             .expect("expected to find a block")
             .clone();
 
@@ -373,7 +371,7 @@ impl SymbolicEngineToken {
             block,
             parameters: args
                 .into_iter()
-                .map(|r| types.get(&r).expect(&format!("in {:?} -> {:?}({:?})", &key, &block, r)).clone())
+                .map(|r| types.get(&r).unwrap_or_else(|| panic!("in {:?} -> {:?}({:?})", &key, &block, r)).clone())
                 .collect(),
         };
 

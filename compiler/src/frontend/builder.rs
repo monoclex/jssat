@@ -251,7 +251,7 @@ impl<'n, const P: usize> FunctionBuilder<'n, P> {
             *parameter = self.gen_register_id.next();
         }
 
-        let builder = BlockBuilder::new(id, self.gen_register_id.clone(), parameters.clone());
+        let builder = BlockBuilder::new(id, self.gen_register_id.clone(), parameters);
 
         (builder, parameters)
     }
@@ -521,7 +521,7 @@ impl<const P: usize> FinalizedBlockBuilder<P> {
         self.is_ok_to_drop = true;
 
         // TODO: find a faster way to do this (but needs to still be safe)
-        let parameters = self.builder.parameters.clone();
+        let parameters = self.builder.parameters;
         let instructions = self.builder.instructions.clone();
         let end = self.end_control_flow.clone();
         FunctionBlock {

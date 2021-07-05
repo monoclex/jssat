@@ -14,7 +14,7 @@ use swc_ecmascript::{
 use crate::frontend::{builder::*, ir::*};
 
 #[cfg(not(feature = "link-swc"))]
-fn to_script(_source: String) -> () {}
+fn to_script(_source: String) {}
 
 #[cfg(feature = "link-swc")]
 fn to_script(source: String) -> Script {
