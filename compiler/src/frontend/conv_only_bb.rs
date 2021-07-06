@@ -112,7 +112,7 @@ impl<'d> Algo<'d> {
             // be a correctness issue regarding the entire thought process behind
             // it
             // if did_patch {
-            for backward in (0..forward).rev() {
+            for backward in (0..=forward).rev() {
                 println!("FORWARD -> {} :: BACKWARD <- {}", forward, backward);
                 let node = stack[backward];
                 let _did_patch = self.patch_arguments_to_children(node);
@@ -151,7 +151,9 @@ impl<'d> Algo<'d> {
         for register in need_to_find.iter().copied() {
             let replacement_register = self.reg_counter.next();
 
-            replacements.insert(register, replacement_register);
+            replacements
+                .insert(register, replacement_register)
+                .expect_free();
             params.push(replacement_register);
         }
 
@@ -166,7 +168,9 @@ impl<'d> Algo<'d> {
             }
         }
 
-        self.blocks.insert(node, BlockState { replacements });
+        self.blocks
+            .insert(node, BlockState { replacements })
+            .expect_free();
     }
 
     /// This function assumes that all the dependencies of a block are modeled
@@ -256,7 +260,8 @@ impl<'d> Algo<'d> {
                 let this_block_register = self.reg_counter.next();
                 state // TODO: function to encapsulate this replacing thing
                     .replacements
-                    .insert(register_in_original_fn, this_block_register);
+                    .insert(register_in_original_fn, this_block_register)
+                    .expect_free();
                 block.parameters.push(this_block_register);
 
                 // now that we know of this register, we can provision it
@@ -289,7 +294,9 @@ impl<'d> Algo<'d> {
                 extend_params_with.push(register_to_pass);
             }
 
-            final_provision_plan.insert(*child_id, extend_params_with);
+            final_provision_plan
+                .insert(*child_id, extend_params_with)
+                .expect_free();
         }
 
         let will_rewrite_any_children = !final_provision_plan.is_empty();
@@ -370,7 +377,7 @@ fn compute_flow(f: &Function) -> Flow {
 
     let mut block_to_node = new_bifxhashmap();
     for (id, _) in f.blocks.iter() {
-        block_to_node.insert(*id, flow.add_node(*id));
+        block_to_node.insert(*id, flow.add_node(*id)).expect_free();
     }
     let block_to_node = block_to_node;
 
@@ -463,7 +470,7 @@ fn to_rewriting_fn(f: &Function) -> RewritingFn {
                 end: block.end.clone().map_context::<PureBbCtx, IrCtx>(),
             };
 
-            result_fn.blocks.insert(*id, block);
+            result_fn.blocks.insert(*id, block).expect_free();
         } else {
             let block = RewritingFunctionBlock {
                 parameters: (block.parameters.iter())
@@ -478,7 +485,7 @@ fn to_rewriting_fn(f: &Function) -> RewritingFn {
                 end: block.end.clone().map_context::<PureBbCtx, IrCtx>(),
             };
 
-            result_fn.blocks.insert(*id, block);
+            result_fn.blocks.insert(*id, block).expect_free();
         }
     }
 

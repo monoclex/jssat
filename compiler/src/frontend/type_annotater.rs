@@ -8,7 +8,7 @@ use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 
 use crate::frontend::ir::*;
-use crate::id::*;
+use crate::{UnwrapNone, id::*};
 use crate::name::DebugName;
 
 use super::conv_only_bb::Block;
@@ -20,7 +20,7 @@ use super::conv_only_bb::Block;
 pub fn annotate(ir: &IR, blocks: Vec<Block>) -> SymbolicEngine {
     let mut entrypoints = FxHashMap::default();
     for (id, func) in ir.functions.iter() {
-        entrypoints.insert(*id, func.entry_block);
+        entrypoints.insert(*id, func.entry_block).expect_free();
     }
 
     let symb_exec_eng =
@@ -93,6 +93,13 @@ impl Executions {
             .entry((key.function, key.block))
             .or_insert_with(|| Vec::with_capacity(1));
 
+        for (params, exec) in executions.iter_mut() {
+            if params == &key.parameters {
+                *exec = execution;
+                return;
+            }
+        }
+
         executions.push((key.parameters, execution));
     }
 
@@ -115,7 +122,7 @@ pub struct BlockKey {
     pub block: BlockId<AnnotatedCtx>,
 }
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Eq, Hash, Debug, Clone)]
 pub struct BlockExecutionKey {
     pub function: FunctionId<IrCtx>,
     pub block: BlockId<IrCtx>,
@@ -210,7 +217,7 @@ impl SymbolicEngineToken {
         let mut eval_blocks = Vec::new();
 
         let mut block_stack = VecDeque::new();
-        block_stack.push_back(block);
+        block_stack.push_back(block.clone());
 
         while let Some(exec_key) = block_stack.pop_front() {
             let has_evaled_block = {
@@ -245,8 +252,9 @@ impl SymbolicEngineToken {
         };
 
         let mut me = (self.0.try_lock()).expect("Lock should be contentionless");
-        me.typed_blocks.insert(key, typed);
 
+        me.executions.insert(block.clone(), BlockExecution::Finished(key));
+        me.typed_blocks.insert(key, typed);
         me.typed_blocks.get(&key).unwrap().return_type.clone()
     }
 
@@ -276,8 +284,8 @@ impl SymbolicEngineToken {
                     // TODO: solve MakeString issue
                     types.insert(*reg, ValueType::ExactString(str.map_context::<IrCtx>()));
                 }
-                Instruction::MakeNumber(reg, value) => {
-                    types.insert(*reg, ValueType::ExactNumber(*value));
+                Instruction::MakeInteger(reg, value) => {
+                    types.insert(*reg, ValueType::ExactInteger(*value));
                 }
                 Instruction::CompareLessThan(reg, lhs, rhs) => {
                     let comparison = match (map(lhs).is_comparable(), map(rhs).is_comparable()) {
@@ -769,7 +777,7 @@ pub enum ReturnType {
     Never,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ValueType {
     /// # `Any`
     ///
@@ -798,7 +806,7 @@ pub enum ValueType {
     // ExactnessGuarantee to be exactly a type of a constant
     ExactString(ConstantId<IrCtx>),
     Number,
-    ExactNumber(f64),
+    ExactInteger(i64),
     BytePointer,
     /// Pointer to data of the specified size. Pointer(16) -> `i16*`.
     Pointer(u16),
@@ -939,7 +947,7 @@ impl ValueType {
             // TODO: *is* an `Any` comparable? or should we force the user to unwrap it
             ValueType::Any => todo!(),
             ValueType::Number => Some(ValueComparable::Number),
-            ValueType::ExactNumber(value) => Some(ValueComparable::Num(*value)),
+            ValueType::ExactInteger(value) => Some(ValueComparable::Num(*value)),
             _ => None,
         }
     }
@@ -949,7 +957,7 @@ impl ValueType {
             ValueType::ExactString(_) => todo!(),
             ValueType::String => Some(ValueAddable::String),
             ValueType::Number => Some(ValueAddable::Number),
-            ValueType::ExactNumber(n) => Some(ValueAddable::Num(*n)),
+            ValueType::ExactInteger(n) => Some(ValueAddable::Num(*n)),
             _ => None
         }
     }
@@ -957,7 +965,7 @@ impl ValueType {
 
 pub enum ValueAddable {
     Number,
-    Num(f64),
+    Num(i64),
     String,
     // Str(Vec<u8>),
 }
@@ -986,7 +994,7 @@ impl ValueAddable {
 
 pub enum ValueComparable {
     Number,
-    Num(f64)
+    Num(i64)
 }
 
 impl ValueComparable {
@@ -1023,7 +1031,7 @@ impl ToValueType for ValueAddable {
     fn to_value_type(self) -> ValueType {
         match self {
             ValueAddable::Number => ValueType::Number,
-            ValueAddable::Num(n) => ValueType::ExactNumber(n),
+            ValueAddable::Num(n) => ValueType::ExactInteger(n),
             ValueAddable::String => ValueType::String,
         }
     }
@@ -1046,7 +1054,7 @@ impl FFICoerce {
             | (FFIValueType::Any, ValueType::String) 
             | (FFIValueType::Any, ValueType::ExactString(_)) 
             | (FFIValueType::Any, ValueType::Number) 
-            | (FFIValueType::Any, ValueType::ExactNumber(_)) 
+            | (FFIValueType::Any, ValueType::ExactInteger(_)) 
             // | (FFIValueType::Any, ValueType::Word) 
             | (FFIValueType::Any, ValueType::Boolean) 
             | (FFIValueType::Any, ValueType::Bool(_)) 

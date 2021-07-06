@@ -5,6 +5,7 @@ use rustc_hash::FxHashMap;
 use crate::frontend::ir::*;
 use crate::id::{Counter, IdCompat};
 use crate::name::DebugName;
+use crate::UnwrapNone;
 
 type BlockId = crate::id::BlockId<crate::id::IrCtx>;
 type FunctionId = crate::id::FunctionId<crate::id::IrCtx>;
@@ -149,7 +150,7 @@ impl ProgramBuilder {
         builder.is_ok_to_drop = true;
         let function = builder.finish();
 
-        self.functions.insert(signature.id, function);
+        self.functions.insert(signature.id, function).expect_free();
 
         signature
     }
@@ -265,7 +266,7 @@ impl<'n, const P: usize> FunctionBuilder<'n, P> {
         builder.is_ok_to_drop = true;
         let block = builder.finish();
 
-        self.blocks.insert(signature.id, block);
+        self.blocks.insert(signature.id, block).expect_free();
 
         signature
     }
@@ -328,10 +329,10 @@ impl<const P: usize> BlockBuilder<P> {
         result
     }
 
-    pub fn make_number_decimal(&mut self, value: f64) -> RegisterId {
+    pub fn make_number_decimal(&mut self, value: i64) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions
-            .push(Instruction::MakeNumber(result, value));
+            .push(Instruction::MakeInteger(result, value));
         result
     }
 

@@ -120,7 +120,7 @@ pub enum Instruction<C = crate::id::IrCtx> {
     // /// This is used to implement functions that recurse an unknown amount of
     // /// times.
     // Unreachable,
-    MakeNumber(RegisterId<C>, f64),
+    MakeInteger(RegisterId<C>, i64),
     CompareLessThan(RegisterId<C>, RegisterId<C>, RegisterId<C>),
     Add(RegisterId<C>, RegisterId<C>, RegisterId<C>),
 }
@@ -170,7 +170,7 @@ impl<C: PartialEq + Eq + Hash + Copy> Instruction<C> {
             Instruction::MakeString(r, s) => {
                 Instruction::MakeString(r.map_context::<C2>(), s.map_context::<C2>())
             }
-            Instruction::MakeNumber(r, n) => Instruction::MakeNumber(r.map_context::<C2>(), n),
+            Instruction::MakeInteger(r, n) => Instruction::MakeInteger(r.map_context::<C2>(), n),
             Instruction::CompareLessThan(r, l, rhs) => Instruction::CompareLessThan(
                 r.map_context::<C2>(),
                 l.map_context::<C2>(),
@@ -235,7 +235,7 @@ impl<C: Copy> Instruction<C> {
             Instruction::Call(result, _, _) => *result,
             Instruction::GetRuntime(result)
             | Instruction::MakeString(result, _)
-            | Instruction::MakeNumber(result, _)
+            | Instruction::MakeInteger(result, _)
             | Instruction::CompareLessThan(result, _, _)
             | Instruction::Add(result, _, _) => Some(*result),
         }
@@ -249,7 +249,7 @@ impl<C: Copy> Instruction<C> {
             }
             Instruction::GetRuntime(_)
             | Instruction::MakeString(_, _)
-            | Instruction::MakeNumber(_, _) => Vec::new(),
+            | Instruction::MakeInteger(_, _) => Vec::new(),
         }
     }
 
@@ -261,26 +261,49 @@ impl<C: Copy> Instruction<C> {
             }
             Instruction::GetRuntime(_)
             | Instruction::MakeString(_, _)
-            | Instruction::MakeNumber(_, _) => Vec::new(),
+            | Instruction::MakeInteger(_, _) => Vec::new(),
         }
     }
 }
 
 impl<C: Copy, P> ControlFlowInstruction<C, P> {
-    pub fn used_registers(&self) -> Option<RegisterId<C>> {
+    pub fn used_registers(&self) -> Vec<RegisterId<C>> {
         match self {
-            ControlFlowInstruction::Jmp(_) => None,
-            ControlFlowInstruction::JmpIf { condition, .. } => Some(*condition),
-            ControlFlowInstruction::Ret(register) => *register,
+            ControlFlowInstruction::Jmp(path) => path.1.clone(),
+            ControlFlowInstruction::JmpIf {
+                condition,
+                true_path,
+                false_path,
+            } => {
+                let mut r = vec![*condition];
+                r.extend(true_path.1.clone());
+                r.extend(false_path.1.clone());
+                r
+            }
+            ControlFlowInstruction::Ret(Some(register)) => vec![*register],
+            ControlFlowInstruction::Ret(None) => vec![],
         }
     }
 
-    pub fn used_registers_mut(&mut self) -> Option<&mut RegisterId<C>> {
+    pub fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
+        let mut handles = Vec::new();
+
         match self {
-            ControlFlowInstruction::Jmp(_) => None,
-            ControlFlowInstruction::JmpIf { condition, .. } => Some(condition),
-            ControlFlowInstruction::Ret(register) => register.as_mut(),
-        }
+            ControlFlowInstruction::Jmp(path) => handles.extend(path.1.iter_mut()),
+            ControlFlowInstruction::JmpIf {
+                condition,
+                true_path,
+                false_path,
+            } => {
+                handles.push(condition);
+                handles.extend(true_path.1.iter_mut());
+                handles.extend(false_path.1.iter_mut());
+            }
+            ControlFlowInstruction::Ret(Some(register)) => handles.push(register),
+            ControlFlowInstruction::Ret(None) => {}
+        };
+
+        handles
     }
 
     pub fn children(&self) -> Vec<&BasicBlockJump<C, P>> {

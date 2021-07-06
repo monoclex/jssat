@@ -17,6 +17,7 @@ use crate::{
         type_annotater::{BlockExecutionKey, ExplorationBranch},
     },
     id::*,
+    UnwrapNone,
 };
 
 #[derive(Clone, Debug)]
@@ -65,7 +66,7 @@ pub enum Instruction {
     ),
     GetRuntime(RegisterId<AssemblerCtx>),
     MakeString(RegisterId<AssemblerCtx>, ConstantId<AssemblerCtx>),
-    MakeNumber(RegisterId<AssemblerCtx>, f64),
+    MakeNumber(RegisterId<AssemblerCtx>, i64),
     MakeBoolean(RegisterId<AssemblerCtx>, bool),
     Unreachable,
 }
@@ -144,7 +145,8 @@ struct Assembler {
     external_functions: FxHashMap<ExternalFunctionId<AssemblerCtx>, ExternalFunction>,
     functions: FxHashMap<FunctionId<AssemblerCtx>, Function>,
     //
-    function_ids: FxHashMap<(FunctionId<IrCtx>, BlockId<IrCtx>), FunctionId<AssemblerCtx>>,
+    function_ids:
+        FxHashMap<(FunctionId<IrCtx>, BlockId<IrCtx>, Vec<ValueType>), FunctionId<AssemblerCtx>>,
 }
 
 impl Assembler {
@@ -189,11 +191,13 @@ impl Assembler {
                 FnAssembler::new(&self, fn_id, entry_blk, args.clone(), cntrl_flw.key());
 
             let assembled_fn = fn_assembler.assemble();
-            built_fns.push((fn_id, entry_blk, assembled_fn));
+            built_fns.push((fn_id, entry_blk, assembled_fn, args.clone()));
         }
 
-        for (fn_id, blk_id, func) in built_fns {
-            self.functions.insert(self.get_fn_id(fn_id, blk_id), func);
+        for (fn_id, blk_id, func, invocaation_args) in built_fns {
+            self.functions
+                .insert(self.get_fn_id(fn_id, blk_id, invocaation_args), func)
+                .expect_free();
         }
 
         Program {
@@ -207,15 +211,16 @@ impl Assembler {
         &self,
         fn_id: FunctionId<IrCtx>,
         blk_id: BlockId<IrCtx>,
+        args: Vec<ValueType>,
     ) -> FunctionId<AssemblerCtx> {
-        *self.function_ids.get(&(fn_id, blk_id)).unwrap()
+        *self.function_ids.get(&(fn_id, blk_id, args)).unwrap()
     }
 
     fn assign_fn_ids(&mut self) {
         let id_gen = Counter::new();
 
         let functions = &self.ir.functions;
-        for (fn_id, entry_blk, _, _) in
+        for (fn_id, entry_blk, args, _) in
             self.engine
                 .executions
                 .all_fn_invocations()
@@ -224,7 +229,9 @@ impl Assembler {
                     functions.get(fn_id).unwrap().entry_block == *blk_id
                 })
         {
-            self.function_ids.insert((fn_id, entry_blk), id_gen.next());
+            self.function_ids
+                .insert((fn_id, entry_blk, args.clone()), id_gen.next())
+                .expect_free();
         }
     }
 
@@ -244,13 +251,15 @@ impl Assembler {
         orig_fn_id: FunctionId<IrCtx>,
         orig_arg_types: Vec<&ValueType>,
     ) -> BlockId<IrCtx> {
+        let mut found_id = None;
         for (fn_id, blk_id, arg_types, t) in self.engine.executions.all_fn_invocations() {
-            let arg_types = arg_types.iter().map(|a| a).collect::<Vec<_>>();
+            let arg_types = arg_types.iter().collect::<Vec<_>>();
             if orig_fn_id == fn_id && orig_arg_types == arg_types {
-                return blk_id;
+                debug_assert!(found_id.is_none());
+                found_id = Some(blk_id);
             }
         }
-        unreachable!("how he how")
+        found_id.unwrap()
     }
 }
 
@@ -263,7 +272,8 @@ struct FnAssembler<'duration> {
     invocation_args: Vec<ValueType>,
     /// **modified** key, present in basic block
     block_key: BlockKey,
-    block_id_map: BlockIdMap<IrCtx, AssemblerCtx>,
+    block_id_map: FxHashMap<(BlockId<IrCtx>, Vec<ValueType>), BlockId<AssemblerCtx>>,
+    block_id_counter: Counter<BlockId<AssemblerCtx>>,
     /// we can ONLY use this because we know that the `conv_only_bb` step will
     /// only generate registers abve all IR registers, which means that there
     /// will never be a clash. this might have to be reconsidered later
@@ -286,6 +296,7 @@ impl<'d> FnAssembler<'d> {
             invocation_args,
             block_key,
             block_id_map: Default::default(),
+            block_id_counter: Default::default(),
             register_map: Default::default(),
             constants: Default::default(),
         }
@@ -296,11 +307,12 @@ impl<'d> FnAssembler<'d> {
 
         let mut blocks_to_assemble = VecDeque::new();
 
+        let invocation_args = std::mem::take(&mut self.invocation_args);
         blocks_to_assemble.push_back((
             // entry block
             // TODO: is the context of this the OG IR or the function?
             self.entry_block,
-            std::mem::take(&mut self.invocation_args),
+            &invocation_args,
         ));
 
         let typed_fn = (self.assembler.engine.typed_blocks)
@@ -310,7 +322,7 @@ impl<'d> FnAssembler<'d> {
         let mut iterations = 0;
         while let Some((block, args)) = blocks_to_assemble.pop_front() {
             iterations += 1;
-            let id = self.id_of(block);
+            let id = self.id_of(block, args.clone());
 
             let (branch, register_types) = typed_fn.find(&block, &args);
             let block_src = self.assembler.find_block(self.function_id, block);
@@ -351,15 +363,22 @@ impl<'d> FnAssembler<'d> {
             let intern_cnst = |orig_id| {
                 let id = assembler_id_gen.next();
                 let payload = ir.constants.get(&orig_id).unwrap();
-                constants.insert(id, payload.payload.clone());
+                constants.insert(id, payload.payload.clone()).expect_free();
                 id
             };
 
+            let counter = &self.block_id_counter;
+            let block_id_map = &mut self.block_id_map;
             let mut inst_writer = InstWriter::new(
                 parameters,
                 &mut self.register_map,
                 register_types,
-                |id| block_id_map.map(id),
+                |id, args| {
+                    // TODO: don't duplicaate `id_of` in here somehow?
+                    *(block_id_map)
+                        .entry((id, args))
+                        .or_insert_with(|| counter.next())
+                },
                 intern_cnst,
                 &self.assembler,
             );
@@ -371,7 +390,9 @@ impl<'d> FnAssembler<'d> {
                 }
             }
 
-            blocks.insert(id, inst_writer.complete(&block_src.end));
+            blocks
+                .insert(id, inst_writer.complete(&block_src.end))
+                .expect_free();
 
             match branch {
                 ExplorationBranch::Branch(branches) => {
@@ -385,8 +406,7 @@ impl<'d> FnAssembler<'d> {
                         blocks_to_assemble.push_back((
                             // entry block
                             // TODO: is the context of this the OG IR or the function?
-                            *block,
-                            parameters.clone(),
+                            *block, parameters,
                         ));
                     }
                 }
@@ -397,13 +417,16 @@ impl<'d> FnAssembler<'d> {
         }
 
         Function {
-            entry_block: self.id_of(self.entry_block),
+            entry_block: self.id_of(self.entry_block, invocation_args),
             blocks,
         }
     }
 
-    fn id_of(&mut self, blk_id: BlockId<IrCtx>) -> BlockId<AssemblerCtx> {
-        self.block_id_map.map(blk_id)
+    fn id_of(&mut self, blk_id: BlockId<IrCtx>, args: Vec<ValueType>) -> BlockId<AssemblerCtx> {
+        let counter = &self.block_id_counter;
+        *(self.block_id_map)
+            .entry((blk_id, args))
+            .or_insert_with(|| counter.next())
     }
 }
 
@@ -420,7 +443,7 @@ struct InstWriter<'assembler, F, I> {
 
 impl<'a, F, I> InstWriter<'a, F, I>
 where
-    F: FnMut(BlockId<IrCtx>) -> BlockId<AssemblerCtx>,
+    F: FnMut(BlockId<IrCtx>, Vec<ValueType>) -> BlockId<AssemblerCtx>,
     I: FnMut(ConstantId<IrCtx>) -> ConstantId<AssemblerCtx>,
 {
     pub fn new(
@@ -463,7 +486,7 @@ where
 
             // dead-simple instructions, always will be simple
             ir::Instruction::MakeString(_, _)
-            | ir::Instruction::MakeNumber(_, _)
+            | ir::Instruction::MakeInteger(_, _)
             | ir::Instruction::GetRuntime(_) => {}
 
             // calculatably simple instructions
@@ -490,6 +513,10 @@ where
             // elide the arguments to other JSSAT functions.
             ir::Instruction::Call(result, function, args) => {
                 let original_args = args;
+                let arg_types = args
+                    .iter()
+                    .map(|r| self.register_types.get(r).unwrap().clone())
+                    .collect();
 
                 let args = match function {
                     ir::Callable::External(ext_id) => {
@@ -541,7 +568,7 @@ where
                                 )
                             };
 
-                            Callable::Static(self.assembler.get_fn_id(*id, blk_id))
+                            Callable::Static(self.assembler.get_fn_id(*id, blk_id, arg_types))
                         }
                     },
                     args,
@@ -572,7 +599,7 @@ where
                 self.instructions
                     .push(Instruction::MakeString(reg, (self.intern_constant)(*id)));
             }
-            ValueType::ExactNumber(n) => {
+            ValueType::ExactInteger(n) => {
                 self.instructions.push(Instruction::MakeNumber(reg, *n));
             }
             ValueType::Bool(b) => {
@@ -585,6 +612,11 @@ where
 
     fn map_basic_block_jump(&mut self, bbjump: &BasicBlockJump<PureBbCtx, IrCtx>) -> BlockJump {
         let BasicBlockJump(id, args) = bbjump;
+
+        let invocation_arg_types = args
+            .iter()
+            .map(|r| self.register_types.get(r).unwrap().clone())
+            .collect();
 
         // LOGIC(param_dropping): this is the logic that determines which
         // parameters to pass to a block, as some parameters may be
@@ -599,13 +631,14 @@ where
         // generic/abstract args (i.e. Jmp A(0) -> A(Int) is impossible)
         let register_types = self.register_types;
         let register_map = &mut self.register_map;
+
         let args = (args.iter())
             .filter(|arg| !InstWriter::<'a, F, I>::_is_simple(register_types, **arg))
             .copied()
             .map(|r| register_map.map(r))
             .collect();
 
-        BlockJump((self.map_block)(*id), args)
+        BlockJump((self.map_block)(*id, invocation_arg_types), args)
     }
 
     pub fn complete(mut self, end: &ir::ControlFlowInstruction<PureBbCtx, IrCtx>) -> Block {
@@ -675,7 +708,7 @@ impl ValueType {
             | ValueType::Pointer(_)
             | ValueType::Word
             | ValueType::Boolean => false,
-            ValueType::ExactNumber(_) | ValueType::ExactString(_) | ValueType::Bool(_) => true,
+            ValueType::ExactInteger(_) | ValueType::ExactString(_) | ValueType::Bool(_) => true,
         }
     }
 
@@ -689,7 +722,7 @@ impl ValueType {
         matches!(
             self,
             ValueType::Runtime
-                | ValueType::ExactNumber(_)
+                | ValueType::ExactInteger(_)
                 | ValueType::Bool(_)
                 | ValueType::ExactString(_)
         )

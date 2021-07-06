@@ -17,6 +17,9 @@ pub mod name;
 pub trait UnwrapNone {
     fn expect_none(self, msg: &str);
     fn unwrap_none(self);
+
+    // lazy/hacky code but w/e
+    fn expect_free(self);
 }
 
 impl<T> UnwrapNone for Option<T> {
@@ -26,6 +29,28 @@ impl<T> UnwrapNone for Option<T> {
 
     fn unwrap_none(self) {
         assert!(matches!(self, None))
+    }
+
+    fn expect_free(self) {
+        self.expect_none("must be free insertion slot");
+    }
+}
+
+impl<L, R> UnwrapNone for bimap::Overwritten<L, R> {
+    fn expect_none(self, msg: &str) {
+        assert!(
+            matches!(self, bimap::Overwritten::<L, R>::Neither),
+            "{}",
+            msg
+        );
+    }
+
+    fn unwrap_none(self) {
+        assert!(matches!(self, bimap::Overwritten::<L, R>::Neither));
+    }
+
+    fn expect_free(self) {
+        self.expect_none("must be free insertion slot");
     }
 }
 
@@ -114,7 +139,7 @@ fn main() {
     let content = "print('Hello, World!');".to_owned();
 
     let ir = frontend::js::traverse(content);
-    eprintln!("{:#?}", ir);
+    // eprintln!("{:#?}", ir);
 
     let as_only_blocks = frontend::conv_only_bb::translate(&ir);
     eprintln!("{:#?}", as_only_blocks);
@@ -122,6 +147,7 @@ fn main() {
     let annotations = frontend::type_annotater::annotate(&ir, as_only_blocks.clone());
     // eprintln!("{:#?}", annotations);
 
+    // panic!();
     let assembled = frontend::assembler::assemble(ir, as_only_blocks, annotations);
     eprintln!("{:#?}", assembled);
 
