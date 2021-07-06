@@ -71,9 +71,9 @@ impl Display for DebugName {
 }
 
 #[cfg(debug_assertions)]
-impl Into<Name> for DebugName {
-    fn into(self) -> Name {
-        self.0
+impl From<DebugName> for Name {
+    fn from(val: DebugName) -> Self {
+        val.0
     }
 }
 

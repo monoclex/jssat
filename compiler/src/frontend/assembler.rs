@@ -6,7 +6,7 @@ use std::collections::VecDeque;
 use rustc_hash::FxHashMap;
 
 use super::{
-    conv_only_bb::{self, Block as BBlock},
+    conv_only_bb::Block as BBlock,
     ir,
     ir::{FFIValueType, IR},
     type_annotater::{BlockKey, SymbolicEngine, ValueType},
@@ -114,23 +114,23 @@ fn map_ext_fn(exernal_function: ir::ExternalFunction) -> ExternalFunction {
         parameters: exernal_function
             .parameters
             .into_iter()
-            .map(ir::FFIValueType::to_type)
+            .map(ir::FFIValueType::into_type)
             .collect(),
-        returns: exernal_function.return_type.to_type(),
+        returns: exernal_function.return_type.into_type(),
     }
 }
 
 impl ir::FFIReturnType {
-    fn to_type(self) -> ReturnType {
+    fn into_type(self) -> ReturnType {
         match self {
             ir::FFIReturnType::Void => ReturnType::Void,
-            ir::FFIReturnType::Value(v) => ReturnType::Value(v.to_type()),
+            ir::FFIReturnType::Value(v) => ReturnType::Value(v.into_type()),
         }
     }
 }
 
 impl ir::FFIValueType {
-    fn to_type(self) -> Type {
+    fn into_type(self) -> Type {
         Type::FFI(self)
     }
 }
@@ -252,7 +252,7 @@ impl Assembler {
         orig_arg_types: Vec<&ValueType>,
     ) -> BlockId<IrCtx> {
         let mut found_id = None;
-        for (fn_id, blk_id, arg_types, t) in self.engine.executions.all_fn_invocations() {
+        for (fn_id, blk_id, arg_types, _t) in self.engine.executions.all_fn_invocations() {
             let arg_types = arg_types.iter().collect::<Vec<_>>();
             if orig_fn_id == fn_id && orig_arg_types == arg_types {
                 debug_assert!(found_id.is_none());
@@ -355,7 +355,7 @@ impl<'d> FnAssembler<'d> {
                 })
                 .collect::<Vec<_>>();
 
-            let block_id_map = &mut self.block_id_map;
+            let _block_id_map = &mut self.block_id_map;
 
             let assembler_id_gen = &self.assembler.constant_id_gen;
             let constants = &mut self.constants;
@@ -398,7 +398,7 @@ impl<'d> FnAssembler<'d> {
                 ExplorationBranch::Branch(branches) => {
                     // explore those branches!
                     for BlockExecutionKey {
-                        function,
+                        function: _,
                         block,
                         parameters,
                     } in branches
@@ -496,12 +496,12 @@ where
             // the remaining instructions are decidedly complex
 
             // the simple cases are handled above
-            ir::Instruction::CompareLessThan(result, lhs, rhs) => {
+            ir::Instruction::CompareLessThan(_result, _lhs, _rhs) => {
                 //
                 todo!()
             }
 
-            ir::Instruction::Add(result, lhs, rhs) => {
+            ir::Instruction::Add(_result, _lhs, _rhs) => {
                 //
                 todo!()
             }
@@ -519,7 +519,7 @@ where
                     .collect();
 
                 let args = match function {
-                    ir::Callable::External(ext_id) => {
+                    ir::Callable::External(_ext_id) => {
                         // in external functions, we can never omit any params
                         for simple_arg in args.iter() {
                             if self.is_simple(*simple_arg) {

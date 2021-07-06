@@ -43,12 +43,15 @@ pub mod string;
 //     unsafe {}
 // }
 
+/// # Safety
+///
+/// Valid only if a valid `_runtime` and `arguments` are passed to it.
 #[no_mangle]
-pub extern "C" fn jssatrt_print_any(_runtime: *const Runtime, arguments: *const Any) {
+pub unsafe extern "C" fn jssatrt_print_any(_runtime: *const Runtime, arguments: *const Any) {
     notnull!(_runtime);
     notnull!(arguments);
 
     // TODO: validate safety
-    let any = unsafe { &*arguments };
+    let any = &*arguments;
     println!("{}", any);
 }

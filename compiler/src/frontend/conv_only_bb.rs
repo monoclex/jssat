@@ -3,9 +3,7 @@ use petgraph::graph::NodeIndex;
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
 use std::hash::{BuildHasherDefault, Hash};
 
-use crate::frontend::ir::{
-    BasicBlockJump, Callable, ControlFlowInstruction, Function, FunctionBlock, Instruction, IR,
-};
+use crate::frontend::ir::{BasicBlockJump, ControlFlowInstruction, Function, Instruction, IR};
 use crate::id::*;
 use crate::UnwrapNone;
 
@@ -244,12 +242,14 @@ impl<'d> Algo<'d> {
                 provision_plan
                     .insert(child_block_register, register_in_original_fn)
                     .expect_none("we shouldn't have duplicates, this is just in case")
-            } else
-            // let x = reg in orig fn, a = replacement reg (in this block's params)
-            // replacements | { x -> a },
-            if let Some(replacement) =
+            } else if let Some(replacement) =
                 state.replacements.get_by_left(&register_in_original_fn)
             {
+                // ^^^
+                // let x = reg in orig fn, a = replacement reg (in this block's params)
+                // replacements | { x -> a },
+                // ^^^
+
                 // we can provision this register
                 provision_plan
                     .insert(child_block_register, *replacement)

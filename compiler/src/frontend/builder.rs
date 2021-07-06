@@ -156,6 +156,12 @@ impl ProgramBuilder {
     }
 }
 
+impl Default for ProgramBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub struct FunctionBuilder<'name, const PARAMETERS: usize> {
     pub id: FunctionId,
     name: &'name str,

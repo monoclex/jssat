@@ -151,7 +151,7 @@ pub struct TypedFunction {
 }
 
 impl TypedFunction {
-    pub fn find(&self, block: &BlockId<IrCtx>, args: &Vec<ValueType>) -> (&ExplorationBranch, &FxHashMap<RegisterId<PureBbCtx>, ValueType>) {
+    pub fn find(&self, block: &BlockId<IrCtx>, args: &[ValueType]) -> (&ExplorationBranch, &FxHashMap<RegisterId<PureBbCtx>, ValueType>) {
         (self.eval_blocks.iter())
             .filter(|(blk, blk_args, _, _)| blk == block && blk_args == args)
             .map(|(_, _, branch, map)| (branch, map))
@@ -294,7 +294,7 @@ impl SymbolicEngineToken {
                         (Some(lhs), Some(rhs)) => lhs.perform_less_than(&rhs),
                     };
 
-                    types.insert(*reg, comparison.to_value_type());
+                    types.insert(*reg, comparison.into_value_type());
                 }
                 Instruction::Add(reg, lhs, rhs) => {
                     let addition = match (map(lhs).is_addable(), map(rhs).is_addable()) {
@@ -303,7 +303,7 @@ impl SymbolicEngineToken {
                         (Some(a), Some(b)) => a.perform_add(&b).expect("should be able to add"),
                     };
 
-                    types.insert(*reg, addition.to_value_type());
+                    types.insert(*reg, addition.into_value_type());
                 }
                 Instruction::Call(result, func, arg_regs) => {
                     let args = arg_regs.iter().map(map).cloned().collect::<Vec<_>>();
@@ -560,12 +560,12 @@ impl ValueComparable {
     }
 }
 
-pub trait ToValueType {
-    fn to_value_type(self) -> ValueType;
+pub trait IntoValueType {
+    fn into_value_type(self) -> ValueType;
 }
 
-impl ToValueType for ValueConditional {
-    fn to_value_type(self) -> ValueType {
+impl IntoValueType for ValueConditional {
+    fn into_value_type(self) -> ValueType {
         match self {
             ValueConditional::Boolean => ValueType::Boolean,
             ValueConditional::Bool(b) => ValueType::Bool(b),
@@ -573,8 +573,8 @@ impl ToValueType for ValueConditional {
     }
 }
 
-impl ToValueType for ValueAddable {
-    fn to_value_type(self) -> ValueType {
+impl IntoValueType for ValueAddable {
+    fn into_value_type(self) -> ValueType {
         match self {
             ValueAddable::Number => ValueType::Number,
             ValueAddable::Num(n) => ValueType::ExactInteger(n),

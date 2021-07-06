@@ -1,16 +1,17 @@
-use std::{
-    collections::{HashMap, VecDeque},
-    hash::Hash,
-    marker::PhantomData,
-    sync::atomic::AtomicUsize,
-};
+use std::{hash::Hash, marker::PhantomData, sync::atomic::AtomicUsize};
 
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashMap;
 
 macro_rules! gen_id {
     ($name:ident) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
         pub struct $name<Ctx>(::std::num::NonZeroUsize, ::std::marker::PhantomData<Ctx>);
+
+        impl<C: PartialEq + Eq + Hash + Sized + Copy> Default for $name<C> {
+            fn default() -> Self {
+                Self::new()
+            }
+        }
 
         impl<C: PartialEq + Eq + Hash + Sized + Copy> $name<C> {
             pub fn new() -> Self {

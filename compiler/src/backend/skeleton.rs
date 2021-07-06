@@ -1,14 +1,9 @@
-
-
 use crate::backend::llvm::{
     self, BackendIR, Callable, Constant, ExternalFunction, LLVMLinkage, OpaqueStruct,
 };
 
-
 use crate::frontend::{ir::IR, type_annotater::SymbolicEngine};
 use crate::id::*;
-
-
 
 struct OpaqueStructs {
     runtime: OpaqueStructId<NoContext>,
