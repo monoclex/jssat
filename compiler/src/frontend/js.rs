@@ -62,108 +62,108 @@ pub fn traverse(source: String) -> IR {
         builder.end_function(print_stub)
     };
 
-    // let _fib = {
-    //     // let (mut fib, [n]) = builder.start_function("fib");
+    let _fib = {
+        // let (mut fib, [n]) = builder.start_function("fib");
 
-    //     /*
-    //     def fib(n):
-    //         if n == 0:
-    //             ret 0
-    //         if n == 1:
-    //             ret 1
-    //         ret fib(n - 2) + fib(n - 1)
+        /*
+        def fib(n):
+            if n == 0:
+                ret 0
+            if n == 1:
+                ret 1
+            ret fib(n - 2) + fib(n - 1)
 
-    //     fib(n):
-    //         Entry():
-    //             is_zero = n < 1 // not implementing `==` rn lmfao
-    //             if (is_zero)
-    //                 jmp RetZero()
-    //             else
-    //                 jmp CheckOne()
-    //         RetZero():
-    //             ret 0
-    //         CheckOne():
-    //             is_one = n < 2
-    //             if (is_one)
-    //                 jmp RetOne()
-    //             else
-    //                 jmp ComputeFib()
-    //         RetOne():
-    //             ret 1
-    //         ComputeFib():
-    //             p0 = n - 2
-    //             lhs = call fib(p0)
-    //             p1 = n - 1
-    //             rhs = call fib(p1)
-    //             result = lhs + rhs
-    //             ret result
-    //     */
-    // };
+        fib(n):
+            Entry():
+                is_zero = n < 1 // not implementing `==` rn lmfao
+                if (is_zero)
+                    jmp RetZero()
+                else
+                    jmp CheckOne()
+            RetZero():
+                ret 0
+            CheckOne():
+                is_one = n < 2
+                if (is_one)
+                    jmp RetOne()
+                else
+                    jmp ComputeFib()
+            RetOne():
+                ret 1
+            ComputeFib():
+                p0 = n - 2
+                lhs = call fib(p0)
+                p1 = n - 1
+                rhs = call fib(p1)
+                result = lhs + rhs
+                ret result
+        */
+    };
 
-    // let sum = {
-    //     let (mut sum, [n]) = builder.start_function("sum");
+    let sum = {
+        let (mut sum, [n]) = builder.start_function("sum");
 
-    //     /*
-    //     def sum(n):
-    //         total = 0
-    //         for i in range(0, n):
-    //             total += i
-    //         return total
+        /*
+        def sum(n):
+            total = 0
+            for i in range(0, n):
+                total += i
+            return total
 
-    //     sum(n):
-    //         Entry():
-    //             i = 0
-    //             total = 0
-    //             jmp Check(i, total)
-    //         Check(ci, ctotal):
-    //             should_iterate = ci < n
-    //             if (should_iterate)
-    //                 jmp Loop(ci, ctotal)
-    //             else
-    //                 jmp End(ctotal)
-    //         Loop(li, ltotal):
-    //             print(li) # add stateful effect so the optimizer doesn't optimize everything
-    //             total2 = ltotal + li
-    //             i2 = li + 1
-    //             jmp Check(i2, total2)
-    //         End(etotal):
-    //             ret etotal
-    //     */
-    //     let mut entry = sum.start_block_main();
-    //     let (mut check, [ci, ctotal]) = sum.start_block();
-    //     let (mut bloop, [li, ltotal]) = sum.start_block();
-    //     let (end, [etotal]) = sum.start_block();
+        sum(n):
+            Entry():
+                i = 0
+                total = 0
+                jmp Check(i, total)
+            Check(ci, ctotal):
+                should_iterate = ci < n
+                if (should_iterate)
+                    jmp Loop(ci, ctotal)
+                else
+                    jmp End(ctotal)
+            Loop(li, ltotal):
+                print(li) # add stateful effect so the optimizer doesn't optimize everything
+                total2 = ltotal + li
+                i2 = li + 1
+                jmp Check(i2, total2)
+            End(etotal):
+                ret etotal
+        */
+        let mut entry = sum.start_block_main();
+        let (mut check, [ci, ctotal]) = sum.start_block();
+        let (mut bloop, [li, ltotal]) = sum.start_block();
+        let (end, [etotal]) = sum.start_block();
 
-    //     let check_sig = check.signature();
+        let check_sig = check.signature();
 
-    //     {
-    //         let i = entry.make_number_decimal(0);
-    //         let total = entry.make_number_decimal(0);
-    //         sum.end_block(entry.jmp(check.signature(), [i, total]));
-    //     }
-    //     {
-    //         let should_iterate = check.compare_less_than(ci, n);
-    //         sum.end_block(check.jmpif(
-    //             should_iterate,
-    //             bloop.signature(),
-    //             [ci, ctotal],
-    //             end.signature(),
-    //             [ctotal],
-    //         ));
-    //     }
-    //     {
-    //         bloop.call(print_stub, [li]);
-    //         let total2 = bloop.add(ltotal, li);
-    //         let one = bloop.make_number_decimal(1);
-    //         let i2 = bloop.add(li, one);
-    //         sum.end_block(bloop.jmp(check_sig, [i2, total2]));
-    //     }
-    //     {
-    //         sum.end_block(end.ret(Some(etotal)));
-    //     }
+        {
+            let i = entry.make_number_decimal(0);
+            let total = entry.make_number_decimal(0);
+            sum.end_block(entry.jmp(check.signature(), [i, total]));
+        }
+        {
+            let should_iterate = check.compare_less_than(ci, n);
+            sum.end_block(check.jmpif(
+                should_iterate,
+                bloop.signature(),
+                [ci, ctotal],
+                end.signature(),
+                [ctotal],
+            ));
+        }
+        {
+            bloop.call(print_stub, [li]);
+            let total2 = bloop.add(ltotal, li);
+            let one = bloop.make_number_decimal(1);
+            let i2 = bloop.add(li, one);
+            sum.end_block(bloop.jmp(check_sig, [i2, total2]));
+        }
+        {
+            sum.end_block(end.ret(Some(etotal)));
+        }
 
-    //     builder.end_function(sum)
-    // };
+        builder.end_function(sum)
+    };
 
     let _main = {
         let mut main = builder.start_function_main();
@@ -171,27 +171,27 @@ pub fn traverse(source: String) -> IR {
         let hello_world = builder.constant_str_utf16("hello_world", "Hello, World!".into());
 
         let mut block = main.start_block_main();
-        let (mut cond, [condition]) = main.start_block();
-        let (mut end, []) = main.start_block();
+        // let (mut cond, [condition]) = main.start_block();
+        // let (mut end, []) = main.start_block();
 
-        let d0 = block.make_number_decimal(0);
-        let d1 = block.make_number_decimal(1);
-        let b_true = block.compare_less_than(d0, d1);
-        let b_false = block.compare_less_than(d1, d0);
+        // let d0 = block.make_number_decimal(0);
+        // let d1 = block.make_number_decimal(1);
+        // let b_true = block.compare_less_than(d0, d1);
+        // let b_false = block.compare_less_than(d1, d0);
 
-        let cond_sig = cond.signature();
-        main.end_block(block.jmp(cond_sig, [b_false]));
+        // let cond_sig = cond.signature();
+        // main.end_block(block.jmp(cond_sig, [b_false]));
 
-        cond.call(print_stub, [condition]);
-        main.end_block(cond.jmpif(condition, end.signature(), [], cond_sig, [b_true]));
+        // cond.call(print_stub, [condition]);
+        // main.end_block(cond.jmpif(condition, end.signature(), [], cond_sig, [b_true]));
 
-        main.end_block(end.ret(None));
+        // main.end_block(end.ret(None));
 
-        // let hello_world = block.make_string(hello_world);
-        // block.call(print_stub, [hello_world]);
-        // let max = block.make_number_decimal(3);
-        // block.call(sum, [max]);
-        // main.end_block(block.ret(None));
+        let hello_world = block.make_string(hello_world);
+        block.call(print_stub, [hello_world]);
+        let max = block.make_number_decimal(3);
+        block.call(sum, [max]);
+        main.end_block(block.ret(None));
 
         builder.end_function(main)
     };
