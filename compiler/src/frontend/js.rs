@@ -45,6 +45,23 @@ pub fn traverse(source: String) -> IR {
 
     let mut builder = ProgramBuilder::new();
 
+    let print_stub = {
+        let (mut print_stub, [any]) = builder.start_function("print_stub");
+
+        let print = builder.external_function(
+            "jssatrt_print_any",
+            [FFIValueType::Runtime, FFIValueType::Any],
+            FFIReturnType::Void,
+        );
+
+        let mut block = print_stub.start_block_main();
+        let runtime = block.get_runtime();
+        block.call_external_function(print, [runtime, any]);
+        print_stub.end_block(block.ret(None));
+
+        builder.end_function(print_stub)
+    };
+
     let _fib = {
         // let (mut fib, [n]) = builder.start_function("fib");
 
@@ -105,6 +122,7 @@ pub fn traverse(source: String) -> IR {
                 else
                     jmp End(ctotal)
             Loop(li, ltotal):
+                print(li) # add stateful effect so the optimizer doesn't optimize everything
                 total2 = ltotal + li
                 i2 = li + 1
                 jmp Check(i2, total2)
@@ -134,6 +152,7 @@ pub fn traverse(source: String) -> IR {
             ));
         }
         {
+            bloop.call(print_stub, [li]);
             let total2 = bloop.add(ltotal, li);
             let one = bloop.make_number_decimal(1.0);
             let i2 = bloop.add(li, one);
@@ -144,23 +163,6 @@ pub fn traverse(source: String) -> IR {
         }
 
         builder.end_function(sum)
-    };
-
-    let print_stub = {
-        let (mut print_stub, [any]) = builder.start_function("print_stub");
-
-        let print = builder.external_function(
-            "jssatrt_print_any",
-            [FFIValueType::Runtime, FFIValueType::Any],
-            FFIReturnType::Void,
-        );
-
-        let mut block = print_stub.start_block_main();
-        let runtime = block.get_runtime();
-        block.call_external_function(print, [runtime, any]);
-        print_stub.end_block(block.ret(None));
-
-        builder.end_function(print_stub)
     };
 
     let _main = {

@@ -273,7 +273,8 @@ impl SymbolicEngineToken {
                     types.insert(*reg, ValueType::Runtime);
                 }
                 Instruction::MakeString(reg, str) => {
-                    types.insert(*reg, ValueType::ExactString(*str));
+                    // TODO: solve MakeString issue
+                    types.insert(*reg, ValueType::ExactString(str.map_context::<IrCtx>()));
                 }
                 Instruction::MakeNumber(reg, value) => {
                     types.insert(*reg, ValueType::ExactNumber(*value));
@@ -359,9 +360,6 @@ impl SymbolicEngineToken {
                             me = (self.0.try_lock()).expect("Lock should be contentionless");
                         }
                     };
-                }
-                Instruction::Unreachable => {
-                    todo!("return from block as `never`")
                 }
             }
         }
@@ -798,7 +796,7 @@ pub enum ValueType {
     String,
     // TODO: an "ExactString" should just be a String with some kind of
     // ExactnessGuarantee to be exactly a type of a constant
-    ExactString(ConstantId<PureBbCtx>),
+    ExactString(ConstantId<IrCtx>),
     Number,
     ExactNumber(f64),
     BytePointer,

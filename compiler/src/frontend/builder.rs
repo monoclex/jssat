@@ -140,9 +140,9 @@ impl ProgramBuilder {
         (FunctionBuilder::new(id, name), parameters)
     }
 
-    pub fn end_function<'n, const PARAMETERS: usize>(
+    pub fn end_function<const PARAMETERS: usize>(
         &mut self,
-        mut builder: FunctionBuilder<'n, PARAMETERS>,
+        mut builder: FunctionBuilder<PARAMETERS>,
     ) -> FnSignature<PARAMETERS> {
         let signature = builder.signature();
 
@@ -279,10 +279,12 @@ impl<const P: usize> Drop for FunctionBuilder<'_, P> {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct FnSignature<const PARAMETERS: usize> {
     pub id: FunctionId,
 }
 
+#[derive(Clone, Copy)]
 pub struct BlkSignature<const PARAMETERS: usize> {
     pub id: BlockId,
 }

@@ -110,14 +110,16 @@ pub enum Instruction<C = crate::id::IrCtx> {
     /// Will instantiate a string, using the constant referenced as payload for
     /// the value of the string. JS strings are UTF-16, so it is expected that
     /// the constant referenced is a valid UTF-16 string.
+    // TODO: the conv_bb_block phase doesn't mutate constants, so they're still
+    // in the old constant phase. is this valid?
     MakeString(RegisterId<C>, crate::id::ConstantId<C>),
-    /// # [`Instruction::Unreachable`]
-    ///
-    /// Indicates that the executing code path will never reach this instruction.
-    /// It is undefined behavior for code to reach an Unreachable instruction.
-    /// This is used to implement functions that recurse an unknown amount of
-    /// times.
-    Unreachable,
+    // /// # [`Instruction::Unreachable`]
+    // ///
+    // /// Indicates that the executing code path will never reach this instruction.
+    // /// It is undefined behavior for code to reach an Unreachable instruction.
+    // /// This is used to implement functions that recurse an unknown amount of
+    // /// times.
+    // Unreachable,
     MakeNumber(RegisterId<C>, f64),
     CompareLessThan(RegisterId<C>, RegisterId<C>, RegisterId<C>),
     Add(RegisterId<C>, RegisterId<C>, RegisterId<C>),
@@ -168,7 +170,6 @@ impl<C: PartialEq + Eq + Hash + Copy> Instruction<C> {
             Instruction::MakeString(r, s) => {
                 Instruction::MakeString(r.map_context::<C2>(), s.map_context::<C2>())
             }
-            Instruction::Unreachable => Instruction::Unreachable,
             Instruction::MakeNumber(r, n) => Instruction::MakeNumber(r.map_context::<C2>(), n),
             Instruction::CompareLessThan(r, l, rhs) => Instruction::CompareLessThan(
                 r.map_context::<C2>(),
@@ -232,7 +233,6 @@ impl<C: Copy> Instruction<C> {
     pub fn assigned_to(&self) -> Option<RegisterId<C>> {
         match self {
             Instruction::Call(result, _, _) => *result,
-            Instruction::Unreachable => None,
             Instruction::GetRuntime(result)
             | Instruction::MakeString(result, _)
             | Instruction::MakeNumber(result, _)
@@ -247,8 +247,7 @@ impl<C: Copy> Instruction<C> {
             Instruction::CompareLessThan(_, lhs, rhs) | Instruction::Add(_, lhs, rhs) => {
                 vec![*lhs, *rhs]
             }
-            Instruction::Unreachable
-            | Instruction::GetRuntime(_)
+            Instruction::GetRuntime(_)
             | Instruction::MakeString(_, _)
             | Instruction::MakeNumber(_, _) => Vec::new(),
         }
@@ -262,7 +261,6 @@ impl<C: Copy> Instruction<C> {
             }
             Instruction::GetRuntime(_)
             | Instruction::MakeString(_, _)
-            | Instruction::Unreachable
             | Instruction::MakeNumber(_, _) => Vec::new(),
         }
     }

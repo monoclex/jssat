@@ -213,3 +213,38 @@ where
         Self::new()
     }
 }
+
+pub struct BlockIdMap<T, U> {
+    registers: FxHashMap<BlockId<T>, BlockId<U>>,
+    reg_counter: Counter<BlockId<U>>,
+}
+
+impl<T, U> BlockIdMap<T, U>
+where
+    T: PartialEq + Eq + Hash + Sized + Copy,
+    U: PartialEq + Eq + Hash + Sized + Copy,
+{
+    pub fn new() -> Self {
+        Self {
+            registers: Default::default(),
+            reg_counter: Default::default(),
+        }
+    }
+
+    pub fn map(&mut self, source: BlockId<T>) -> BlockId<U> {
+        let reg_counter = &self.reg_counter;
+        *(self.registers)
+            .entry(source)
+            .or_insert_with(|| reg_counter.next())
+    }
+}
+
+impl<T, U> Default for BlockIdMap<T, U>
+where
+    T: PartialEq + Eq + Hash + Sized + Copy,
+    U: PartialEq + Eq + Hash + Sized + Copy,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}

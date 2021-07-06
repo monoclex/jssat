@@ -6,12 +6,18 @@ use std::collections::VecDeque;
 use rustc_hash::FxHashMap;
 
 use super::{
-    conv_only_bb::Block as BBlock,
+    conv_only_bb::{self, Block as BBlock},
     ir,
     ir::{FFIValueType, IR},
     type_annotater::{BlockKey, SymbolicEngine, ValueType},
 };
-use crate::id::*;
+use crate::{
+    frontend::{
+        ir::BasicBlockJump,
+        type_annotater::{BlockExecutionKey, ExplorationBranch},
+    },
+    id::*,
+};
 
 #[derive(Clone, Debug)]
 pub struct Program {
@@ -52,13 +58,38 @@ pub struct Parameter {
 
 #[derive(Clone, Debug)]
 pub enum Instruction {
+    Call(
+        Option<RegisterId<AssemblerCtx>>,
+        Callable,
+        Vec<RegisterId<AssemblerCtx>>,
+    ),
     GetRuntime(RegisterId<AssemblerCtx>),
+    MakeString(RegisterId<AssemblerCtx>, ConstantId<AssemblerCtx>),
+    MakeNumber(RegisterId<AssemblerCtx>, f64),
+    MakeBoolean(RegisterId<AssemblerCtx>, bool),
+    Unreachable,
+}
+
+#[derive(Clone, Debug)]
+pub enum Callable {
+    Extern(ExternalFunctionId<IrCtx>),
+    Static(FunctionId<AssemblerCtx>),
 }
 
 #[derive(Clone, Debug)]
 pub enum EndInstruction {
-    T,
+    Unreachable,
+    Jump(BlockJump),
+    JumpIf {
+        condition: RegisterId<AssemblerCtx>,
+        true_path: BlockJump,
+        false_path: BlockJump,
+    },
+    Return(Option<RegisterId<AssemblerCtx>>),
 }
+
+#[derive(Clone, Debug)]
+pub struct BlockJump(BlockId<AssemblerCtx>, Vec<RegisterId<AssemblerCtx>>);
 
 #[derive(Clone, Debug)]
 pub enum ReturnType {
@@ -207,6 +238,20 @@ impl Assembler {
         debug_assert_eq!(matches.len(), 1);
         matches[0]
     }
+
+    fn find_what(
+        &self,
+        orig_fn_id: FunctionId<IrCtx>,
+        orig_arg_types: Vec<&ValueType>,
+    ) -> BlockId<IrCtx> {
+        for (fn_id, blk_id, arg_types, t) in self.engine.executions.all_fn_invocations() {
+            let arg_types = arg_types.iter().map(|a| a).collect::<Vec<_>>();
+            if orig_fn_id == fn_id && orig_arg_types == arg_types {
+                return blk_id;
+            }
+        }
+        unreachable!("how he how")
+    }
 }
 
 struct FnAssembler<'duration> {
@@ -218,8 +263,12 @@ struct FnAssembler<'duration> {
     invocation_args: Vec<ValueType>,
     /// **modified** key, present in basic block
     block_key: BlockKey,
-    block_id_gen: Counter<BlockId<AssemblerCtx>>,
-    block_id_map: FxHashMap<BlockId<IrCtx>, BlockId<AssemblerCtx>>,
+    block_id_map: BlockIdMap<IrCtx, AssemblerCtx>,
+    /// we can ONLY use this because we know that the `conv_only_bb` step will
+    /// only generate registers abve all IR registers, which means that there
+    /// will never be a clash. this might have to be reconsidered later
+    register_map: RegIdMap<PureBbCtx, AssemblerCtx>,
+    constants: FxHashMap<ConstantId<AssemblerCtx>, Vec<u8>>,
 }
 
 impl<'d> FnAssembler<'d> {
@@ -236,8 +285,9 @@ impl<'d> FnAssembler<'d> {
             entry_block,
             invocation_args,
             block_key,
-            block_id_gen: Counter::new(),
             block_id_map: Default::default(),
+            register_map: Default::default(),
+            constants: Default::default(),
         }
     }
 
@@ -262,7 +312,7 @@ impl<'d> FnAssembler<'d> {
             iterations += 1;
             let id = self.id_of(block);
 
-            let (_branch, _register_types) = typed_fn.find(&block, &args);
+            let (branch, register_types) = typed_fn.find(&block, &args);
             let block_src = self.assembler.find_block(self.function_id, block);
 
             println!("----");
@@ -275,44 +325,75 @@ impl<'d> FnAssembler<'d> {
                 block,
                 iterations
             );
+
+            // LOGIC(param_dropping): this is the logic that determines which
+            // parameters are dropped, it may need to be encapsulated somewhere
+            // else for easier refactoring
             let parameters = (args.iter())
                 .zip(block_src.parameters.iter())
-                // we can ignore parameters with constant values, as we will
-                // always know their value
-                .filter(|(typ, _)| !typ.is_const())
+                // we can ignore simple parameters, as reconstructing those
+                // params is cheaper than passing them along
+                //
+                // this comes at the cost of us needing to fill in the constant
+                // values anytime we use these parameters
+                .filter(|(typ, _)| !typ.is_simple())
                 .map(|(typ, register)| Parameter {
                     typ: typ.to_type(),
                     register: register.map_context::<AssemblerCtx>(),
                 })
                 .collect::<Vec<_>>();
 
-            let mut reg_map = RegIdMap::new();
+            let block_id_map = &mut self.block_id_map;
 
-            let mut instructions = Vec::new();
+            let assembler_id_gen = &self.assembler.constant_id_gen;
+            let constants = &mut self.constants;
+            let ir = &self.assembler.ir;
+            let intern_cnst = |orig_id| {
+                let id = assembler_id_gen.next();
+                let payload = ir.constants.get(&orig_id).unwrap();
+                constants.insert(id, payload.payload.clone());
+                id
+            };
+
+            let mut inst_writer = InstWriter::new(
+                parameters,
+                &mut self.register_map,
+                register_types,
+                |id| block_id_map.map(id),
+                intern_cnst,
+                &self.assembler,
+            );
 
             for inst in block_src.instructions.iter() {
-                match inst {
-                    ir::Instruction::Call(_, _, _) => todo!(),
-                    ir::Instruction::GetRuntime(reg) => {
-                        instructions.push(Instruction::GetRuntime(reg_map.map(*reg)));
-                    }
-                    ir::Instruction::MakeString(_, _) => todo!(),
-                    ir::Instruction::Unreachable => todo!(),
-                    ir::Instruction::MakeNumber(_, _) => todo!(),
-                    ir::Instruction::CompareLessThan(_, _, _) => todo!(),
-                    ir::Instruction::Add(_, _, _) => todo!(),
+                let should_keep_translating = inst_writer.translate(inst);
+                if !should_keep_translating {
+                    break;
                 }
             }
 
-            let end = EndInstruction::T;
+            blocks.insert(id, inst_writer.complete(&block_src.end));
 
-            let block = Block {
-                parameters,
-                instructions,
-                end,
+            match branch {
+                ExplorationBranch::Branch(branches) => {
+                    // explore those branches!
+                    for BlockExecutionKey {
+                        function,
+                        block,
+                        parameters,
+                    } in branches
+                    {
+                        blocks_to_assemble.push_back((
+                            // entry block
+                            // TODO: is the context of this the OG IR or the function?
+                            *block,
+                            parameters.clone(),
+                        ));
+                    }
+                }
+                ExplorationBranch::Complete(_) => {
+                    // do nothing, we're done
+                }
             };
-
-            blocks.insert(id, block);
         }
 
         Function {
@@ -322,10 +403,260 @@ impl<'d> FnAssembler<'d> {
     }
 
     fn id_of(&mut self, blk_id: BlockId<IrCtx>) -> BlockId<AssemblerCtx> {
-        let id_gen = &self.block_id_gen;
-        *(self.block_id_map)
-            .entry(blk_id)
-            .or_insert_with(|| id_gen.next())
+        self.block_id_map.map(blk_id)
+    }
+}
+
+struct InstWriter<'assembler, F, I> {
+    parameters: Vec<Parameter>,
+    instructions: Vec<Instruction>,
+    register_map: &'assembler mut RegIdMap<PureBbCtx, AssemblerCtx>,
+    map_block: F,
+    intern_constant: I,
+    register_types: &'assembler FxHashMap<RegisterId<PureBbCtx>, ValueType>,
+    never_infected: bool,
+    assembler: &'assembler Assembler,
+}
+
+impl<'a, F, I> InstWriter<'a, F, I>
+where
+    F: FnMut(BlockId<IrCtx>) -> BlockId<AssemblerCtx>,
+    I: FnMut(ConstantId<IrCtx>) -> ConstantId<AssemblerCtx>,
+{
+    pub fn new(
+        parameters: Vec<Parameter>,
+        register_map: &'a mut RegIdMap<PureBbCtx, AssemblerCtx>,
+        register_types: &'a FxHashMap<RegisterId<PureBbCtx>, ValueType>,
+        map_block: F,
+        intern_constant: I,
+        assembler: &'a Assembler,
+    ) -> Self {
+        Self {
+            instructions: Default::default(),
+            parameters,
+            register_map,
+            register_types,
+            never_infected: false,
+            map_block,
+            assembler,
+            intern_constant,
+        }
+    }
+
+    fn is_simple(&self, register: RegisterId<PureBbCtx>) -> bool {
+        InstWriter::<'a, F, I>::_is_simple(&self.register_types, register)
+    }
+
+    fn _is_simple(
+        register_types: &FxHashMap<RegisterId<PureBbCtx>, ValueType>,
+        register: RegisterId<PureBbCtx>,
+    ) -> bool {
+        register_types.get(&register).unwrap().is_simple()
+    }
+
+    pub fn translate(&mut self, inst: &ir::Instruction<PureBbCtx>) -> bool {
+        match inst {
+            // "simple" instructions should be ignored, as we can easily insert
+            // these instructions exactly when they are required. with our opt
+            // passes, we should be able to completely elide creation of simple
+            // values too!
+
+            // dead-simple instructions, always will be simple
+            ir::Instruction::MakeString(_, _)
+            | ir::Instruction::MakeNumber(_, _)
+            | ir::Instruction::GetRuntime(_) => {}
+
+            // calculatably simple instructions
+            ir::Instruction::CompareLessThan(result, _, _) | ir::Instruction::Add(result, _, _)
+                if self.is_simple(*result) => {}
+
+            // the remaining instructions are decidedly complex
+
+            // the simple cases are handled above
+            ir::Instruction::CompareLessThan(result, lhs, rhs) => {
+                //
+                todo!()
+            }
+
+            ir::Instruction::Add(result, lhs, rhs) => {
+                //
+                todo!()
+            }
+
+            // the rest are complicated
+            // a `call` function may invoke an external function, whose arguments
+            // may not be elided whatsoever. because calling a JSSAT function
+            // may invoke external functions as well, by induction, we may not
+            // elide the arguments to other JSSAT functions.
+            ir::Instruction::Call(result, function, args) => {
+                let original_args = args;
+
+                let args = match function {
+                    ir::Callable::External(ext_id) => {
+                        // in external functions, we can never omit any params
+                        for simple_arg in args.iter() {
+                            if self.is_simple(*simple_arg) {
+                                self.compute_simple(*simple_arg);
+                            }
+                        }
+
+                        args.iter()
+                            .map(|r| self.register_map.map(*r))
+                            .collect::<Vec<_>>()
+                    }
+                    ir::Callable::Static(_) => {
+                        // LOGIC(param_dropping): this is the logic that determines which
+                        // parameters to pass to a block, as some parameters may be
+                        // dropped. the complexity comes from having to ensure that this
+                        // piece of logic aligns with the other piece of logic related
+                        // to this one
+
+                        // TODO: we know that we can always drop simple arguments
+                        // because we never have code in the type_annotator phase that
+                        // bails when a function gets too recursive, meaning we will
+                        // never have a jump with simple args to a block that accepts
+                        // generic/abstract args (i.e. Jmp A(0) -> A(Int) is impossible)
+                        let register_types = self.register_types;
+                        args.iter()
+                            .filter(|r| !InstWriter::<'a, F, I>::_is_simple(register_types, **r))
+                            .map(|r| self.register_map.map(*r))
+                            .collect::<Vec<_>>()
+                    }
+                };
+
+                let result = (*result).map(|r| self.register_map.map(r));
+                self.instructions.push(Instruction::Call(
+                    result,
+                    match function {
+                        ir::Callable::External(id) => Callable::Extern(*id),
+                        ir::Callable::Static(id) => {
+                            // find the block id that most matches the args passed to the function
+                            let blk_id = {
+                                self.assembler.find_what(
+                                    *id,
+                                    original_args
+                                        .iter()
+                                        .map(|a| self.register_types.get(a).unwrap())
+                                        .collect(),
+                                )
+                            };
+
+                            Callable::Static(self.assembler.get_fn_id(*id, blk_id))
+                        }
+                    },
+                    args,
+                ));
+            }
+        }
+
+        true
+    }
+
+    fn compute_simple(&mut self, arg: RegisterId<PureBbCtx>) -> RegisterId<AssemblerCtx> {
+        debug_assert!(self.is_simple(arg));
+
+        let reg = self.register_map.map(arg);
+
+        match self.register_types.get(&arg).unwrap() {
+            ValueType::Any
+            | ValueType::String
+            | ValueType::Number
+            | ValueType::BytePointer
+            | ValueType::Pointer(_)
+            | ValueType::Word
+            | ValueType::Boolean => unreachable!("cannot be simple yet get here"),
+            ValueType::Runtime => {
+                self.instructions.push(Instruction::GetRuntime(reg));
+            }
+            ValueType::ExactString(id) => {
+                self.instructions
+                    .push(Instruction::MakeString(reg, (self.intern_constant)(*id)));
+            }
+            ValueType::ExactNumber(n) => {
+                self.instructions.push(Instruction::MakeNumber(reg, *n));
+            }
+            ValueType::Bool(b) => {
+                self.instructions.push(Instruction::MakeBoolean(reg, *b));
+            }
+        };
+
+        reg
+    }
+
+    fn map_basic_block_jump(&mut self, bbjump: &BasicBlockJump<PureBbCtx, IrCtx>) -> BlockJump {
+        let BasicBlockJump(id, args) = bbjump;
+
+        // LOGIC(param_dropping): this is the logic that determines which
+        // parameters to pass to a block, as some parameters may be
+        // dropped. the complexity comes from having to ensure that this
+        // piece of logic aligns with the other piece of logic related
+        // to this one
+
+        // TODO: we know that we can always drop simple arguments
+        // because we never have code in the type_annotator phase that
+        // bails when a function gets too recursive, meaning we will
+        // never have a jump with simple args to a block that accepts
+        // generic/abstract args (i.e. Jmp A(0) -> A(Int) is impossible)
+        let register_types = self.register_types;
+        let register_map = &mut self.register_map;
+        let args = (args.iter())
+            .filter(|arg| !InstWriter::<'a, F, I>::_is_simple(register_types, **arg))
+            .copied()
+            .map(|r| register_map.map(r))
+            .collect();
+
+        BlockJump((self.map_block)(*id), args)
+    }
+
+    pub fn complete(mut self, end: &ir::ControlFlowInstruction<PureBbCtx, IrCtx>) -> Block {
+        let end = if self.never_infected {
+            EndInstruction::Unreachable
+        } else {
+            match end {
+                ir::ControlFlowInstruction::Jmp(bbjump) => {
+                    EndInstruction::Jump(self.map_basic_block_jump(bbjump))
+                }
+                ir::ControlFlowInstruction::JmpIf {
+                    condition,
+                    true_path,
+                    false_path,
+                } => {
+                    // // if this assertion doesn't hold, we can just manually insert
+                    // // the constant jump ourselves
+                    // debug_assert!(
+                    //     !matches!(
+                    //         self.register_types.get(condition).unwrap(),
+                    //         ValueType::Bool(_)
+                    //     ),
+                    //     "shouldn't be conditionalling jumping when path is known"
+                    // );
+
+                    match self.register_types.get(condition).unwrap() {
+                        ValueType::Bool(true) => {
+                            EndInstruction::Jump(self.map_basic_block_jump(true_path))
+                        }
+                        ValueType::Bool(false) => {
+                            EndInstruction::Jump(self.map_basic_block_jump(false_path))
+                        }
+                        ValueType::Boolean => EndInstruction::JumpIf {
+                            condition: self.register_map.map(*condition),
+                            true_path: self.map_basic_block_jump(true_path),
+                            false_path: self.map_basic_block_jump(false_path),
+                        },
+                        _ => unreachable!("condition register should be only bools"),
+                    }
+                }
+                ir::ControlFlowInstruction::Ret(register) => {
+                    EndInstruction::Return((*register).map(|r| self.register_map.map(r)))
+                }
+            }
+        };
+
+        Block {
+            parameters: self.parameters,
+            instructions: self.instructions,
+            end,
+        }
     }
 }
 
@@ -346,5 +677,21 @@ impl ValueType {
             | ValueType::Boolean => false,
             ValueType::ExactNumber(_) | ValueType::ExactString(_) | ValueType::Bool(_) => true,
         }
+    }
+
+    /// States whether the type is "simple" or not. Simple types are extremely
+    /// cheap to rebuild at any moment in the IR, and are considered cheaper to
+    /// build than to pass around. Passing them around is considered "expensive"
+    /// because then we're using more registers than necessary, which cause
+    /// performance deficits because the more registers we use the more likely
+    /// we'll need to spill onto the stack to generate a function.
+    pub fn is_simple(&self) -> bool {
+        matches!(
+            self,
+            ValueType::Runtime
+                | ValueType::ExactNumber(_)
+                | ValueType::Bool(_)
+                | ValueType::ExactString(_)
+        )
     }
 }
