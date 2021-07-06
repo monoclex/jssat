@@ -9,7 +9,7 @@ use super::{
     conv_only_bb::Block as BBlock,
     ir,
     ir::{FFIValueType, IR},
-    type_annotater::{BlockKey, SymbolicEngine, ValueType},
+    type_annotater::{self, BlockKey, SymbolicEngine, ValueType},
 };
 use crate::{
     frontend::{
@@ -22,39 +22,49 @@ use crate::{
 
 #[derive(Clone, Debug)]
 pub struct Program {
-    constants: FxHashMap<ConstantId<AssemblerCtx>, Vec<u8>>,
-    external_functions: FxHashMap<ExternalFunctionId<AssemblerCtx>, ExternalFunction>,
-    functions: FxHashMap<FunctionId<AssemblerCtx>, Function>,
+    pub entrypoint: FunctionId<AssemblerCtx>,
+    pub constants: FxHashMap<ConstantId<AssemblerCtx>, Vec<u8>>,
+    pub external_functions: FxHashMap<ExternalFunctionId<AssemblerCtx>, ExternalFunction>,
+    pub functions: FxHashMap<FunctionId<AssemblerCtx>, Function>,
 }
 
 #[derive(Clone, Debug)]
 pub struct ExternalFunction {
-    name: String,
-    parameters: Vec<Type>,
-    returns: ReturnType,
+    pub name: String,
+    pub parameters: Vec<Type>,
+    pub returns: ReturnType,
 }
 
 #[derive(Clone, Debug)]
 pub struct Function {
-    entry_block: BlockId<AssemblerCtx>,
-    blocks: FxHashMap<BlockId<AssemblerCtx>, Block>,
+    pub entry_block: BlockId<AssemblerCtx>,
+    pub blocks: FxHashMap<BlockId<AssemblerCtx>, Block>,
+    pub return_type: ReturnType,
+}
+
+impl Function {
+    pub fn entry_block(&self) -> &Block {
+        self.blocks
+            .get(&self.entry_block)
+            .expect("must be entry block")
+    }
 }
 
 #[derive(Clone, Debug)]
 pub struct Block {
-    parameters: Vec<Parameter>,
-    instructions: Vec<Instruction>,
-    end: EndInstruction,
+    pub parameters: Vec<Parameter>,
+    pub instructions: Vec<Instruction>,
+    pub end: EndInstruction,
 }
 
 #[derive(Clone, Debug)]
 pub struct Parameter {
-    typ: Type,
+    pub typ: Type,
     // TODO: maybe parameters should implicitly get the register accoridng to
     // their index? it makes sense not to do this in the other IRs because of
     // mangling parameters, but here we have pretty much all the information
     // necessary to craft a final product
-    register: RegisterId<AssemblerCtx>,
+    pub register: RegisterId<AssemblerCtx>,
 }
 
 #[derive(Clone, Debug)]
@@ -90,7 +100,7 @@ pub enum EndInstruction {
 }
 
 #[derive(Clone, Debug)]
-pub struct BlockJump(BlockId<AssemblerCtx>, Vec<RegisterId<AssemblerCtx>>);
+pub struct BlockJump(pub BlockId<AssemblerCtx>, pub Vec<RegisterId<AssemblerCtx>>);
 
 #[derive(Clone, Debug)]
 pub enum ReturnType {
@@ -117,6 +127,25 @@ fn map_ext_fn(exernal_function: ir::ExternalFunction) -> ExternalFunction {
             .map(ir::FFIValueType::into_type)
             .collect(),
         returns: exernal_function.return_type.into_type(),
+    }
+}
+
+impl type_annotater::ReturnType {
+    fn into_type(self) -> ReturnType {
+        match self {
+            type_annotater::ReturnType::Void => ReturnType::Void,
+            type_annotater::ReturnType::Value(v) => ReturnType::Value(v.into_type()),
+            // when performing codegen for a function that never returns, we will have already
+            // transformed the function into the appropriate code to quit after dealing with
+            // a never type, and if we don't return anything might as well return void (nothing)
+            type_annotater::ReturnType::Never => ReturnType::Void,
+        }
+    }
+}
+
+impl ValueType {
+    fn into_type(self) -> Type {
+        Type::Val(self)
     }
 }
 
@@ -194,13 +223,24 @@ impl Assembler {
             built_fns.push((fn_id, entry_blk, assembled_fn, args.clone()));
         }
 
-        for (fn_id, blk_id, func, invocaation_args) in built_fns {
+        for (fn_id, blk_id, (consts, func), invocaation_args) in built_fns {
+            self.constants.extend(consts);
             self.functions
                 .insert(self.get_fn_id(fn_id, blk_id, invocaation_args), func)
                 .expect_free();
         }
 
         Program {
+            entrypoint: self.get_fn_id(
+                self.ir.entrypoint,
+                self.ir
+                    .functions
+                    .get(&self.ir.entrypoint)
+                    .unwrap()
+                    .entry_block,
+                // TODO: care about argc/argv/etc.
+                vec![],
+            ),
             constants: self.constants,
             external_functions: self.external_functions,
             functions: self.functions,
@@ -302,7 +342,7 @@ impl<'d> FnAssembler<'d> {
         }
     }
 
-    pub fn assemble(mut self) -> Function {
+    pub fn assemble(mut self) -> (FxHashMap<ConstantId<AssemblerCtx>, Vec<u8>>, Function) {
         let mut blocks = FxHashMap::default();
 
         let mut blocks_to_assemble = VecDeque::new();
@@ -416,10 +456,16 @@ impl<'d> FnAssembler<'d> {
             };
         }
 
-        Function {
-            entry_block: self.id_of(self.entry_block, invocation_args),
-            blocks,
-        }
+        let entry_block = self.id_of(self.entry_block, invocation_args);
+
+        (
+            self.constants,
+            Function {
+                entry_block,
+                blocks,
+                return_type: typed_fn.return_type.clone().into_type(),
+            },
+        )
     }
 
     fn id_of(&mut self, blk_id: BlockId<IrCtx>, args: Vec<ValueType>) -> BlockId<AssemblerCtx> {
@@ -679,8 +725,13 @@ where
                         _ => unreachable!("condition register should be only bools"),
                     }
                 }
-                ir::ControlFlowInstruction::Ret(register) => {
-                    EndInstruction::Return((*register).map(|r| self.register_map.map(r)))
+                ir::ControlFlowInstruction::Ret(None) => EndInstruction::Return(None),
+                ir::ControlFlowInstruction::Ret(Some(arg)) => {
+                    if self.is_simple(*arg) {
+                        self.compute_simple(*arg);
+                    }
+
+                    EndInstruction::Return(Some(self.register_map.map(*arg)))
                 }
             }
         };

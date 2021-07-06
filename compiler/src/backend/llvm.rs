@@ -77,7 +77,9 @@ pub struct Parameter {
 pub enum NumberValue {
     UnsignedNative(usize),
     SignedNative(isize),
+    /// bits, value
     UnsignedArbitrary(u16, u64),
+    /// bits, value
     SignedArbitrary(u16, i64),
 }
 
@@ -147,6 +149,12 @@ pub enum ValueType {
     BitType(u16),
     Opaque(OpaqueStructId),
     Pointer(Box<ValueType>),
+}
+
+impl ValueType {
+    pub fn into_ptr(self) -> ValueType {
+        ValueType::Pointer(box self)
+    }
 }
 
 pub enum LLVMLinkage {

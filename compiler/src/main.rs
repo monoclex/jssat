@@ -5,7 +5,9 @@
 #![feature(const_fn)]
 #![feature(const_option)]
 #![feature(const_fn_trait_bound)]
+#![feature(box_syntax)]
 #![deny(clippy::disallowed_method)]
+
 use std::{io::Write, process::Command};
 
 pub mod backend;
@@ -139,15 +141,14 @@ fn main() {
     let content = "print('Hello, World!');".to_owned();
 
     let ir = frontend::js::traverse(content);
-    // eprintln!("{:#?}", ir);
+    eprintln!("{:#?}", ir);
 
     let as_only_blocks = frontend::conv_only_bb::translate(&ir);
     eprintln!("{:#?}", as_only_blocks);
 
     let annotations = frontend::type_annotater::annotate(&ir, as_only_blocks.clone());
-    // eprintln!("{:#?}", annotations);
+    eprintln!("{:#?}", annotations);
 
-    // panic!();
     let assembled = frontend::assembler::assemble(ir, as_only_blocks, annotations);
     eprintln!("{:#?}", assembled);
 

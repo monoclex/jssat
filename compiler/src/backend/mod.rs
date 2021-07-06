@@ -1,4 +1,4 @@
-use crate::frontend::{assembler::Program};
+use crate::frontend::assembler::Program;
 
 pub mod llvm;
 pub mod skeleton;
@@ -8,8 +8,7 @@ pub struct BuildArtifact {
     pub obj: Vec<u8>,
 }
 
-pub fn compile(_program: Program) -> BuildArtifact {
-    todo!()
-    // let backend_ir = skeleton::translate(ir, annotations);
-    // llvm::compile(backend_ir)
+pub fn compile(program: Program) -> BuildArtifact {
+    let backend_ir = skeleton::translate(program);
+    llvm::compile(backend_ir)
 }
