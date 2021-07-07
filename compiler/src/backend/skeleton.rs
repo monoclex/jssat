@@ -1,3 +1,5 @@
+use core::num;
+
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::backend::llvm::{
@@ -315,13 +317,30 @@ pub fn translate(program: Program) -> BackendIR<'static> {
 
         let entry_block = function.entry_block.map_context();
 
-        let mut blocks = FxHashMap::default();
+        let mut blocks: FxHashMap<
+            BlockId<LlvmCtx>,
+            (Vec<llvm::Instruction>, Vec<llvm::Instruction>),
+        > = FxHashMap::default();
+
+        for (&id, block) in function.blocks.iter() {
+            let llvm_id = id.map_context();
+            let mut phi_insts = Vec::with_capacity(block.parameters.len());
+            let mut instructions = Vec::new();
+
+            blocks.insert(llvm_id, (phi_insts, instructions));
+        }
 
         for (&id, block) in function.blocks.iter() {
             let llvm_id = id.map_context();
             let is_entryblock = llvm_id == entry_block;
 
-            let mut instructions = Vec::new();
+            let (phi_insts, instructions) = blocks.get_mut(&llvm_id).unwrap();
+
+            if !is_entryblock {
+                for p in block.parameters.iter() {
+                    phi_insts.push(llvm::Instruction::Phi(reg_map.map(p.register), vec![]))
+                }
+            }
 
             // this isn't exactly a sound guarantee to make, since it's always
             // possible for consumers of jssat as a library (if that happens)
@@ -345,28 +364,56 @@ pub fn translate(program: Program) -> BackendIR<'static> {
             let mut rt_regs = FxHashSet::default();
             for instruction in block.instructions.iter() {
                 match instruction {
-                    assembler::Instruction::Call(_, _, _) => {
-                        // todo!()
+                    assembler::Instruction::Call(
+                        result,
+                        assembler::Callable::Static(fn_id),
+                        args,
+                    ) => {
+                        let mut calling_args = vec![runtime];
+                        calling_args.extend(args.iter().map(|r| reg_map.map(*r)));
+
+                        instructions.push(llvm::Instruction::Call(
+                            result.map(|r| reg_map.map(r)),
+                            llvm::Callable::Static(fn_id.map_context()),
+                            calling_args,
+                        ));
+                    }
+                    assembler::Instruction::Call(
+                        result,
+                        assembler::Callable::Extern(fn_id),
+                        args,
+                    ) => {
+                        // todo!("merge arg types");
                     }
                     &assembler::Instruction::GetRuntime(rt) => {
                         rt_regs.insert(rt);
                     }
                     &assembler::Instruction::MakeString(result, id) => {
-                        let const_ptr = reg_map.new_register();
+                        let const_ptr_8 = reg_map.new_register();
                         let id = constants.map_existing(id);
-                        instructions.push(llvm::Instruction::LoadConstantPtr(const_ptr, id));
+                        instructions.push(llvm::Instruction::LoadConstantPtr(const_ptr_8, id));
+
+                        let const_ptr_16 = reg_map.new_register();
+                        instructions.push(llvm::Instruction::ChangePtrSize {
+                            result: const_ptr_16,
+                            input: const_ptr_8,
+                            size: ValueType::BitType(16),
+                        });
 
                         let const_len = reg_map.new_register();
+
+                        let numeric_const_len = constants.const_len(id);
+                        debug_assert!(numeric_const_len % 2 == 0);
                         instructions.push(llvm::Instruction::LoadNumber {
                             result: const_len,
-                            value: NumberValue::UnsignedNative(constants.const_len(id)),
+                            value: NumberValue::UnsignedNative(numeric_const_len),
                         });
 
                         let result = reg_map.map(result);
                         instructions.push(llvm::Instruction::Call(
                             Some(result),
                             Callable::External(ext_fns.jssatrt_string_new_utf16),
-                            vec![runtime, const_ptr, const_len],
+                            vec![runtime, const_ptr_16, const_len],
                         ));
                     }
                     &assembler::Instruction::MakeNumber(result, value) => {
@@ -393,30 +440,63 @@ pub fn translate(program: Program) -> BackendIR<'static> {
                 }
             }
 
+            let mut phi_jump = |from: BlockId<LlvmCtx>, blk_jmp: &assembler::BlockJump| {
+                let target_id = blk_jmp.0.map_context();
+                let (phi, _) = blocks.get_mut(&target_id).unwrap();
+
+                debug_assert_eq!(blk_jmp.1.len(), phi.len());
+                for (arg, phi_inst) in blk_jmp.1.iter().zip(phi) {
+                    if let llvm::Instruction::Phi(_, incoming) = phi_inst {
+                        incoming.push((from, reg_map.map(*arg)));
+                    } else {
+                        unreachable!("only phis should be in the phi side");
+                    }
+                }
+
+                //
+                target_id
+            };
+
             match &block.end {
                 assembler::EndInstruction::Unreachable => {
+                    let (_, instructions) = blocks.get_mut(&llvm_id).unwrap();
                     instructions.push(llvm::Instruction::Unreachable);
-                    // todo!()
                 }
                 assembler::EndInstruction::Jump(jump) => {
-                    instructions.push(llvm::Instruction::Return(None));
-                    // todo!()
+                    let blk_id = phi_jump(llvm_id, jump);
+                    let (_, instructions) = blocks.get_mut(&llvm_id).unwrap();
+                    instructions.push(llvm::Instruction::Jump(blk_id));
                 }
                 assembler::EndInstruction::JumpIf {
                     condition,
                     true_path,
                     false_path,
                 } => {
-                    instructions.push(llvm::Instruction::Return(None));
-                    // todo!()
+                    let true_path = phi_jump(llvm_id, true_path);
+                    let false_path = phi_jump(llvm_id, false_path);
+                    let (_, instructions) = blocks.get_mut(&llvm_id).unwrap();
+                    instructions.push(llvm::Instruction::JumpIf {
+                        condition: reg_map.map(*condition),
+                        true_path,
+                        false_path,
+                    });
                 }
                 assembler::EndInstruction::Return(register) => {
+                    let (_, instructions) = blocks.get_mut(&llvm_id).unwrap();
                     instructions.push(llvm::Instruction::Return(register.map(|r| reg_map.map(r))));
                 }
             };
-
-            blocks.insert(llvm_id, instructions);
         }
+
+        let blocks = blocks
+            .into_iter()
+            .map(|(k, (mut phi, inst))| {
+                (k, {
+                    phi.extend(inst);
+                    phi
+                })
+            })
+            .collect::<FxHashMap<_, _>>();
 
         let llvm_function = Function {
             name,
@@ -430,108 +510,6 @@ pub fn translate(program: Program) -> BackendIR<'static> {
         functions.insert(id, llvm_function);
     }
 
-    //         for (id, block) in function.blocks.iter() {
-    //             let instructions: &mut Vec<llvm::Instruction> =
-    //                 blocks.entry(*id).or_insert_with(|| vec![]);
-
-    //             for instruction in block.instructions.iter() {
-    //                 match instruction {
-    //                     Instruction::Call(result, callable, args) => {
-    //                         let raw_args = args;
-    //                         let mut args = args
-    //                             .iter()
-    //                             .map(|r| {
-    //                                 is_runtime_register
-    //                                     .contains(r)
-    //                                     .then_some(runtime_register)
-    //                                     .unwrap_or(*r)
-    //                             })
-    //                             .collect::<Vec<_>>();
-
-    //                         let arg_types = match callable {
-    //                             frontend::ir::Callable::External(id) => ir
-    //                                 .external_functions
-    //                                 .get(id)
-    //                                 .unwrap()
-    //                                 .parameters
-    //                                 .iter()
-    //                                 .map(|p| type_annotater::ffi_value_type_to_value_type(p))
-    //                                 .collect::<Vec<_>>(),
-    //                             frontend::ir::Callable::Static(id) => annotations
-    //                                 .functions
-    //                                 .get(id)
-    //                                 .unwrap()
-    //                                 .parameters
-    //                                 .iter()
-    //                                 .map(|p| p.r#type.clone())
-    //                                 .collect::<Vec<_>>(),
-    //                         };
-
-    //                         for (register, (original_register, actual_fn_arg_type)) in
-    //                             args.iter_mut().zip(raw_args.iter().zip(arg_types.iter()))
-    //                         {
-    //                             let register_type =
-    //                                 function.register_types.get(original_register).unwrap();
-    //                             let target_type = actual_fn_arg_type;
-
-    //                             make_arg_match(
-    //                                 register,
-    //                                 register_type,
-    //                                 target_type,
-    //                                 instructions,
-    //                                 &mut free_register,
-    //                                 runtime_register,
-    //                                 jssatrt_any_new_string,
-    //                                 &mut register_types,
-    //                                 any_id,
-    //                             );
-    //                         }
-
-    //                         for (idx, (r#type, register)) in
-    //                             arg_types.iter().zip(args.iter()).enumerate()
-    //                         {
-    //                             debug_assert_eq!(
-    //                                 register_types.get(register).unwrap(),
-    //                                 &map_val_type(r#type, &opaque_map),
-    //                                 "position {}",
-    //                                 idx
-    //                             );
-    //                         }
-
-    //                         let callable = match callable {
-    //                             frontend::ir::Callable::External(id) => Callable::External(*id),
-    //                             frontend::ir::Callable::Static(id) => {
-    //                                 // for jssat <-> jssat function calls, the runtime register is
-    //                                 // always the first parameter to the function
-    //                                 args.insert(0, runtime_register);
-
-    //                                 Callable::Static(*id)
-    //                             } // frontend::ir::Callable::Virtual(_) => todo!(),
-    //                         };
-
-    //                         // insert type of register for type checking
-    //                         if let Some(result) = result {
-    //                             if let ReturnType::Value(return_type) = match &callable {
-    //                                 Callable::External(id) => map_ffi_ret_type(
-    //                                     &ir.external_functions.get(&id).unwrap().return_type,
-    //                                     &opaque_map,
-    //                                 ),
-    //                                 Callable::Static(id) => map_ret_type(
-    //                                     &annotations.functions.get(&id).unwrap().return_type,
-    //                                     &opaque_map,
-    //                                 ),
-    //                             } {
-    //                                 register_types.insert(*result, return_type);
-    //                             } else {
-    //                                 panic!("attempting to assign return type to something without return type");
-    //                             }
-    //                         }
-
-    //                         instructions.push(llvm::Instruction::Call(*result, callable, args));
-    //                     }
-    //                 };
-    //             }
-
     let constants = constants.into_llvm_constants();
     let external_functions = ext_fns.into_external_functions();
     let opaque_structs = rt_types.into_opaque_structs();
@@ -543,96 +521,3 @@ pub fn translate(program: Program) -> BackendIR<'static> {
         functions,
     }
 }
-
-// fn make_arg_match(
-//     source_register: &mut RegisterId,
-//     source_type: &type_annotater::ValueType,
-//     target_type: &type_annotater::ValueType,
-//     instructions: &mut Vec<llvm::Instruction>,
-//     free_register: &mut RegisterId,
-//     runtime: RegisterId,
-//     jssatrt_any_new_string: ExternalFunctionId,
-//     register_types: &mut FxHashMap<RegisterId, llvm::ValueType>,
-//     any_id: OpaqueStructId,
-// ) {
-//     if source_type == target_type {
-//         return;
-//     }
-
-//     match (source_type, target_type) {
-//         (type_annotater::ValueType::ExactString(_), type_annotater::ValueType::Any)
-//         | (type_annotater::ValueType::String, type_annotater::ValueType::Any) => {
-//             // widen `String` to `Any` via `jssatrt_any_new_string`
-//             let result = free_register.next_and_mut();
-
-//             instructions.push(llvm::Instruction::Call(
-//                 Some(result),
-//                 Callable::External(jssatrt_any_new_string),
-//                 vec![runtime, *source_register],
-//             ));
-//             register_types.insert(
-//                 result,
-//                 llvm::ValueType::Pointer(Box::new(llvm::ValueType::Opaque(any_id))),
-//             );
-//             *source_register = result;
-//         }
-//         (a, b) if a == b => {}
-//         (a, b) => todo!("{:?} -> {:?}", a, b),
-//     };
-// }
-
-// fn map_ffi_ret_type(ffi: &FFIReturnType, opaque: &OpaqueStructs) -> ReturnType {
-//     match ffi {
-//         FFIReturnType::Void => ReturnType::Void,
-//         FFIReturnType::Value(v) => ReturnType::Value(map_ffi_val_type(v, opaque)),
-//     }
-// }
-
-// fn map_ffi_val_type(ffi: &FFIValueType, opaque: &OpaqueStructs) -> ValueType {
-//     match ffi {
-//         FFIValueType::Any => ValueType::Pointer(Box::new(ValueType::Opaque(opaque.any))),
-//         FFIValueType::Runtime => ValueType::Pointer(Box::new(ValueType::Opaque(opaque.runtime))),
-//         FFIValueType::BytePointer => ValueType::Pointer(Box::new(ValueType::BitType(8))), // i8*
-//         &FFIValueType::Pointer(size) => ValueType::Pointer(Box::new(ValueType::BitType(size))),
-//         FFIValueType::Word => ValueType::WordSizeBitType,
-//         FFIValueType::String => ValueType::Pointer(Box::new(ValueType::Opaque(opaque.string))),
-//     }
-// }
-
-// fn map_ret_type(
-//     r#type: &crate::frontend::type_annotater::ReturnType,
-//     opaque: &OpaqueStructs,
-// ) -> ReturnType {
-//     match r#type {
-//         crate::frontend::type_annotater::ReturnType::Never => ReturnType::Void,
-//         crate::frontend::type_annotater::ReturnType::Void => ReturnType::Void,
-//         crate::frontend::type_annotater::ReturnType::Value(v) => {
-//             ReturnType::Value(map_val_type(v, opaque))
-//         }
-//     }
-// }
-
-// fn map_val_type(
-//     r#type: &crate::frontend::type_annotater::ValueType,
-//     opaque: &OpaqueStructs,
-// ) -> ValueType {
-//     match r#type {
-//         frontend::type_annotater::ValueType::Any => map_ffi_val_type(&FFIValueType::Any, opaque),
-//         frontend::type_annotater::ValueType::Runtime => {
-//             map_ffi_val_type(&FFIValueType::Runtime, opaque)
-//         }
-//         // TODO: figure out a better type for a string and constant string
-//         frontend::type_annotater::ValueType::String
-//         | frontend::type_annotater::ValueType::ExactString(_) => {
-//             map_ffi_val_type(&FFIValueType::String, opaque)
-//         }
-//         frontend::type_annotater::ValueType::BytePointer => {
-//             map_ffi_val_type(&FFIValueType::BytePointer, opaque)
-//         }
-//         frontend::type_annotater::ValueType::Pointer(size) => {
-//             map_ffi_val_type(&FFIValueType::Pointer(*size), opaque)
-//         }
-//         frontend::type_annotater::ValueType::Word => map_ffi_val_type(&FFIValueType::Word, opaque),
-//         frontend::type_annotater::ValueType::Union(_) => todo!(),
-//     }
-// }

@@ -6,6 +6,7 @@
 #![feature(const_option)]
 #![feature(const_fn_trait_bound)]
 #![feature(box_syntax)]
+#![feature(bindings_after_at)]
 #![deny(clippy::disallowed_method)]
 
 use std::{io::Write, process::Command};

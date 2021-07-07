@@ -1,5 +1,5 @@
 use rustc_hash::FxHashMap;
-use std::{hash::Hash, marker::PhantomData};
+use std::hash::Hash;
 
 use super::BuildArtifact;
 
@@ -129,6 +129,24 @@ pub enum Instruction {
     /// Returns the value in the register to the caller, or returns nothing if
     /// no register is given.
     Return(Option<RegisterId>),
+    /// # [`Instruction::Jump`]
+    ///
+    /// Jumps to the given block register.
+    Jump(BlockId),
+    /// # [`Instruction::JumpIf`]
+    ///
+    /// Jumps to the given block register if the register specified is true,
+    /// otherwise jumps to the false branch.
+    JumpIf {
+        condition: RegisterId,
+        true_path: BlockId,
+        false_path: BlockId,
+    },
+    /// # [`Instruction::Phi`]
+    ///
+    /// Will choose a value for the given register based on the value of
+    /// another register.
+    Phi(RegisterId, Vec<(BlockId, RegisterId)>),
 }
 
 #[derive(Debug)]
@@ -453,11 +471,14 @@ impl<'c> BackendCompiler<'c, '_> {
         println!("llvm_function_end: {:?} -> {:#?}", function, function);
 
         let entry_block_id = function.entry_block;
-        let entry_block = function
-            .blocks
-            .remove(&entry_block_id)
-            .expect("entry block");
-        let non_entry_blocks = function.blocks.into_iter().map(|(_, v)| v);
+        let entry_block = (
+            entry_block_id,
+            function
+                .blocks
+                .remove(&entry_block_id)
+                .expect("entry block"),
+        );
+        let non_entry_blocks = function.blocks.into_iter();
 
         let mut register_values = FxHashMap::default();
 
@@ -465,8 +486,18 @@ impl<'c> BackendCompiler<'c, '_> {
             register_values.insert(*parameter, function.llvm.get_nth_param(idx as u32).unwrap());
         }
 
-        for block in std::iter::once(entry_block).chain(non_entry_blocks) {
+        let blocks = std::iter::once(entry_block)
+            .chain(non_entry_blocks)
+            .collect::<Vec<_>>();
+
+        let mut block_map = FxHashMap::default();
+        for (idx, block) in blocks.iter() {
             let basic_block = self.context.append_basic_block(function.llvm, "");
+            block_map.insert(*idx, basic_block);
+        }
+
+        for (idx, block) in blocks.into_iter() {
+            let basic_block = *block_map.get(&idx).unwrap();
             self.builder.position_at_end(basic_block);
 
             for instruction in block.into_iter() {
@@ -573,6 +604,59 @@ impl<'c> BackendCompiler<'c, '_> {
                     Instruction::Return(Some(register)) => {
                         let value = *register_values.get(&register).unwrap();
                         self.builder.build_return(Some(&value));
+                    }
+                    Instruction::Jump(block) => {
+                        let block = *block_map.get(&block).unwrap();
+                        self.builder.build_unconditional_branch(block);
+                    }
+                    Instruction::JumpIf {
+                        condition,
+                        true_path,
+                        false_path,
+                    } => {
+                        let condition = register_values.get(&condition).unwrap();
+                        debug_assert!(condition.is_int_value());
+                        let condition = condition.into_int_value();
+
+                        let then_block = *block_map.get(&true_path).unwrap();
+                        let else_block = *block_map.get(&false_path).unwrap();
+
+                        self.builder
+                            .build_conditional_branch(condition, then_block, else_block);
+                    }
+                    Instruction::Phi(result, implications) => {
+                        let mut register_types = (implications.iter())
+                            .map(|(_, r)| *register_values.get(r).unwrap())
+                            .collect::<Vec<_>>();
+
+                        for (prev_typ, next_typ) in
+                            register_types.iter().zip(register_types.iter().skip(1))
+                        {
+                            if prev_typ.get_type() != next_typ.get_type() {
+                                panic!("phi instruction has registers of conflicting types: {:?} <-> {:?} for {:?}", prev_typ, next_typ, Instruction::Phi(result, implications));
+                            }
+                        }
+
+                        let typ = register_types.pop().unwrap();
+
+                        let phi = self.builder.build_phi(typ.get_type(), "");
+
+                        let incoming = (implications.into_iter())
+                            .map(|(block_id, register_id)| {
+                                (
+                                    block_map.get(&block_id).unwrap(),
+                                    register_values.get(&register_id).unwrap(),
+                                )
+                            })
+                            .map(|(block, register)| (register.as_basic_value_enum(), *block))
+                            .collect::<Vec<_>>();
+
+                        let incoming = incoming
+                            .iter()
+                            .map(|(reg, blk)| (reg as &dyn BasicValue, *blk))
+                            .collect::<Vec<_>>();
+
+                        phi.add_incoming(incoming.as_slice());
                     }
                 }
             }
