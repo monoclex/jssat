@@ -51,7 +51,7 @@ pub fn traverse(source: String) -> IR {
         let print = builder.external_function(
             "jssatrt_print_any",
             [FFIValueType::Runtime, FFIValueType::Any],
-            FFIReturnType::Void,
+            Returns::Void,
         );
 
         let mut block = print_stub.start_block_main();

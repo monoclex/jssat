@@ -9,6 +9,7 @@ pub enum Any {
     //       apply for strings will apply for arrays. the downsides is that it
     //       makes strings harder to work with.
     String(String),
+    Int(i64),
 }
 
 #[no_mangle]
@@ -24,10 +25,19 @@ pub unsafe extern "C" fn jssatrt_any_new_string(
     Box::into_raw(Box::new(any))
 }
 
+#[no_mangle]
+pub unsafe extern "C" fn jssatrt_any_new_int(runtime: *const Runtime, value: i64) -> *const Any {
+    notnull!(runtime);
+
+    let any = Any::Int(value);
+    Box::into_raw(Box::new(any))
+}
+
 impl Display for Any {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Any::String(string) => write!(f, "{}", string),
+            Any::Int(i) => write!(f, "{}", i),
         }
     }
 }

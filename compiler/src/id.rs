@@ -203,6 +203,10 @@ where
             .entry(source)
             .or_insert_with(|| reg_counter.next())
     }
+
+    pub fn gen(&mut self) -> RegisterId<U> {
+        self.reg_counter.next()
+    }
 }
 
 impl<T, U> Default for RegIdMap<T, U>

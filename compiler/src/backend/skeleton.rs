@@ -119,6 +119,7 @@ struct ExternalFunctionMapper<'rt_types> {
     jssatrt_runtime_new: ExternalFunctionId<LlvmCtx>,
     jssatrt_string_new_utf16: ExternalFunctionId<LlvmCtx>,
     jssatrt_any_new_string: ExternalFunctionId<LlvmCtx>,
+    jssatrt_any_new_int: ExternalFunctionId<LlvmCtx>,
 }
 
 impl<'r> ExternalFunctionMapper<'r> {
@@ -131,6 +132,7 @@ impl<'r> ExternalFunctionMapper<'r> {
             jssatrt_runtime_new: Default::default(),
             jssatrt_string_new_utf16: Default::default(),
             jssatrt_any_new_string: Default::default(),
+            jssatrt_any_new_int: Default::default(),
         };
         me.init();
         me
@@ -162,6 +164,15 @@ impl<'r> ExternalFunctionMapper<'r> {
                 ValueType::Opaque(rt_types.string).into_ptr(),
             ],
         );
+
+        self.jssatrt_any_new_int = self.insert(
+            "jssatrt_any_new_int".into(),
+            llvm::ReturnType::Value(ValueType::Opaque(rt_types.value).into_ptr()),
+            vec![
+                ValueType::Opaque(rt_types.runtime).into_ptr(),
+                ValueType::BitType(64),
+            ],
+        );
     }
 
     fn insert(
@@ -183,6 +194,23 @@ impl<'r> ExternalFunctionMapper<'r> {
             .expect_free();
 
         llvm_id
+    }
+
+    pub fn map_existing(
+        &self,
+        id: ExternalFunctionId<AssemblerCtx>,
+    ) -> ExternalFunctionId<LlvmCtx> {
+        match self.try_map_existing(id) {
+            Some(id) => id,
+            None => panic!("contract error: `map_existing` called when fallible"),
+        }
+    }
+
+    fn try_map_existing(
+        &self,
+        id: ExternalFunctionId<AssemblerCtx>,
+    ) -> Option<ExternalFunctionId<LlvmCtx>> {
+        self.assembler_id_map.get(&id).map(|r| *r)
     }
 
     pub fn extend(
@@ -364,6 +392,39 @@ pub fn translate(program: Program) -> BackendIR<'static> {
             let mut rt_regs = FxHashSet::default();
             for instruction in block.instructions.iter() {
                 match instruction {
+                    assembler::Instruction::Widen {
+                        result,
+                        input,
+                        from,
+                        to,
+                    } => {
+                        //
+                        match (from, to) {
+                            (
+                                Type::Val(type_annotater::ValueType::ExactString(id)),
+                                Type::FFI(ir::FFIValueType::Any),
+                            ) => {
+                                instructions.push(llvm::Instruction::Call(
+                                    Some(reg_map.map(*result)),
+                                    Callable::External(ext_fns.jssatrt_any_new_string),
+                                    vec![runtime, reg_map.map(*input)],
+                                ));
+                            }
+                            (
+                                Type::Val(type_annotater::ValueType::ExactInteger(n)),
+                                Type::FFI(ir::FFIValueType::Any),
+                            ) => {
+                                instructions.push(llvm::Instruction::Call(
+                                    Some(reg_map.map(*result)),
+                                    Callable::External(ext_fns.jssatrt_any_new_int),
+                                    vec![runtime, reg_map.map(*input)],
+                                ));
+                            }
+                            (f, t) => {
+                                unimplemented!("conversion not implemented for {:?} -> {:?}", f, t)
+                            }
+                        };
+                    }
                     assembler::Instruction::Call(
                         result,
                         assembler::Callable::Static(fn_id),
@@ -383,7 +444,23 @@ pub fn translate(program: Program) -> BackendIR<'static> {
                         assembler::Callable::Extern(fn_id),
                         args,
                     ) => {
-                        // todo!("merge arg types");
+                        let mut calling_args = args
+                            .iter()
+                            .map(|r| {
+                                if rt_regs.contains(r) {
+                                    // TODO: encode this into `reg_map`?
+                                    runtime
+                                } else {
+                                    reg_map.map(*r)
+                                }
+                            })
+                            .collect();
+
+                        instructions.push(llvm::Instruction::Call(
+                            result.map(|r| reg_map.map(r)),
+                            llvm::Callable::External(ext_fns.map_existing(*fn_id)),
+                            calling_args,
+                        ));
                     }
                     &assembler::Instruction::GetRuntime(rt) => {
                         rt_regs.insert(rt);
@@ -406,7 +483,7 @@ pub fn translate(program: Program) -> BackendIR<'static> {
                         debug_assert!(numeric_const_len % 2 == 0);
                         instructions.push(llvm::Instruction::LoadNumber {
                             result: const_len,
-                            value: NumberValue::UnsignedNative(numeric_const_len),
+                            value: NumberValue::UnsignedNative(numeric_const_len / 2),
                         });
 
                         let result = reg_map.map(result);

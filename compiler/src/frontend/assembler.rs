@@ -78,12 +78,20 @@ pub enum Instruction {
     MakeString(RegisterId<AssemblerCtx>, ConstantId<AssemblerCtx>),
     MakeNumber(RegisterId<AssemblerCtx>, i64),
     MakeBoolean(RegisterId<AssemblerCtx>, bool),
+    /// "Widens" a given register to a type. The type must wider/bigger than the
+    /// input register.
+    Widen {
+        result: RegisterId<AssemblerCtx>,
+        input: RegisterId<AssemblerCtx>,
+        from: Type,
+        to: Type,
+    },
     Unreachable,
 }
 
 #[derive(Clone, Debug)]
 pub enum Callable {
-    Extern(ExternalFunctionId<IrCtx>),
+    Extern(ExternalFunctionId<AssemblerCtx>),
     Static(FunctionId<AssemblerCtx>),
 }
 
@@ -565,17 +573,47 @@ where
                     .collect();
 
                 let args = match function {
-                    ir::Callable::External(_ext_id) => {
+                    ir::Callable::External(ext_id) => {
                         // in external functions, we can never omit any params
-                        for simple_arg in args.iter() {
+                        let ext_fn = self
+                            .assembler
+                            .external_functions
+                            .get(&ext_id.map_context())
+                            .unwrap();
+
+                        let mut calling_args = Vec::new();
+
+                        for (idx, simple_arg) in args.iter().enumerate() {
                             if self.is_simple(*simple_arg) {
+                                // simple arguments are omitted from compilation entirely, so to call
+                                // an external function with a simple value we must produce it
                                 self.compute_simple(*simple_arg);
                             }
+
+                            let mut id = self.register_map.map(*simple_arg);
+
+                            match (
+                                // from
+                                self.register_types.get(simple_arg).unwrap(),
+                                // to
+                                &ext_fn.parameters[idx],
+                            ) {
+                                (ValueType::Runtime, Type::FFI(FFIValueType::Runtime)) => {}
+                                (ValueType::ExactString(s), Type::FFI(FFIValueType::Any)) => {
+                                    id = self.widen_string_to_any(id, *s);
+                                }
+                                (ValueType::ExactInteger(v), Type::FFI(FFIValueType::Any)) => {
+                                    id = self.widen_int_to_any(id, *v);
+                                }
+                                (lhs, rhs) => {
+                                    unimplemented!("cannot handle {:?} -> {:?}", lhs, rhs)
+                                }
+                            };
+
+                            calling_args.push(id);
                         }
 
-                        args.iter()
-                            .map(|r| self.register_map.map(*r))
-                            .collect::<Vec<_>>()
+                        calling_args
                     }
                     ir::Callable::Static(_) => {
                         // LOGIC(param_dropping): this is the logic that determines which
@@ -601,7 +639,7 @@ where
                 self.instructions.push(Instruction::Call(
                     result,
                     match function {
-                        ir::Callable::External(id) => Callable::Extern(*id),
+                        ir::Callable::External(id) => Callable::Extern(id.map_context()),
                         ir::Callable::Static(id) => {
                             // find the block id that most matches the args passed to the function
                             let blk_id = {
@@ -634,7 +672,6 @@ where
             ValueType::Any
             | ValueType::String
             | ValueType::Number
-            | ValueType::BytePointer
             | ValueType::Pointer(_)
             | ValueType::Word
             | ValueType::Boolean => unreachable!("cannot be simple yet get here"),
@@ -685,6 +722,36 @@ where
             .collect();
 
         BlockJump((self.map_block)(*id, invocation_arg_types), args)
+    }
+
+    fn widen_string_to_any(
+        &mut self,
+        register: RegisterId<AssemblerCtx>,
+        value: ConstantId<IrCtx>,
+    ) -> RegisterId<AssemblerCtx> {
+        let result = self.register_map.gen();
+        self.instructions.push(Instruction::Widen {
+            result,
+            input: register,
+            from: Type::Val(ValueType::ExactString(value)),
+            to: Type::FFI(FFIValueType::Any),
+        });
+        result
+    }
+
+    fn widen_int_to_any(
+        &mut self,
+        register: RegisterId<AssemblerCtx>,
+        value: i64,
+    ) -> RegisterId<AssemblerCtx> {
+        let result = self.register_map.gen();
+        self.instructions.push(Instruction::Widen {
+            result,
+            input: register,
+            from: Type::Val(ValueType::ExactInteger(value)),
+            to: Type::FFI(FFIValueType::Any),
+        });
+        result
     }
 
     pub fn complete(mut self, end: &ir::ControlFlowInstruction<PureBbCtx, IrCtx>) -> Block {
@@ -755,7 +822,6 @@ impl ValueType {
             | ValueType::Runtime
             | ValueType::String
             | ValueType::Number
-            | ValueType::BytePointer
             | ValueType::Pointer(_)
             | ValueType::Word
             | ValueType::Boolean => false,

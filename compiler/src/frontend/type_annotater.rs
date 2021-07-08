@@ -1,15 +1,14 @@
-
 use std::collections::VecDeque;
 use std::sync::Arc;
 
-use thiserror::Error;
 use rustc_hash::FxHashMap;
+use thiserror::Error;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 
 use crate::frontend::ir::*;
-use crate::{UnwrapNone, id::*};
 use crate::name::DebugName;
+use crate::{id::*, UnwrapNone};
 
 use super::conv_only_bb::Block;
 
@@ -60,12 +59,12 @@ pub struct SymbolicEngine {
     pub new_fn_ids: Counter<FunctionId<AnnotatedCtx>>,
 }
 
-
 #[derive(Debug)]
 pub struct Executions {
     // mapping of ORIGINAL fn id + block id to NEW fn id + block id
     // TODO: annotate these Contexts
-    executions: FxHashMap<(FunctionId<IrCtx>, BlockId<IrCtx>), Vec<(Vec<ValueType>, BlockExecution)>>,
+    executions:
+        FxHashMap<(FunctionId<IrCtx>, BlockId<IrCtx>), Vec<(Vec<ValueType>, BlockExecution)>>,
 }
 
 impl Executions {
@@ -103,8 +102,18 @@ impl Executions {
         executions.push((key.parameters, execution));
     }
 
-    pub fn all_fn_invocations(&self) -> impl Iterator<Item = (FunctionId<IrCtx>, BlockId<IrCtx>, &Vec<ValueType>, &BlockExecution)> {
-        self.executions.iter()
+    pub fn all_fn_invocations(
+        &self,
+    ) -> impl Iterator<
+        Item = (
+            FunctionId<IrCtx>,
+            BlockId<IrCtx>,
+            &Vec<ValueType>,
+            &BlockExecution,
+        ),
+    > {
+        self.executions
+            .iter()
             .flat_map(|(k, v)| v.iter().map(move |e| (k, e)))
             .map(|((fn_id, blk), (args, cf))| (*fn_id, *blk, args, cf))
     }
@@ -138,8 +147,7 @@ pub enum BlockExecution {
 impl BlockExecution {
     pub fn key(&self) -> BlockKey {
         match self {
-            BlockExecution::InProgress(a) |
-            BlockExecution::Finished(a) => *a,
+            BlockExecution::InProgress(a) | BlockExecution::Finished(a) => *a,
         }
     }
 }
@@ -147,11 +155,23 @@ impl BlockExecution {
 #[derive(Debug)]
 pub struct TypedFunction {
     pub return_type: ReturnType,
-    pub eval_blocks: Vec<(BlockId<IrCtx>, Vec<ValueType>, ExplorationBranch, FxHashMap<RegisterId<PureBbCtx>, ValueType>)>,
+    pub eval_blocks: Vec<(
+        BlockId<IrCtx>,
+        Vec<ValueType>,
+        ExplorationBranch,
+        FxHashMap<RegisterId<PureBbCtx>, ValueType>,
+    )>,
 }
 
 impl TypedFunction {
-    pub fn find(&self, block: &BlockId<IrCtx>, args: &[ValueType]) -> (&ExplorationBranch, &FxHashMap<RegisterId<PureBbCtx>, ValueType>) {
+    pub fn find(
+        &self,
+        block: &BlockId<IrCtx>,
+        args: &[ValueType],
+    ) -> (
+        &ExplorationBranch,
+        &FxHashMap<RegisterId<PureBbCtx>, ValueType>,
+    ) {
         (self.eval_blocks.iter())
             .filter(|(blk, blk_args, _, _)| blk == block && blk_args == args)
             .map(|(_, _, branch, map)| (branch, map))
@@ -221,7 +241,9 @@ impl SymbolicEngineToken {
 
         while let Some(exec_key) = block_stack.pop_front() {
             let has_evaled_block = {
-                eval_blocks.iter().any(|(block, keys, _, _)| *block == exec_key.block && keys == &exec_key.parameters)
+                eval_blocks.iter().any(|(block, keys, _, _)| {
+                    *block == exec_key.block && keys == &exec_key.parameters
+                })
             };
 
             if has_evaled_block {
@@ -245,15 +267,16 @@ impl SymbolicEngineToken {
 
             eval_blocks.push((block, params, control_flow, types));
         }
-        
+
         let typed = TypedFunction {
             return_type,
-            eval_blocks
+            eval_blocks,
         };
 
         let mut me = (self.0.try_lock()).expect("Lock should be contentionless");
 
-        me.executions.insert(block.clone(), BlockExecution::Finished(key));
+        me.executions
+            .insert(block.clone(), BlockExecution::Finished(key));
         me.typed_blocks.insert(key, typed);
         me.typed_blocks.get(&key).unwrap().return_type.clone()
     }
@@ -262,7 +285,8 @@ impl SymbolicEngineToken {
         let mut me = (self.0.try_lock()).expect("Lock should be contentionless");
 
         // TODO: use a hashmap
-        let block = (me.blocks.iter()).find(|b| b.derived_from == (key.function, key.block))
+        let block = (me.blocks.iter())
+            .find(|b| b.derived_from == (key.function, key.block))
             .expect("expected to find a block")
             .clone();
 
@@ -333,7 +357,13 @@ impl SymbolicEngineToken {
 
                             debug_assert_eq!(args.len(), ext_fn.parameters.len());
                             for (arg_typ, ffi_typ) in args.iter().zip(ext_fn.parameters.iter()) {
-                                assert!(FFICoerce::can_coerce(arg_typ, ffi_typ), "cannot coerce {:?} to {:?} on {:?}", arg_typ, ffi_typ, inst);
+                                assert!(
+                                    FFICoerce::can_coerce(arg_typ, ffi_typ),
+                                    "cannot coerce {:?} to {:?} on {:?}",
+                                    arg_typ,
+                                    ffi_typ,
+                                    inst
+                                );
                             }
                         }
                         Callable::Static(id) => {
@@ -377,7 +407,12 @@ impl SymbolicEngineToken {
             block,
             parameters: args
                 .into_iter()
-                .map(|r| types.get(&r).unwrap_or_else(|| panic!("in {:?} -> {:?}({:?})", &key, &block, r)).clone())
+                .map(|r| {
+                    types
+                        .get(&r)
+                        .unwrap_or_else(|| panic!("in {:?} -> {:?}({:?})", &key, &block, r))
+                        .clone()
+                })
                 .collect(),
         };
 
@@ -474,19 +509,17 @@ pub enum ValueType {
     ExactString(ConstantId<IrCtx>),
     Number,
     ExactInteger(i64),
-    BytePointer,
+    Boolean,
+    Bool(bool),
     /// Pointer to data of the specified size. Pointer(16) -> `i16*`.
     Pointer(u16),
     Word,
-    Boolean,
-    Bool(bool),
 }
 
 pub fn ffi_value_type_to_value_type(ffi_value_type: &FFIValueType) -> ValueType {
     match ffi_value_type {
         FFIValueType::Any => ValueType::Any,
         FFIValueType::Runtime => ValueType::Runtime,
-        FFIValueType::BytePointer => ValueType::BytePointer,
         FFIValueType::Pointer(size) => ValueType::Pointer(*size),
         FFIValueType::Word => ValueType::Word,
         FFIValueType::String => ValueType::String,
@@ -510,7 +543,7 @@ impl ValueType {
             ValueType::String => Some(ValueAddable::String),
             ValueType::Number => Some(ValueAddable::Number),
             ValueType::ExactInteger(n) => Some(ValueAddable::Num(*n)),
-            _ => None
+            _ => None,
         }
     }
 }
@@ -536,26 +569,31 @@ impl ValueAddable {
             (ValueAddable::Num(_), ValueAddable::Number) => ValueAddable::Number,
             (ValueAddable::Num(a), ValueAddable::Num(b)) => ValueAddable::Num(*a + *b),
             (ValueAddable::String, ValueAddable::String) => ValueAddable::String,
-            (ValueAddable::Number, ValueAddable::String) |
-            (ValueAddable::Num(_), ValueAddable::String) |
-            (ValueAddable::String, ValueAddable::Number) |
-            (ValueAddable::String, ValueAddable::Num(_)) => return Err(AdditionError::IncompatibleTypes),
+            (ValueAddable::Number, ValueAddable::String)
+            | (ValueAddable::Num(_), ValueAddable::String)
+            | (ValueAddable::String, ValueAddable::Number)
+            | (ValueAddable::String, ValueAddable::Num(_)) => {
+                return Err(AdditionError::IncompatibleTypes)
+            }
         })
     }
 }
 
 pub enum ValueComparable {
     Number,
-    Num(i64)
+    Num(i64),
 }
 
 impl ValueComparable {
     pub fn perform_less_than(&self, other: &ValueComparable) -> ValueConditional {
         match (self, other) {
             // TODO: use guarantees (e.g. "x < y") to make more informed decisions
-            (ValueComparable::Number, _) |
-            (_, ValueComparable::Number) => ValueConditional::Boolean,
-            (ValueComparable::Num(lhs), ValueComparable::Num(rhs)) => ValueConditional::Bool(lhs < rhs),
+            (ValueComparable::Number, _) | (_, ValueComparable::Number) => {
+                ValueConditional::Boolean
+            }
+            (ValueComparable::Num(lhs), ValueComparable::Num(rhs)) => {
+                ValueConditional::Bool(lhs < rhs)
+            }
         }
     }
 }
@@ -585,7 +623,7 @@ impl IntoValueType for ValueAddable {
 
 pub enum ValueConditional {
     Boolean,
-    Bool(bool)
+    Bool(bool),
 }
 
 struct FFICoerce;
@@ -596,23 +634,20 @@ impl FFICoerce {
     // routine that can handle it - all enforced at compile time
     pub fn can_coerce(value_type: &ValueType, ffi: &FFIValueType) -> bool {
         match (ffi, value_type) {
-            (FFIValueType::Any, ValueType::Any) 
-            | (FFIValueType::Any, ValueType::String) 
-            | (FFIValueType::Any, ValueType::ExactString(_)) 
-            | (FFIValueType::Any, ValueType::Number) 
-            | (FFIValueType::Any, ValueType::ExactInteger(_)) 
-            // | (FFIValueType::Any, ValueType::Word) 
-            | (FFIValueType::Any, ValueType::Boolean) 
-            | (FFIValueType::Any, ValueType::Bool(_)) 
-            | (FFIValueType::Runtime, ValueType::Runtime) 
-            | (FFIValueType::BytePointer, ValueType::BytePointer) 
-            | (FFIValueType::BytePointer, ValueType::Pointer(8)) 
-            | (FFIValueType::Pointer(8), ValueType::BytePointer) 
-            // | (FFIValueType::Word, ValueType::Number) 
+            (FFIValueType::Any, ValueType::Any)
+            | (FFIValueType::Any, ValueType::String)
+            | (FFIValueType::Any, ValueType::ExactString(_))
+            | (FFIValueType::Any, ValueType::Number)
+            | (FFIValueType::Any, ValueType::ExactInteger(_))
+            // | (FFIValueType::Any, ValueType::Word)
+            | (FFIValueType::Any, ValueType::Boolean)
+            | (FFIValueType::Any, ValueType::Bool(_))
+            | (FFIValueType::Runtime, ValueType::Runtime)
+            // | (FFIValueType::Word, ValueType::Number)
             // | (FFIValueType::Word, ValueType::ExactNumber(_))
             | (FFIValueType::Word, ValueType::Word)
-            | (FFIValueType::String, ValueType::String) 
-            | (FFIValueType::String, ValueType::ExactString(_)) 
+            | (FFIValueType::String, ValueType::String)
+            | (FFIValueType::String, ValueType::ExactString(_))
             => true,
             (FFIValueType::Pointer(p1), ValueType::Pointer(p2)) if p1 == p2 => true,
             (_, _) => false
@@ -626,10 +661,12 @@ impl ReturnType {
             (ReturnType::Value(_), ReturnType::Value(_)) => todo!("unify 2 values"),
             (a, b) if *a == &b => {
                 // do nothing, as both types are the same
-            },
-            (ReturnType::Never, other) => { *self = other; },
+            }
+            (ReturnType::Never, other) => {
+                *self = other;
+            }
             (_, ReturnType::Never) => {}
-            (ReturnType::Void, ReturnType::Void) => {},
+            (ReturnType::Void, ReturnType::Void) => {}
             (ReturnType::Void, ReturnType::Value(_)) => todo!(),
             (ReturnType::Value(_), ReturnType::Void) => todo!(),
         }

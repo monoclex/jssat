@@ -1,5 +1,5 @@
 use rustc_hash::FxHashMap;
-use std::hash::Hash;
+use std::{hash::Hash, marker::PhantomData};
 
 use super::BuildArtifact;
 
@@ -25,6 +25,7 @@ use inkwell::{
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct FunctionValue<'a>(PhantomData<&'a ()>);
 
+#[derive(Debug, Clone)]
 pub struct BackendIR<'name> {
     pub constants: FxHashMap<ConstantId, Constant<'name>>,
     pub opaque_structs: FxHashMap<OpaqueStructId, OpaqueStruct<'name>>,
@@ -32,15 +33,18 @@ pub struct BackendIR<'name> {
     pub functions: FxHashMap<FunctionId, Function<'name>>,
 }
 
+#[derive(Debug, Clone)]
 pub struct Constant<'name> {
     pub name: &'name str,
     pub payload: Vec<u8>,
 }
 
+#[derive(Debug, Clone)]
 pub struct OpaqueStruct<'name> {
     pub name: &'name str,
 }
 
+#[derive(Debug, Clone)]
 pub struct ExternalFunction {
     // <'name> {
     // pub name: &'name str,
@@ -51,6 +55,7 @@ pub struct ExternalFunction {
     pub parameters: Vec<ValueType>,
 }
 
+#[derive(Debug, Clone)]
 pub struct Function<'name> {
     pub name: &'name str,
     pub linkage: Option<LLVMLinkage>,
@@ -60,7 +65,7 @@ pub struct Function<'name> {
     pub blocks: FxHashMap<BlockId, Vec<Instruction>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PartialFunction<'ctx> {
     pub llvm: FunctionValue<'ctx>,
     pub parameters: Vec<RegisterId>,
@@ -68,12 +73,13 @@ pub struct PartialFunction<'ctx> {
     pub blocks: FxHashMap<BlockId, Vec<Instruction>>,
 }
 
+#[derive(Debug, Clone)]
 pub struct Parameter {
     pub r#type: ValueType,
     pub register: RegisterId,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum NumberValue {
     UnsignedNative(usize),
     SignedNative(isize),
@@ -83,7 +89,7 @@ pub enum NumberValue {
     SignedArbitrary(u16, i64),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Instruction {
     /// # [`Instruction::LoadConstantPtr`]
     ///
@@ -149,19 +155,16 @@ pub enum Instruction {
     Phi(RegisterId, Vec<(BlockId, RegisterId)>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Callable {
     External(ExternalFunctionId),
     Static(FunctionId),
     // Virtual(RegisterId),
 }
 
-pub enum ReturnType {
-    Void,
-    Value(ValueType),
-}
+pub type ReturnType = crate::frontend::ir::Returns<ValueType>;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ValueType {
     WordSizeBitType,
     BitType(u16),
@@ -175,6 +178,7 @@ impl ValueType {
     }
 }
 
+#[derive(Debug, Clone)]
 pub enum LLVMLinkage {
     External,
 }
@@ -511,8 +515,13 @@ impl<'c> BackendCompiler<'c, '_> {
 
                         let o_args = args.clone();
                         let args = args
+                            .clone()
                             .into_iter()
-                            .map(|r| *register_values.get(&r).unwrap())
+                            .map(|r| {
+                                *register_values
+                                    .get(&r)
+                                    .expect(&format!("error calling {:?}, {:?}", r, args))
+                            })
                             .collect::<Vec<_>>();
 
                         println!(
@@ -638,6 +647,7 @@ impl<'c> BackendCompiler<'c, '_> {
                         }
 
                         let typ = register_types.pop().unwrap();
+                        register_values.insert(result, typ);
 
                         let phi = self.builder.build_phi(typ.get_type(), "");
 

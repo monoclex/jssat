@@ -42,23 +42,29 @@ pub enum FFIValueType {
     /// Annotated on external functions to signal that they accept a `Runtime`
     /// parameter. All JSSAT functions implicitly have a `Runtime` parameter.
     Runtime,
-    /// Pointer to a contiguous amount of bytes, `*const u8` or `void*`
-    BytePointer,
+    /// A parameter of the [`jssatrt::string::String`] type.
+    String,
     /// Pointer to bits of some size.
     /// Pointer(2) would be `i2*`, Pointer(16) would be `i16*`.
     Pointer(u16),
     /// A value dependent on the machine's size - akin to `usize`, or `size_t`.
     /// Either 32 bits or 64 bits.
     Word,
-    /// A parameter of the [`jssatrt::string::String`] type.
-    String,
 }
 
-#[derive(Debug, Clone)]
-pub enum FFIReturnType {
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Returns<T> {
+    Value(T),
     Void,
-    Value(FFIValueType),
 }
+
+pub type FFIReturnType = Returns<FFIValueType>;
+
+// #[derive(Debug, Clone)]
+// pub enum FFIReturnType {
+//     Void,
+//     Value(FFIValueType),
+// }
 
 #[derive(Debug, Clone)]
 pub struct Function {
