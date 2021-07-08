@@ -4,7 +4,7 @@ use rustc_hash::FxHashMap;
 
 use crate::name::DebugName;
 
-use crate::id::IrCtx;
+use crate::id::{ContextTag, IrCtx};
 type BlockId = crate::id::BlockId<IrCtx>;
 type FunctionId = crate::id::FunctionId<IrCtx>;
 type ConstantId = crate::id::ConstantId<IrCtx>;
@@ -163,9 +163,9 @@ pub enum Callable {
 //     Constant(TopLevelId),
 // }
 
-impl<C: PartialEq + Eq + Hash + Copy> Instruction<C> {
+impl<C: ContextTag> Instruction<C> {
     // this should turn into a no-op lol
-    pub fn map_context<C2: PartialEq + Eq + Hash + Copy>(self) -> Instruction<C2> {
+    pub fn map_context<C2: ContextTag>(self) -> Instruction<C2> {
         match self {
             Instruction::Call(result, callable, args) => Instruction::Call(
                 result.map(|r| r.map_context::<C2>()),
@@ -191,13 +191,9 @@ impl<C: PartialEq + Eq + Hash + Copy> Instruction<C> {
     }
 }
 
-impl<CO: PartialEq + Eq + Hash + Copy, PO: PartialEq + Eq + Hash + Copy>
-    ControlFlowInstruction<CO, PO>
-{
+impl<CO: ContextTag, PO: ContextTag> ControlFlowInstruction<CO, PO> {
     // this should turn into a no-op lol
-    pub fn map_context<CD: PartialEq + Eq + Hash + Copy, PD: PartialEq + Eq + Hash + Copy>(
-        self,
-    ) -> ControlFlowInstruction<CD, PD> {
+    pub fn map_context<CD: ContextTag, PD: ContextTag>(self) -> ControlFlowInstruction<CD, PD> {
         match self {
             ControlFlowInstruction::Jmp(BasicBlockJump(p, a)) => {
                 ControlFlowInstruction::Jmp(BasicBlockJump(

@@ -1,4 +1,4 @@
-use std::{hash::Hash, marker::PhantomData, sync::atomic::AtomicUsize};
+use std::{fmt::Debug, hash::Hash, marker::PhantomData, sync::atomic::AtomicUsize};
 
 use rustc_hash::FxHashMap;
 
@@ -7,13 +7,13 @@ macro_rules! gen_id {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
         pub struct $name<Ctx>(::std::num::NonZeroUsize, ::std::marker::PhantomData<Ctx>);
 
-        impl<C: PartialEq + Eq + Hash + Sized + Copy> Default for $name<C> {
+        impl<C: ContextTag> Default for $name<C> {
             fn default() -> Self {
                 Self::new()
             }
         }
 
-        impl<C: PartialEq + Eq + Hash + Sized + Copy> $name<C> {
+        impl<C: ContextTag> $name<C> {
             pub fn new() -> Self {
                 Self::new_const()
             }
@@ -46,12 +46,12 @@ macro_rules! gen_id {
                 convert::<Self, I>(*self)
             }
 
-            pub fn map_context<C2: PartialEq + Eq + Hash + Sized + Copy>(&self) -> $name<C2> {
+            pub fn map_context<C2: ContextTag>(&self) -> $name<C2> {
                 $name::<C2>::new_with_value_const(self.value())
             }
         }
 
-        impl<C: PartialEq + Eq + Hash + Sized + Copy> crate::id::IdCompat for $name<C> {
+        impl<C: ContextTag> crate::id::IdCompat for $name<C> {
             fn new_with_value(value: usize) -> Self {
                 $name::<C>::new_with_value_const(value)
             }
@@ -79,6 +79,8 @@ pub trait IdCompat: PartialEq + Eq + Hash + Sized {
     fn value(&self) -> usize;
 }
 
+pub trait ContextTag: PartialEq + Eq + Hash + Sized + Copy + Clone + Debug {}
+
 pub fn convert<A, B>(a: A) -> B
 where
     A: IdCompat,
@@ -96,6 +98,8 @@ macro_rules! gen_id_ctx {
         $(#[$meta])*
         #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
         pub enum $name {}
+
+        impl ContextTag for $name {}
     };
 }
 
@@ -187,8 +191,8 @@ pub struct RegIdMap<T, U> {
 
 impl<T, U> RegIdMap<T, U>
 where
-    T: PartialEq + Eq + Hash + Sized + Copy,
-    U: PartialEq + Eq + Hash + Sized + Copy,
+    T: ContextTag,
+    U: ContextTag,
 {
     pub fn new() -> Self {
         Self {
@@ -211,8 +215,8 @@ where
 
 impl<T, U> Default for RegIdMap<T, U>
 where
-    T: PartialEq + Eq + Hash + Sized + Copy,
-    U: PartialEq + Eq + Hash + Sized + Copy,
+    T: ContextTag,
+    U: ContextTag,
 {
     fn default() -> Self {
         Self::new()
@@ -226,8 +230,8 @@ pub struct BlockIdMap<T, U> {
 
 impl<T, U> BlockIdMap<T, U>
 where
-    T: PartialEq + Eq + Hash + Sized + Copy,
-    U: PartialEq + Eq + Hash + Sized + Copy,
+    T: ContextTag,
+    U: ContextTag,
 {
     pub fn new() -> Self {
         Self {
@@ -246,8 +250,8 @@ where
 
 impl<T, U> Default for BlockIdMap<T, U>
 where
-    T: PartialEq + Eq + Hash + Sized + Copy,
-    U: PartialEq + Eq + Hash + Sized + Copy,
+    T: ContextTag,
+    U: ContextTag,
 {
     fn default() -> Self {
         Self::new()
