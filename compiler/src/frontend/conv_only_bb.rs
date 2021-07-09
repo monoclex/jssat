@@ -7,7 +7,7 @@ use crate::frontend::ir::{BasicBlockJump, ControlFlowInstruction, Function, Inst
 use crate::id::*;
 use crate::UnwrapNone;
 
-pub type ControlFlowGraph = petgraph::graph::DiGraph<BlockId<IrCtx>, ()>;
+pub type ControlFlowGraph = petgraph::graph::DiGraph<BlockId<PureBbCtx>, ()>;
 pub type ValueFlowGraph = petgraph::graph::DiGraph<RegisterId<IrCtx>, ()>;
 
 pub type BiFxHashMap<K, V> =
@@ -28,46 +28,86 @@ pub struct Block {
     pub id: BlockId<PureBbCtx>,
     pub parameters: Vec<RegisterId<PureBbCtx>>,
     pub instructions: Vec<Instruction<PureBbCtx>>,
-    pub end: ControlFlowInstruction<PureBbCtx, IrCtx>,
+    pub end: ControlFlowInstruction<PureBbCtx, PureBbCtx>,
 }
 
 #[derive(Debug, Clone)]
 pub struct PureBlocks {
-    map: FxHashMap<HostBlock, Block>,
+    blocks: Vec<Block>,
+    map_host: FxHashMap<HostBlock, usize>,
+    map_id: FxHashMap<BlockId<PureBbCtx>, usize>,
 }
 
 impl PureBlocks {
     pub fn new(map: FxHashMap<HostBlock, Block>) -> Self {
-        Self { map }
+        let mut blocks = Vec::with_capacity(map.len());
+        let mut map_host = FxHashMap::default();
+        let mut map_id = FxHashMap::default();
+
+        for (key, block) in map.into_iter() {
+            let idx = blocks.len();
+            blocks.push(block);
+
+            map_host.insert(key, idx);
+            map_id.insert(block.id, idx);
+        }
+
+        Self {
+            blocks,
+            map_host,
+            map_id,
+        }
     }
 
-    pub fn get_block(
+    pub fn get_block(&self, id: BlockId<PureBbCtx>) -> &Block {
+        let block_idx = self.get_block_key_id(id);
+        &self.blocks[block_idx]
+    }
+
+    pub fn get_block_by_host(
         &self,
         original_function: FunctionId<IrCtx>,
         original_block: BlockId<IrCtx>,
     ) -> &Block {
         let key = HostBlock {
-            original_function,
             original_block,
+            original_function,
         };
+        let block_idx = self.get_block_key_host(key);
+        &self.blocks[block_idx]
+    }
 
-        match self.map.get(&key) {
-            Some(block) => block,
+    pub fn get_block_id_by_host(
+        &self,
+        original_function: FunctionId<IrCtx>,
+        original_block: BlockId<IrCtx>,
+    ) -> BlockId<PureBbCtx> {
+        self.get_block_by_host(original_function, original_block).id
+    }
+
+    fn get_block_key_host(&self, key: HostBlock) -> usize {
+        match self.map_host.get(&key) {
+            Some(&block_idx) => {
+                debug_assert!(block_idx < self.blocks.len());
+                block_idx
+            }
             None => {
                 panic!(
                     "expected block: fn id {:?}, blk id {:?}",
-                    original_function, original_block
+                    key.original_function, key.original_block
                 );
             }
         }
     }
 
-    pub fn get_block_id(
-        &self,
-        original_function: FunctionId<IrCtx>,
-        original_block: BlockId<IrCtx>,
-    ) -> BlockId<PureBbCtx> {
-        self.get_block(original_function, original_block).id
+    fn get_block_key_id(&self, key: BlockId<PureBbCtx>) -> usize {
+        match self.map_id.get(&key) {
+            Some(&block_idx) => {
+                debug_assert!(block_idx < self.blocks.len());
+                block_idx
+            }
+            None => panic!("expected block: block id {:?}", key),
+        }
     }
 }
 
@@ -93,15 +133,17 @@ pub fn translate(ir: &IR) -> PureBlocks {
 /// A function's representation, as it's being rewritten. The parameters of a
 /// function are merged into the first block
 struct RewritingFn {
-    _entry: BlockId<IrCtx>,
-    blocks: FxHashMap<BlockId<IrCtx>, RewritingFunctionBlock>,
+    _entry: BlockId<PureBbCtx>,
+    blocks: FxHashMap<BlockId<PureBbCtx>, RewritingFunctionBlock>,
 }
 
 #[derive(Debug, Clone)]
 pub struct RewritingFunctionBlock {
+    pub original_id: BlockId<IrCtx>,
+    pub id: BlockId<PureBbCtx>,
     pub parameters: Vec<RegisterId<PureBbCtx>>,
     pub instructions: Vec<Instruction<PureBbCtx>>,
-    pub end: ControlFlowInstruction<PureBbCtx, IrCtx>,
+    pub end: ControlFlowInstruction<PureBbCtx, PureBbCtx>,
 }
 
 struct Algo<'duration> {
@@ -380,8 +422,6 @@ pub fn translate_function(
     func: &Function,
     block_id_gen: &Counter<BlockId<PureBbCtx>>,
 ) -> FxHashMap<HostBlock, Block> {
-    let flow = compute_flow(func);
-
     let highest_register = compute_highest_register(func);
     let mut reg_counter = highest_register
         // SAFETY: we will be generating registers that belong to the pure blocks
@@ -399,7 +439,9 @@ pub fn translate_function(
 
     // we will need to mutate something as we gradually get every basic block
     // into slowly a purer and purer state
-    let mut granular_rewrite = to_rewriting_fn(func);
+    let mut granular_rewrite = to_rewriting_fn(func, block_id_gen);
+
+    let flow = compute_flow(&granular_rewrite);
 
     // so currently, our blocks have the following issues:
     // 1. blocks in functions may depend upon registers declared in other blocks
@@ -436,10 +478,10 @@ pub fn translate_function(
             (
                 HostBlock {
                     original_function: fn_id,
-                    original_block: id,
+                    original_block: block.original_id,
                 },
                 Block {
-                    id: block_id_gen.next(),
+                    id: block.id,
                     parameters: block.parameters,
                     instructions: block.instructions,
                     end: block.end,
@@ -451,7 +493,7 @@ pub fn translate_function(
 
 struct Flow {
     map: BiHashMap<
-        BlockId<IrCtx>,
+        BlockId<PureBbCtx>,
         NodeIndex,
         BuildHasherDefault<FxHasher>,
         BuildHasherDefault<FxHasher>,
@@ -461,7 +503,7 @@ struct Flow {
 
 /// Generates a forwards and backwards graph, directing control flow from the
 /// current block to the ones before it.
-fn compute_flow(f: &Function) -> Flow {
+fn compute_flow(f: &RewritingFn) -> Flow {
     let mut flow = ControlFlowGraph::default();
 
     let mut block_to_node = new_bifxhashmap();
@@ -536,46 +578,76 @@ fn compute_highest_register(f: &Function) -> Option<RegisterId<IrCtx>> {
     has_encountered_register.then_some(highest)
 }
 
-fn to_rewriting_fn(f: &Function) -> RewritingFn {
+fn to_rewriting_fn(f: &Function, block_id_gen: &Counter<BlockId<PureBbCtx>>) -> RewritingFn {
+    let mut ir_to_bb_blk_id_map = FxHashMap::default();
+    let mut bb_id_of = move |id: BlockId<IrCtx>| {
+        *ir_to_bb_blk_id_map
+            .entry(id)
+            .or_insert_with(|| block_id_gen.next())
+    };
+    let map_bbjump = |bbjump: &BasicBlockJump<IrCtx, IrCtx>| {
+        let BasicBlockJump(id, path) = bbjump;
+        BasicBlockJump(
+            bb_id_of(*id),
+            path.iter().map(|r| r.map_context()).collect(),
+        )
+    };
+
     let mut result_fn = RewritingFn {
-        _entry: f.entry_block,
+        _entry: bb_id_of(f.entry_block),
         blocks: FxHashMap::default(),
     };
 
     for (id, block) in f.blocks.iter() {
-        // we already handled the entry block specially
-        if *id == f.entry_block {
-            // for the entry block, merge parameters as parameters on the block
-            let block = RewritingFunctionBlock {
-                parameters: (f.parameters.iter())
-                    .map(|p| {
-                        // SAFETY: we're going from a block in the IR to a basic block
-                        p.register.map_context::<PureBbCtx>()
-                    })
-                    .collect(),
-                instructions: (block.instructions.iter())
-                    .map(|i| i.clone().map_context::<PureBbCtx>())
-                    .collect(),
-                end: block.end.clone().map_context::<PureBbCtx, IrCtx>(),
-            };
+        let is_entry_block = *id == f.entry_block;
 
-            result_fn.blocks.insert(*id, block).expect_free();
-        } else {
-            let block = RewritingFunctionBlock {
-                parameters: (block.parameters.iter())
-                    .map(|p| {
-                        // SAFETY: we're going from a block in the IR to a basic block
-                        p.map_context::<PureBbCtx>()
-                    })
-                    .collect(),
-                instructions: (block.instructions.iter())
-                    .map(|i| i.clone().map_context::<PureBbCtx>())
-                    .collect(),
-                end: block.end.clone().map_context::<PureBbCtx, IrCtx>(),
-            };
+        let parameters: Vec<RegisterId<PureBbCtx>> = match is_entry_block {
+            // the entry block has no parameters, so we must use the parameters
+            // from the function itself
 
-            result_fn.blocks.insert(*id, block).expect_free();
-        }
+            // `map_context` SAFETY: we're going from a block in the IR to a basic block
+            true => f
+                .parameters
+                .iter()
+                .map(|p| p.register.map_context())
+                .collect(),
+            false => block.parameters.iter().map(|r| r.map_context()).collect(),
+        };
+
+        let instructions = block
+            .instructions
+            .iter()
+            .map(|i| i.clone().map_context::<PureBbCtx>())
+            .collect();
+
+        let end = match &block.end {
+            ControlFlowInstruction::Jmp(target) => ControlFlowInstruction::Jmp(map_bbjump(target)),
+            ControlFlowInstruction::JmpIf {
+                condition,
+                true_path,
+                false_path,
+            } => ControlFlowInstruction::JmpIf {
+                condition: condition.map_context(),
+                true_path: map_bbjump(true_path),
+                false_path: map_bbjump(false_path),
+            },
+            ControlFlowInstruction::Ret(Some(reg)) => {
+                ControlFlowInstruction::Ret(Some(reg.map_context()))
+            }
+            ControlFlowInstruction::Ret(None) => ControlFlowInstruction::Ret(None),
+        };
+
+        let bb_id = bb_id_of(*id);
+
+        let block = RewritingFunctionBlock {
+            original_id: *id,
+            id: bb_id,
+            parameters,
+            instructions,
+            end,
+        };
+
+        result_fn.blocks.insert(bb_id, block).expect_free();
     }
 
     result_fn

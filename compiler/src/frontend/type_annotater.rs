@@ -22,12 +22,14 @@ pub fn annotate(ir: &IR, pure_blocks: PureBlocks) -> SymbolicEngine {
         entrypoints.insert(*id, func.entry_block).expect_free();
     }
 
+    let ir_entry_block_id = ir.functions.get(&ir.entrypoint).unwrap().entry_block;
+    let entry_block_id = pure_blocks.get_block_id_by_host(ir.entrypoint, ir_entry_block_id);
+
     let symb_exec_eng =
         SymbolicEngineToken::new(pure_blocks, entrypoints, ir.external_functions.clone());
 
     let explore_req = symb_exec_eng.clone().explore_fn(BlockExecutionKey {
-        function: ir.entrypoint,
-        block: ir.functions.get(&ir.entrypoint).unwrap().entry_block,
+        id: entry_block_id,
         parameters: vec![],
     });
 
@@ -56,8 +58,7 @@ pub struct SymbolicEngine {
 pub struct Executions {
     // mapping of ORIGINAL fn id + block id to NEW fn id + block id
     // TODO: annotate these Contexts
-    executions:
-        FxHashMap<(FunctionId<IrCtx>, BlockId<IrCtx>), Vec<(Vec<ValueType>, BlockExecution)>>,
+    executions: FxHashMap<BlockId<PureBbCtx>, Vec<(Vec<ValueType>, BlockExecution)>>,
 }
 
 impl Executions {
@@ -68,21 +69,18 @@ impl Executions {
     }
 
     pub fn get(&self, key: &BlockExecutionKey) -> Option<&BlockExecution> {
-        self.executions
-            .get(&(key.function, key.block))
-            .and_then(|blocks| {
-                blocks
-                    .iter()
-                    .filter(|(p, _)| p == &key.parameters)
-                    .map(|(_, block)| block)
-                    .next()
-            })
+        self.executions.get(&key.id).and_then(|blocks| {
+            blocks
+                .iter()
+                .filter(|(p, _)| p == &key.parameters)
+                .map(|(_, block)| block)
+                .next()
+        })
     }
 
     pub fn insert(&mut self, key: BlockExecutionKey, execution: BlockExecution) {
-        let executions = self
-            .executions
-            .entry((key.function, key.block))
+        let executions = (self.executions)
+            .entry(key.id)
             .or_insert_with(|| Vec::with_capacity(1));
 
         for (params, exec) in executions.iter_mut() {
@@ -97,18 +95,11 @@ impl Executions {
 
     pub fn all_fn_invocations(
         &self,
-    ) -> impl Iterator<
-        Item = (
-            FunctionId<IrCtx>,
-            BlockId<IrCtx>,
-            &Vec<ValueType>,
-            &BlockExecution,
-        ),
-    > {
+    ) -> impl Iterator<Item = (BlockId<PureBbCtx>, &Vec<ValueType>, &BlockExecution)> {
         self.executions
             .iter()
             .flat_map(|(k, v)| v.iter().map(move |e| (k, e)))
-            .map(|((fn_id, blk), (args, cf))| (*fn_id, *blk, args, cf))
+            .map(|(blk, (args, cf))| (*blk, args, cf))
     }
 }
 
@@ -126,8 +117,7 @@ pub struct BlockKey {
 
 #[derive(PartialEq, Eq, Hash, Debug, Clone)]
 pub struct BlockExecutionKey {
-    pub function: FunctionId<IrCtx>,
-    pub block: BlockId<IrCtx>,
+    pub id: BlockId<PureBbCtx>,
     pub parameters: Vec<ValueType>,
 }
 
@@ -149,7 +139,7 @@ impl BlockExecution {
 pub struct TypedFunction {
     pub return_type: ReturnType,
     pub eval_blocks: Vec<(
-        BlockId<IrCtx>,
+        BlockId<PureBbCtx>,
         Vec<ValueType>,
         ExplorationBranch,
         FxHashMap<RegisterId<PureBbCtx>, ValueType>,
@@ -159,7 +149,7 @@ pub struct TypedFunction {
 impl TypedFunction {
     pub fn find(
         &self,
-        block: &BlockId<IrCtx>,
+        block: &BlockId<PureBbCtx>,
         args: &[ValueType],
     ) -> (
         &ExplorationBranch,
@@ -235,7 +225,7 @@ impl SymbolicEngineToken {
         while let Some(exec_key) = block_stack.pop_front() {
             let has_evaled_block = {
                 eval_blocks.iter().any(|(block, keys, _, _)| {
-                    *block == exec_key.block && keys == &exec_key.parameters
+                    *block == exec_key.id && keys == &exec_key.parameters
                 })
             };
 
@@ -243,7 +233,7 @@ impl SymbolicEngineToken {
                 continue;
             }
 
-            let block = exec_key.block;
+            let block = exec_key.id;
             let params = exec_key.parameters.clone();
 
             let Exploration {
@@ -279,7 +269,7 @@ impl SymbolicEngineToken {
 
         let blocks = me.blocks.clone();
         let blocks = blocks.try_read().expect("Blocks should be contentionless");
-        let block = blocks.get_block(key.function, key.block);
+        let block = blocks.get_block(key.id);
 
         let mut types = FxHashMap::default();
 
@@ -359,12 +349,12 @@ impl SymbolicEngineToken {
                         }
                         Callable::Static(id) => {
                             let entrypoint = *me.entrypoints.get(id).unwrap();
+                            let pure_bb_id = blocks.get_block_id_by_host(*id, entrypoint);
 
                             drop(me);
 
                             let key = BlockExecutionKey {
-                                function: *id,
-                                block: entrypoint,
+                                id: pure_bb_id,
                                 parameters: args,
                             };
 
@@ -393,15 +383,14 @@ impl SymbolicEngineToken {
             }
         }
 
-        let map_bsc_blk_jmp = |BasicBlockJump(block, args)| BlockExecutionKey {
-            function: key.function,
-            block,
+        let map_bsc_blk_jmp = |BasicBlockJump(jmp_block, args)| BlockExecutionKey {
+            id: jmp_block,
             parameters: args
                 .into_iter()
                 .map(|r| {
                     types
                         .get(&r)
-                        .unwrap_or_else(|| panic!("in {:?} -> {:?}({:?})", &key, &block, r))
+                        .unwrap_or_else(|| panic!("in {:?} -> {:?}({:?})", &key, &jmp_block, r))
                         .clone()
                 })
                 .collect(),
