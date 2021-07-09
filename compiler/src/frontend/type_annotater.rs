@@ -3,27 +3,27 @@ use std::sync::Arc;
 
 use rustc_hash::FxHashMap;
 use thiserror::Error;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 use tokio::task::JoinHandle;
 
 use crate::frontend::ir::*;
 use crate::name::DebugName;
 use crate::{id::*, UnwrapNone};
 
-use super::conv_only_bb::Block;
+use super::conv_only_bb::{Block, PureBlocks};
 
 /// Type annotation mechanism in JSSAT.
 ///
 /// This works by symbolically executing the JSSAT IR, and emitting equivalent functions.
 // can't use references because we need them to live 'static for tokio::spawn to work
-pub fn annotate(ir: &IR, blocks: Vec<Block>) -> SymbolicEngine {
+pub fn annotate(ir: &IR, pure_blocks: PureBlocks) -> SymbolicEngine {
     let mut entrypoints = FxHashMap::default();
     for (id, func) in ir.functions.iter() {
         entrypoints.insert(*id, func.entry_block).expect_free();
     }
 
     let symb_exec_eng =
-        SymbolicEngineToken::new(blocks, entrypoints, ir.external_functions.clone());
+        SymbolicEngineToken::new(pure_blocks, entrypoints, ir.external_functions.clone());
 
     let explore_req = symb_exec_eng.clone().explore_fn(BlockExecutionKey {
         function: ir.entrypoint,
@@ -36,22 +36,15 @@ pub fn annotate(ir: &IR, blocks: Vec<Block>) -> SymbolicEngine {
     drop(rt);
 
     let mutex = Arc::try_unwrap(symb_exec_eng.0).expect("nothing should be using the mutex");
-    Mutex::into_inner(mutex)
+    RwLock::into_inner(mutex)
 }
 
 #[derive(Clone)]
-struct SymbolicEngineToken(Arc<Mutex<SymbolicEngine>>);
+struct SymbolicEngineToken(Arc<RwLock<SymbolicEngine>>);
 
 #[derive(Debug)]
 pub struct SymbolicEngine {
-    // can't use references because we need them to live 'static for tokio::spawn to work,
-    // which is why it's Arc<T> and not &T
-    //
-    // need a Vec<Arc<T>> rather than a Vec<T> because in `explore_block` we need to have
-    // a reference to a block which requires us to lock the engine, but we need to temporarily
-    // unlock the engine in order to figure out the type of a function call. we'd need
-    // to release and then regain our reference, but that's annoying, so Vec<Arc<T>> it is
-    pub blocks: Arc<Vec<Arc<Block>>>,
+    pub blocks: PureBlocks,
     pub entrypoints: FxHashMap<FunctionId<IrCtx>, BlockId<IrCtx>>,
     pub executions: Executions,
     pub ext_fns: FxHashMap<ExternalFunctionId<IrCtx>, ExternalFunction>,
@@ -182,12 +175,12 @@ impl TypedFunction {
 
 impl SymbolicEngineToken {
     fn new(
-        blocks: Vec<Block>,
+        blocks: PureBlocks,
         entrypoints: FxHashMap<FunctionId<IrCtx>, BlockId<IrCtx>>,
         ext_fns: FxHashMap<ExternalFunctionId<IrCtx>, ExternalFunction>,
     ) -> Self {
-        Self(Arc::new(Mutex::new(SymbolicEngine {
-            blocks: Arc::new(blocks.into_iter().map(Arc::new).collect()),
+        Self(Arc::new(RwLock::new(SymbolicEngine {
+            blocks,
             entrypoints,
             ext_fns,
             executions: Executions::new(),
@@ -202,7 +195,7 @@ impl SymbolicEngineToken {
     }
 
     async fn explore_fn(self, block: BlockExecutionKey) -> ReturnType {
-        let mut me = (self.0.try_lock()).expect("Lock should be contentionless");
+        let mut me = (self.0.try_write()).expect("Lock should be contentionless");
 
         // first, check if we've already executed this block with the values present
         let key = match me.executions.get(&block) {
@@ -273,7 +266,7 @@ impl SymbolicEngineToken {
             eval_blocks,
         };
 
-        let mut me = (self.0.try_lock()).expect("Lock should be contentionless");
+        let mut me = (self.0.try_write()).expect("Lock should be contentionless");
 
         me.executions
             .insert(block.clone(), BlockExecution::Finished(key));
@@ -282,13 +275,9 @@ impl SymbolicEngineToken {
     }
 
     async fn explore_block(&self, key: BlockExecutionKey) -> Exploration {
-        let mut me = (self.0.try_lock()).expect("Lock should be contentionless");
+        let me = (self.0.try_read()).expect("Lock should be contentionless");
 
-        // TODO: use a hashmap
-        let block = (me.blocks.iter())
-            .find(|b| b.derived_from == (key.function, key.block))
-            .expect("expected to find a block")
-            .clone();
+        let block = me.blocks.get_block(key.function, key.block);
 
         let mut types = FxHashMap::default();
 
@@ -369,7 +358,8 @@ impl SymbolicEngineToken {
                         Callable::Static(id) => {
                             let entrypoint = *me.entrypoints.get(id).unwrap();
 
-                            drop(me);
+                            // would only need to drop the lock if we write to it
+                            // drop(me);
 
                             let key = BlockExecutionKey {
                                 function: *id,
@@ -395,7 +385,8 @@ impl SymbolicEngineToken {
                                 ReturnType::Never => todo!("return never"),
                             };
 
-                            me = (self.0.try_lock()).expect("Lock should be contentionless");
+                            // would only nead to drop and re-lock if we write to `me`
+                            // me = (self.0.try_read()).expect("Lock should be contentionless");
                         }
                     };
                 }

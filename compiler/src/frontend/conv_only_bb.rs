@@ -17,22 +17,69 @@ fn new_bifxhashmap<K: Eq + Hash, V: Eq + Hash>() -> BiFxHashMap<K, V> {
     BiFxHashMap::with_hashers(Default::default(), Default::default())
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct HostBlock {
+    original_function: FunctionId<IrCtx>,
+    original_block: BlockId<IrCtx>,
+}
+
 #[derive(Debug, Clone)]
 pub struct Block {
-    pub derived_from: (FunctionId<IrCtx>, BlockId<IrCtx>),
+    pub id: BlockId<PureBbCtx>,
     pub parameters: Vec<RegisterId<PureBbCtx>>,
     pub instructions: Vec<Instruction<PureBbCtx>>,
     pub end: ControlFlowInstruction<PureBbCtx, IrCtx>,
 }
 
-pub fn translate(ir: &IR) -> Vec<Block> {
-    let mut blocks = Vec::new();
+#[derive(Debug, Clone)]
+pub struct PureBlocks {
+    map: FxHashMap<HostBlock, Block>,
+}
 
-    for (id, function) in ir.functions.iter() {
-        blocks.extend(translate_function(*id, function));
+impl PureBlocks {
+    pub fn new(map: FxHashMap<HostBlock, Block>) -> Self {
+        Self { map }
     }
 
-    blocks
+    pub fn get_block(
+        &self,
+        original_function: FunctionId<IrCtx>,
+        original_block: BlockId<IrCtx>,
+    ) -> &Block {
+        let key = HostBlock {
+            original_function,
+            original_block,
+        };
+
+        match self.map.get(&key) {
+            Some(block) => block,
+            None => {
+                panic!(
+                    "expected block: fn id {:?}, blk id {:?}",
+                    original_function, original_block
+                );
+            }
+        }
+    }
+
+    pub fn get_block_id(
+        &self,
+        original_function: FunctionId<IrCtx>,
+        original_block: BlockId<IrCtx>,
+    ) -> BlockId<PureBbCtx> {
+        self.get_block(original_function, original_block).id
+    }
+}
+
+pub fn translate(ir: &IR) -> PureBlocks {
+    let mut block_id_gen = Counter::new();
+    let mut blocks = FxHashMap::default();
+
+    for (id, function) in ir.functions.iter() {
+        blocks.extend(translate_function(*id, function, &block_id_gen));
+    }
+
+    PureBlocks::new(blocks)
 }
 
 /// A function's representation, as it's being rewritten. The parameters of a
@@ -53,6 +100,7 @@ struct Algo<'duration> {
     flow: &'duration Flow,
     function: &'duration mut RewritingFn,
     reg_counter: &'duration mut Counter<RegisterId<PureBbCtx>>,
+    block_id_gen: &'duration Counter<BlockId<PureBbCtx>>,
     blocks: FxHashMap<NodeIndex, BlockState>,
 }
 
@@ -66,11 +114,13 @@ impl<'d> Algo<'d> {
         flow: &'d Flow,
         function: &'d mut RewritingFn,
         reg_counter: &'d mut Counter<RegisterId<PureBbCtx>>,
+        block_id_gen: &'d Counter<BlockId<PureBbCtx>>,
     ) -> Self {
         Self {
             flow,
             function,
             reg_counter,
+            block_id_gen,
             blocks: Default::default(),
         }
     }
@@ -102,7 +152,6 @@ impl<'d> Algo<'d> {
         // ^ step 4.75: if B was patched, re-patch A
         // done!
         for forward in 0..stack.len() {
-            println!("FORWARD -> {}", forward);
             let node = stack[forward];
 
             let _did_patch = self.patch_arguments_to_children(node);
@@ -111,7 +160,6 @@ impl<'d> Algo<'d> {
             // it
             // if did_patch {
             for backward in (0..=forward).rev() {
-                println!("FORWARD -> {} :: BACKWARD <- {}", forward, backward);
                 let node = stack[backward];
                 let _did_patch = self.patch_arguments_to_children(node);
                 // if !did_patch {
@@ -319,7 +367,11 @@ impl<'d> Algo<'d> {
     }
 }
 
-pub fn translate_function(fn_id: FunctionId<IrCtx>, func: &Function) -> Vec<Block> {
+pub fn translate_function(
+    fn_id: FunctionId<IrCtx>,
+    func: &Function,
+    block_id_gen: &Counter<BlockId<PureBbCtx>>,
+) -> FxHashMap<HostBlock, Block> {
     let flow = compute_flow(func);
 
     let highest_register = compute_highest_register(func);
@@ -345,17 +397,30 @@ pub fn translate_function(fn_id: FunctionId<IrCtx>, func: &Function) -> Vec<Bloc
     // 1. blocks in functions may depend upon registers declared in other blocks
     // 2. registers in blocks isn't allocated optimally (NOT required)
 
-    let mut algo = Algo::new(&flow, &mut granular_rewrite, &mut reg_counter);
+    let mut algo = Algo::new(
+        &flow,
+        &mut granular_rewrite,
+        &mut reg_counter,
+        &block_id_gen,
+    );
     algo.solve();
 
     granular_rewrite
         .blocks
         .into_iter()
-        .map(|(id, block)| Block {
-            derived_from: (fn_id, id),
-            parameters: block.parameters,
-            instructions: block.instructions,
-            end: block.end,
+        .map(|(id, block)| {
+            (
+                HostBlock {
+                    original_function: fn_id,
+                    original_block: id,
+                },
+                Block {
+                    id: block_id_gen.next(),
+                    parameters: block.parameters,
+                    instructions: block.instructions,
+                    end: block.end,
+                },
+            )
         })
         .collect()
 }
