@@ -36,15 +36,15 @@ pub fn annotate(ir: &IR, pure_blocks: PureBlocks) -> SymbolicEngine {
     drop(rt);
 
     let mutex = Arc::try_unwrap(symb_exec_eng.0).expect("nothing should be using the mutex");
-    RwLock::into_inner(mutex)
+    Mutex::into_inner(mutex)
 }
 
 #[derive(Clone)]
-struct SymbolicEngineToken(Arc<RwLock<SymbolicEngine>>);
+struct SymbolicEngineToken(Arc<Mutex<SymbolicEngine>>);
 
 #[derive(Debug)]
 pub struct SymbolicEngine {
-    pub blocks: PureBlocks,
+    pub blocks: Arc<RwLock<PureBlocks>>,
     pub entrypoints: FxHashMap<FunctionId<IrCtx>, BlockId<IrCtx>>,
     pub executions: Executions,
     pub ext_fns: FxHashMap<ExternalFunctionId<IrCtx>, ExternalFunction>,
@@ -179,8 +179,8 @@ impl SymbolicEngineToken {
         entrypoints: FxHashMap<FunctionId<IrCtx>, BlockId<IrCtx>>,
         ext_fns: FxHashMap<ExternalFunctionId<IrCtx>, ExternalFunction>,
     ) -> Self {
-        Self(Arc::new(RwLock::new(SymbolicEngine {
-            blocks,
+        Self(Arc::new(Mutex::new(SymbolicEngine {
+            blocks: Arc::new(RwLock::new(blocks)),
             entrypoints,
             ext_fns,
             executions: Executions::new(),
@@ -195,7 +195,7 @@ impl SymbolicEngineToken {
     }
 
     async fn explore_fn(self, block: BlockExecutionKey) -> ReturnType {
-        let mut me = (self.0.try_write()).expect("Lock should be contentionless");
+        let mut me = (self.0.try_lock()).expect("Lock should be contentionless");
 
         // first, check if we've already executed this block with the values present
         let key = match me.executions.get(&block) {
@@ -266,7 +266,7 @@ impl SymbolicEngineToken {
             eval_blocks,
         };
 
-        let mut me = (self.0.try_write()).expect("Lock should be contentionless");
+        let mut me = (self.0.try_lock()).expect("Lock should be contentionless");
 
         me.executions
             .insert(block.clone(), BlockExecution::Finished(key));
@@ -275,9 +275,11 @@ impl SymbolicEngineToken {
     }
 
     async fn explore_block(&self, key: BlockExecutionKey) -> Exploration {
-        let me = (self.0.try_read()).expect("Lock should be contentionless");
+        let mut me = (self.0.try_lock()).expect("Lock should be contentionless");
 
-        let block = me.blocks.get_block(key.function, key.block);
+        let blocks = me.blocks.clone();
+        let blocks = blocks.try_read().expect("Blocks should be contentionless");
+        let block = blocks.get_block(key.function, key.block);
 
         let mut types = FxHashMap::default();
 
@@ -358,8 +360,7 @@ impl SymbolicEngineToken {
                         Callable::Static(id) => {
                             let entrypoint = *me.entrypoints.get(id).unwrap();
 
-                            // would only need to drop the lock if we write to it
-                            // drop(me);
+                            drop(me);
 
                             let key = BlockExecutionKey {
                                 function: *id,
@@ -385,8 +386,7 @@ impl SymbolicEngineToken {
                                 ReturnType::Never => todo!("return never"),
                             };
 
-                            // would only nead to drop and re-lock if we write to `me`
-                            // me = (self.0.try_read()).expect("Lock should be contentionless");
+                            me = (self.0.try_lock()).expect("Lock should be contentionless");
                         }
                     };
                 }

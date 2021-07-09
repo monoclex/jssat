@@ -6,7 +6,7 @@ use std::collections::VecDeque;
 use rustc_hash::FxHashMap;
 
 use super::{
-    conv_only_bb::Block as BBlock,
+    conv_only_bb::{Block as BBlock, PureBlocks},
     ir,
     ir::{FFIValueType, IR},
     type_annotater::{self, BlockKey, SymbolicEngine, ValueType},
@@ -122,7 +122,7 @@ pub enum Type {
     Val(ValueType),
 }
 
-pub fn assemble(ir: IR, blocks: Vec<BBlock>, engine: SymbolicEngine) -> Program {
+pub fn assemble(ir: IR, blocks: PureBlocks, engine: SymbolicEngine) -> Program {
     Assembler::new(ir, blocks, engine).assemble()
 }
 
@@ -174,7 +174,7 @@ impl ir::FFIValueType {
 
 struct Assembler {
     ir: IR,
-    blocks: Vec<BBlock>,
+    blocks: PureBlocks,
     engine: SymbolicEngine,
     //
     constants: FxHashMap<ConstantId<AssemblerCtx>, Vec<u8>>,
@@ -187,7 +187,7 @@ struct Assembler {
 }
 
 impl Assembler {
-    pub fn new(mut ir: IR, blocks: Vec<BBlock>, engine: SymbolicEngine) -> Self {
+    pub fn new(mut ir: IR, blocks: PureBlocks, engine: SymbolicEngine) -> Self {
         let external_functions = (ir.external_functions.into_iter())
             .map(|(k, v)| (k.map_context::<AssemblerCtx>(), map_ext_fn(v)))
             .collect::<FxHashMap<_, _>>();
@@ -284,14 +284,7 @@ impl Assembler {
     }
 
     fn find_block(&self, fn_id: FunctionId<IrCtx>, blk_id: BlockId<IrCtx>) -> &BBlock {
-        let matches = self
-            .blocks
-            .iter()
-            .filter(|b| b.derived_from == (fn_id, blk_id))
-            .collect::<Vec<_>>();
-
-        debug_assert_eq!(matches.len(), 1);
-        matches[0]
+        self.blocks.get_block(fn_id, blk_id)
     }
 
     fn find_what(

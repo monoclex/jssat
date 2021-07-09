@@ -72,10 +72,18 @@ impl PureBlocks {
 }
 
 pub fn translate(ir: &IR) -> PureBlocks {
-    let mut block_id_gen = Counter::new();
+    let block_id_gen = Counter::new();
     let mut blocks = FxHashMap::default();
 
     for (id, function) in ir.functions.iter() {
+        // UNIQUENESS GUARANTEE:
+        // every block is a { (fn id, blk id) |-> blk } pairing
+        // that means that both the function id and block id must be unique in
+        // order for all elements to be unique
+        // the function ids are guaranteed to be unique, as we're iterating over
+        // a unique mapping of { fn id |-> func } pairing
+        // the block ids are guaranteed to be unique by the assertion inside
+        // thus, we can safely extend `blocks` and know nothing is being overwritten
         blocks.extend(translate_function(*id, function, &block_id_gen));
     }
 
@@ -404,6 +412,22 @@ pub fn translate_function(
         &block_id_gen,
     );
     algo.solve();
+
+    // INVARIANT: Unique block ids
+    // all block ids must be unique, and all function ids paired with a block id
+    // are the same (within this functiton), we know that we must ensure all blocks
+    // are unique
+    let mut unique_ids = FxHashSet::default();
+    granular_rewrite
+        .blocks
+        .iter()
+        .map(|(id, _)| id)
+        .for_each(|id| {
+            debug_assert!(
+                unique_ids.insert(*id),
+                "this id must not be present already"
+            );
+        });
 
     granular_rewrite
         .blocks
