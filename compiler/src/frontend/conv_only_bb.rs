@@ -46,10 +46,9 @@ impl PureBlocks {
 
         for (key, block) in map.into_iter() {
             let idx = blocks.len();
-            blocks.push(block);
-
             map_host.insert(key, idx);
             map_id.insert(block.id, idx);
+            blocks.push(block);
         }
 
         Self {
@@ -585,14 +584,6 @@ fn to_rewriting_fn(f: &Function, block_id_gen: &Counter<BlockId<PureBbCtx>>) -> 
             .entry(id)
             .or_insert_with(|| block_id_gen.next())
     };
-    let map_bbjump = |bbjump: &BasicBlockJump<IrCtx, IrCtx>| {
-        let BasicBlockJump(id, path) = bbjump;
-        BasicBlockJump(
-            bb_id_of(*id),
-            path.iter().map(|r| r.map_context()).collect(),
-        )
-    };
-
     let mut result_fn = RewritingFn {
         _entry: bb_id_of(f.entry_block),
         blocks: FxHashMap::default(),
@@ -620,21 +611,32 @@ fn to_rewriting_fn(f: &Function, block_id_gen: &Counter<BlockId<PureBbCtx>>) -> 
             .map(|i| i.clone().map_context::<PureBbCtx>())
             .collect();
 
-        let end = match &block.end {
-            ControlFlowInstruction::Jmp(target) => ControlFlowInstruction::Jmp(map_bbjump(target)),
-            ControlFlowInstruction::JmpIf {
-                condition,
-                true_path,
-                false_path,
-            } => ControlFlowInstruction::JmpIf {
-                condition: condition.map_context(),
-                true_path: map_bbjump(true_path),
-                false_path: map_bbjump(false_path),
-            },
-            ControlFlowInstruction::Ret(Some(reg)) => {
-                ControlFlowInstruction::Ret(Some(reg.map_context()))
+        let end = {
+            let mut map_bbjump = |bbjump: &BasicBlockJump<IrCtx, IrCtx>| {
+                let BasicBlockJump(id, path) = bbjump;
+                BasicBlockJump(
+                    bb_id_of(*id),
+                    path.iter().map(|r| r.map_context()).collect(),
+                )
+            };
+            match &block.end {
+                ControlFlowInstruction::Jmp(target) => {
+                    ControlFlowInstruction::Jmp(map_bbjump(target))
+                }
+                ControlFlowInstruction::JmpIf {
+                    condition,
+                    true_path,
+                    false_path,
+                } => ControlFlowInstruction::JmpIf {
+                    condition: condition.map_context(),
+                    true_path: map_bbjump(true_path),
+                    false_path: map_bbjump(false_path),
+                },
+                ControlFlowInstruction::Ret(Some(reg)) => {
+                    ControlFlowInstruction::Ret(Some(reg.map_context()))
+                }
+                ControlFlowInstruction::Ret(None) => ControlFlowInstruction::Ret(None),
             }
-            ControlFlowInstruction::Ret(None) => ControlFlowInstruction::Ret(None),
         };
 
         let bb_id = bb_id_of(*id);

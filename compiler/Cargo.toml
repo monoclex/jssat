@@ -29,6 +29,7 @@ elsa = "1.4.0"
 static_assertions = "1.1.0"
 bimap = "0.6.1"
 tokio = { version = "1.7.1", features = ["sync", "rt-multi-thread"] }
+ref-cast = "1.0.6"
 
 [dependencies.inkwell]
 git = "https://github.com/TheDan64/inkwell"

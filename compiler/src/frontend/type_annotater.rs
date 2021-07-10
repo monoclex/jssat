@@ -1,7 +1,8 @@
+use ref_cast::RefCast;
 use std::collections::VecDeque;
 use std::sync::Arc;
 
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use thiserror::Error;
 use tokio::sync::{Mutex, RwLock};
 use tokio::task::JoinHandle;
@@ -57,7 +58,6 @@ pub struct SymbolicEngine {
 #[derive(Debug)]
 pub struct Executions {
     // mapping of ORIGINAL fn id + block id to NEW fn id + block id
-    // TODO: annotate these Contexts
     executions: FxHashMap<BlockId<PureBbCtx>, Vec<(Vec<ValueType>, BlockExecution)>>,
 }
 
@@ -100,6 +100,15 @@ impl Executions {
             .iter()
             .flat_map(|(k, v)| v.iter().map(move |e| (k, e)))
             .map(|(blk, (args, cf))| (*blk, args, cf))
+    }
+
+    pub fn into_all_fn_invocations(
+        self,
+    ) -> impl Iterator<Item = (BlockId<PureBbCtx>, Vec<ValueType>, BlockExecution)> {
+        self.executions
+            .into_iter()
+            .flat_map(|(k, v)| v.into_iter().map(move |e| (k, e)))
+            .map(|(blk, (args, cf))| (blk, args, cf))
     }
 }
 
@@ -650,5 +659,109 @@ impl ReturnType {
             (ReturnType::Void, ReturnType::Value(_)) => todo!(),
             (ReturnType::Value(_), ReturnType::Void) => todo!(),
         }
+    }
+}
+
+// ===
+// im so good at writing clean code
+// ===
+
+#[derive(RefCast, Hash, PartialEq, Eq)]
+#[repr(transparent)]
+pub struct BlockInvocationArgs(pub Vec<ValueType>);
+
+pub struct AnnotatedBlockInformation {
+    pub args: Vec<ValueType>,
+    pub registers: FxHashMap<RegisterId<PureBbCtx>, ValueType>,
+}
+
+pub struct AnnotatedBlock<'block> {
+    pub block: &'block crate::frontend::conv_only_bb::Block,
+    pub args: &'block Vec<ValueType>,
+    pub registers: &'block FxHashMap<RegisterId<PureBbCtx>, ValueType>,
+}
+
+struct AnnotatedBlockTag(BlockId<PureBbCtx>, usize);
+
+pub struct PureAnnotatedBlocks {
+    pub blocks: PureBlocks,
+    invocations: Vec<AnnotatedBlockInformation>,
+    id_map: FxHashMap<BlockId<AnnotatedCtx>, AnnotatedBlockTag>,
+    invocation_map:
+        FxHashMap<BlockId<PureBbCtx>, FxHashMap<BlockInvocationArgs, BlockId<AnnotatedCtx>>>,
+    return_types: FxHashMap<BlockId<AnnotatedCtx>, ReturnType>,
+}
+
+impl SymbolicEngine {
+    pub fn extract(self) -> PureAnnotatedBlocks {
+        let blocks = Arc::try_unwrap(self.blocks).expect("nothing should be using the arc");
+        let blocks = RwLock::into_inner(blocks);
+
+        let executions = self.executions;
+
+        let annotated_block_id_gen = Counter::new();
+        let mut invocations = Vec::new();
+        let mut id_map = FxHashMap::default();
+        let mut invocation_map = FxHashMap::default();
+        let mut return_types = FxHashMap::default();
+
+        for (pure_block_id, invocation_args, evaluation) in executions.into_all_fn_invocations() {
+            // TODO
+            let invocation_idx = invocations.len();
+            invocations.push(AnnotatedBlockInformation {
+                args: invocation_args,
+                registers: todo!(),
+            });
+
+            id_map.insert(
+                annotated_block_id_gen.next(),
+                AnnotatedBlockTag(pure_block_id, invocation_idx),
+            );
+        }
+
+        PureAnnotatedBlocks {
+            blocks,
+            invocations,
+            id_map,
+            invocation_map,
+            return_types,
+        }
+    }
+}
+
+#[derive(RefCast)]
+#[repr(transparent)]
+pub struct Wrapper(Vec<usize>);
+
+pub fn make_wrapped(data: &Vec<usize>) -> &Wrapper {
+    Wrapper::ref_cast(data)
+}
+
+impl PureAnnotatedBlocks {
+    pub fn get_block_id(
+        &self,
+        block_id: BlockId<PureBbCtx>,
+        invocation_args: &Vec<ValueType>,
+    ) -> BlockId<AnnotatedCtx> {
+        let map = self.invocation_map.get(&block_id).unwrap();
+
+        *map.get(BlockInvocationArgs::ref_cast(invocation_args))
+            .unwrap()
+    }
+
+    pub fn get_block(&self, block_id: BlockId<AnnotatedCtx>) -> AnnotatedBlock {
+        let &AnnotatedBlockTag(block_id, invocation_idx) = self.id_map.get(&block_id).unwrap();
+        let block = self.blocks.get_block(block_id);
+        let annotated_info = &self.invocations[invocation_idx];
+
+        AnnotatedBlock {
+            block,
+            args: &annotated_info.args,
+            registers: &annotated_info.registers,
+        }
+    }
+
+    pub fn get_return_type(&self, block_id: BlockId<AnnotatedCtx>) -> &ReturnType {
+        self.return_types.get(&block_id).unwrap()
     }
 }

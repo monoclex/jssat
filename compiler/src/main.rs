@@ -147,10 +147,10 @@ fn main() {
     let as_only_blocks = frontend::conv_only_bb::translate(&ir);
     eprintln!("{:#?}", as_only_blocks);
 
-    let annotations = frontend::type_annotater::annotate(&ir, as_only_blocks.clone());
+    let annotations = frontend::type_annotater::annotate(&ir, as_only_blocks);
     eprintln!("{:#?}", annotations);
 
-    let assembled = frontend::assembler::assemble(ir, as_only_blocks, annotations);
+    let assembled = frontend::assembler::assemble(&ir, annotations);
     eprintln!("{:#?}", assembled);
 
     let build = backend::compile(assembled);

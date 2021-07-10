@@ -20,6 +20,12 @@ pub struct IR {
     pub functions: FxHashMap<FunctionId, Function>,
 }
 
+impl IR {
+    pub fn entry_block(&self) -> BlockId {
+        self.functions.get(&self.entrypoint).unwrap().entry_block
+    }
+}
+
 #[derive(Debug)]
 pub struct Constant {
     pub name: DebugName,
