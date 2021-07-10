@@ -210,7 +210,7 @@ impl<'r> ExternalFunctionMapper<'r> {
         &self,
         id: ExternalFunctionId<AssemblerCtx>,
     ) -> Option<ExternalFunctionId<LlvmCtx>> {
-        self.assembler_id_map.get(&id).map(|r| *r)
+        self.assembler_id_map.get(&id).copied()
     }
 
     pub fn extend(

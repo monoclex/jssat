@@ -37,8 +37,8 @@ pub struct ExternalFunction {
 
 #[derive(Clone, Debug)]
 pub struct Function {
-    pub entry_block: BlockId<AnnotatedCtx>,
-    pub blocks: FxHashMap<BlockId<AnnotatedCtx>, Block>,
+    pub entry_block: BlockId<AssemblerCtx>,
+    pub blocks: FxHashMap<BlockId<AssemblerCtx>, Block>,
     pub return_type: ReturnType,
 }
 
@@ -193,12 +193,60 @@ impl UniqueFnIdGen {
     }
 }
 
+pub struct UniqueBlkIdGen {
+    gen: Counter<BlockId<AssemblerCtx>>,
+    map: Mutex<FxHashMap<BlockId<AnnotatedCtx>, BlockId<AssemblerCtx>>>,
+}
+
+impl Default for UniqueBlkIdGen {
+    fn default() -> Self {
+        Self {
+            gen: Default::default(),
+            map: Default::default(),
+        }
+    }
+}
+
+impl UniqueBlkIdGen {
+    pub fn map(&self, block_id: BlockId<AnnotatedCtx>) -> BlockId<AssemblerCtx> {
+        let mut map = self.map.lock().unwrap();
+        *map.entry(block_id).or_insert_with(|| self.gen.next())
+    }
+}
+
+pub struct UniqueConstantIdGen {
+    gen: Counter<ConstantId<AssemblerCtx>>,
+    map: Mutex<FxHashMap<ConstantId<IrCtx>, ConstantId<AssemblerCtx>>>,
+    vals: Mutex<FxHashMap<ConstantId<AssemblerCtx>, Vec<u8>>>,
+}
+
+impl Default for UniqueConstantIdGen {
+    fn default() -> Self {
+        Self {
+            gen: Default::default(),
+            map: Default::default(),
+            vals: Default::default(),
+        }
+    }
+}
+
+impl UniqueConstantIdGen {
+    pub fn map(&self, block_id: ConstantId<IrCtx>, payload: &Vec<u8>) -> ConstantId<AssemblerCtx> {
+        let mut map = self.map.lock().unwrap();
+        let const_id = *map.entry(block_id).or_insert_with(|| self.gen.next());
+
+        let mut vals = self.vals.lock().unwrap();
+        vals.entry(const_id).or_insert_with(|| payload.clone());
+
+        const_id
+    }
+}
+
 struct Assembler<'ir> {
     ir: &'ir IR,
     annotated_blocks: PureAnnotatedBlocks,
     //
-    constants: FxHashMap<ConstantId<AssemblerCtx>, Vec<u8>>,
-    constant_id_gen: Counter<ConstantId<AssemblerCtx>>,
+    constant_map: UniqueConstantIdGen,
     external_functions: FxHashMap<ExternalFunctionId<AssemblerCtx>, ExternalFunction>,
     fn_id_gen: UniqueFnIdGen,
     //
@@ -217,8 +265,7 @@ impl<'ir> Assembler<'ir> {
         Self {
             ir,
             annotated_blocks,
-            constants: Default::default(),
-            constant_id_gen: Default::default(),
+            constant_map: Default::default(),
             external_functions,
             fn_id_gen: Default::default(),
             function_ids: Default::default(),
@@ -239,25 +286,29 @@ impl<'ir> Assembler<'ir> {
         while let Some(block_id) = fns_to_build.pop() {
             let fn_id = self.fn_id_gen.map(block_id);
 
-            if let Some(_) = functions.get(&fn_id) {
+            if functions.get(&fn_id).is_some() {
                 // we've already assembled this function before
                 continue;
             }
 
             let FnAssembleResult {
-                constants,
                 function,
                 assembly_requests,
             } = FnAssembler::new(&self, block_id).assemble();
 
-            self.constants.extend(constants);
             fns_to_build.extend(assembly_requests);
             functions.insert(fn_id, function);
+
+            // TODO: be more efficient about which functions to add
+            let lock = self.fn_id_gen.map.lock().unwrap();
+            for (fn_id, id) in lock.iter() {
+                fns_to_build.push(*fn_id);
+            }
         }
 
         Program {
             entrypoint: self.fn_id_gen.map(program_entrypoint_id),
-            constants: self.constants,
+            constants: Mutex::into_inner(self.constant_map.vals).unwrap(),
             external_functions: self.external_functions,
             functions,
         }
@@ -265,7 +316,6 @@ impl<'ir> Assembler<'ir> {
 }
 
 pub struct FnAssembleResult {
-    constants: FxHashMap<ConstantId<AssemblerCtx>, Vec<u8>>,
     function: Function,
     assembly_requests: Vec<BlockId<AnnotatedCtx>>,
 }
@@ -273,9 +323,7 @@ pub struct FnAssembleResult {
 struct FnAssembler<'duration, 'ir> {
     assembler: &'duration Assembler<'ir>,
     block_id: BlockId<AnnotatedCtx>,
-    block_id_map: FxHashMap<(BlockId<IrCtx>, Vec<ValueType>), BlockId<AssemblerCtx>>,
-    block_id_counter: Counter<BlockId<AssemblerCtx>>,
-    constants: FxHashMap<ConstantId<AssemblerCtx>, Vec<u8>>,
+    block_id_map: UniqueBlkIdGen,
 }
 
 impl<'d, 'ir> FnAssembler<'d, 'ir> {
@@ -284,8 +332,6 @@ impl<'d, 'ir> FnAssembler<'d, 'ir> {
             assembler,
             block_id,
             block_id_map: Default::default(),
-            block_id_counter: Default::default(),
-            constants: Default::default(),
         }
     }
 
@@ -303,7 +349,8 @@ impl<'d, 'ir> FnAssembler<'d, 'ir> {
         blocks_to_assemble.push_back(self.block_id);
 
         while let Some(block_id) = blocks_to_assemble.pop_front() {
-            if blocks.contains_key(&block_id) {
+            let assembler_blk_id = self.block_id_map.map(block_id);
+            if blocks.contains_key(&assembler_blk_id) {
                 // we've already assembled that block
                 continue;
             }
@@ -316,7 +363,7 @@ impl<'d, 'ir> FnAssembler<'d, 'ir> {
                 registers,
             } = self.assembler.annotated_blocks.get_block(block_id);
 
-            let inst_writer = InstWriter::new(&self.assembler, &mut register_map, annotated_block);
+            let inst_writer = InstWriter::new(&self, &mut register_map, annotated_block);
 
             // let (branch, register_types) = typed_fn.find(&block, &args);
 
@@ -324,72 +371,27 @@ impl<'d, 'ir> FnAssembler<'d, 'ir> {
             // parameters are dropped, it may need to be encapsulated somewhere
             // else for easier refactoring
             debug_assert_eq!(args.len(), block.parameters.len());
-            // let parameters = (block.args.iter())
-            //     .zip(block.parameters.iter())
-            //     // we can ignore simple parameters, as reconstructing those
-            //     // params is cheaper than passing them along
-            //     //
-            //     // this comes at the cost of us needing to fill in the constant
-            //     // values anytime we use these parameters
-            //     .filter(|(typ, _)| !typ.is_simple())
-            //     .map(|(typ, register)| Parameter {
-            //         typ: typ.to_type(),
-            //         register: register.map_context::<AssemblerCtx>(),
-            //     })
-            //     .collect::<Vec<_>>();
+            let parameters = (args.iter())
+                .zip(block.parameters.iter())
+                // we can ignore simple parameters, as reconstructing those
+                // params is cheaper than passing them along
+                //
+                // this comes at the cost of us needing to fill in the constant
+                // values anytime we use these parameters
+                .filter(|(typ, _)| !typ.is_simple())
+                .map(|(typ, register)| Parameter {
+                    typ: typ.to_type(),
+                    register: inst_writer.register_map.map(*register),
+                })
+                .collect::<Vec<_>>();
 
-            // let _block_id_map = &mut self.block_id_map;
+            let (mut annotated_block, next) = inst_writer.write();
+            annotated_block.parameters.extend(parameters);
+            blocks
+                .insert(assembler_blk_id, annotated_block)
+                .expect_free();
 
-            // let assembler_id_gen = &self.assembler.constant_id_gen;
-            // let constants = &mut self.constants;
-            // let ir = &self.assembler.ir;
-            // let intern_cnst = |orig_id| {
-            //     let id = assembler_id_gen.next();
-            //     let payload = ir.constants.get(&orig_id).unwrap();
-            //     constants.insert(id, payload.payload.clone()).expect_free();
-            //     id
-            // };
-
-            // let counter = &self.block_id_counter;
-            // let block_id_map = &mut self.block_id_map;
-            // let mut inst_writer = InstWriter::new(
-            //     parameters,
-            //     &mut self.register_map,
-            //     registers,
-            //     |id, args| {
-            //         // TODO: don't duplicaate `id_of` in here somehow?
-            //         *(block_id_map)
-            //             .entry((id, args))
-            //             .or_insert_with(|| counter.next())
-            //     },
-            //     intern_cnst,
-            //     &self.assembler,
-            // );
-
-            let annotated_block = inst_writer.write();
-            blocks.insert(block_id, annotated_block).expect_free();
-
-            // match branch {
-            //     ExplorationBranch::Branch(branches) => {
-            //         // explore those branches!
-            //         for BlockExecutionKey {
-            //             function: _,
-            //             block,
-            //             parameters,
-            //         } in branches
-            //         {
-            //             blocks_to_assemble.push_back((
-            //                 // entry block
-            //                 // TODO: is the context of this the OG IR or the function?
-            //                 *block, parameters,
-            //             ));
-            //         }
-            //     }
-            //     ExplorationBranch::Complete(_) => {
-            //         // do nothing, we're done
-            //     }
-            // };
-            todo!("branch");
+            blocks_to_assemble.extend(next);
         }
 
         let return_type = self
@@ -399,9 +401,8 @@ impl<'d, 'ir> FnAssembler<'d, 'ir> {
 
         FnAssembleResult {
             assembly_requests: vec![],
-            constants: self.constants,
             function: Function {
-                entry_block: self.block_id,
+                entry_block: self.block_id_map.map(self.block_id),
                 blocks,
                 return_type: return_type.clone().into_type(),
             },
@@ -410,6 +411,7 @@ impl<'d, 'ir> FnAssembler<'d, 'ir> {
 }
 
 struct InstWriter<'duration> {
+    fn_assembler: &'duration FnAssembler<'duration, 'duration>,
     assembler: &'duration Assembler<'duration>,
     block: &'duration crate::frontend::conv_only_bb::Block,
     args: &'duration Vec<ValueType>,
@@ -421,11 +423,13 @@ struct InstWriter<'duration> {
 
 impl<'d> InstWriter<'d> {
     pub fn new(
-        assembler: &'d Assembler,
+        fn_assembler: &'d FnAssembler<'d, 'd>,
         register_map: &'d mut RegIdMap<PureBbCtx, AssemblerCtx>,
         block: AnnotatedBlock<'d>,
     ) -> Self {
+        let assembler = fn_assembler.assembler;
         Self {
+            fn_assembler,
             assembler,
             block: block.block,
             args: block.args,
@@ -447,13 +451,69 @@ impl<'d> InstWriter<'d> {
         register_types.get(&register).unwrap().is_simple()
     }
 
-    pub fn write(mut self) -> Block {
+    pub fn write(mut self) -> (Block, Vec<BlockId<AnnotatedCtx>>) {
         for inst in self.block.instructions.iter() {
             if !self.translate(inst) {
                 break;
             }
         }
-        todo!()
+
+        let mut next = Vec::new();
+
+        let end = match &self.block.end {
+            ir::ControlFlowInstruction::Jmp(jmp) => {
+                EndInstruction::Jump(self.map_bbjump(jmp, &mut next))
+            }
+            ir::ControlFlowInstruction::JmpIf {
+                condition,
+                true_path,
+                false_path,
+            } => {
+                let condition = self.register_map.map(*condition);
+                let true_path = self.map_bbjump(true_path, &mut next);
+                let false_path = self.map_bbjump(false_path, &mut next);
+                EndInstruction::JumpIf {
+                    condition,
+                    true_path,
+                    false_path,
+                }
+            }
+            ir::ControlFlowInstruction::Ret(reg) => {
+                EndInstruction::Return(reg.map(|r| self.register_map.map(r)))
+            }
+        };
+
+        let block = Block {
+            parameters: vec![],
+            instructions: self.instructions,
+            end,
+        };
+
+        (block, next)
+    }
+
+    fn map_bbjump(
+        &mut self,
+        bbjump: &BasicBlockJump<PureBbCtx, PureBbCtx>,
+        next: &mut Vec<BlockId<AnnotatedCtx>>,
+    ) -> BlockJump {
+        println!("mapping bbjump {:?} {:?}", bbjump, next);
+        let BasicBlockJump(blk_id, args) = bbjump;
+
+        let invoc_args = args
+            .iter()
+            .map(|r| self.registers.get(r).unwrap().clone())
+            .collect();
+        println!("invoc_args {:?}", invoc_args);
+        let blk_id = self
+            .assembler
+            .annotated_blocks
+            .get_block_id(*blk_id, &invoc_args);
+        next.push(blk_id);
+        let blk_id = self.fn_assembler.block_id_map.map(blk_id);
+        let args = args.iter().map(|r| self.register_map.map(*r)).collect();
+
+        BlockJump(blk_id, args)
     }
 
     pub fn translate(&mut self, inst: &ir::Instruction<PureBbCtx>) -> bool {
@@ -587,8 +647,7 @@ impl<'d> InstWriter<'d> {
                                     .get_block_id(bb_blk_id, &arg_types)
                             };
 
-                            todo!()
-                            // Callable::Static(blk_id)
+                            Callable::Static(self.assembler.fn_id_gen.map(blk_id))
                         }
                     },
                     args,
@@ -600,7 +659,8 @@ impl<'d> InstWriter<'d> {
     }
 
     fn intern_constant(&mut self, id: ConstantId<IrCtx>) -> ConstantId<AssemblerCtx> {
-        todo!()
+        let payload = &self.assembler.ir.constants.get(&id).unwrap().payload;
+        self.assembler.constant_map.map(id, payload)
     }
 
     fn compute_simple(&mut self, arg: RegisterId<PureBbCtx>) -> RegisterId<AssemblerCtx> {

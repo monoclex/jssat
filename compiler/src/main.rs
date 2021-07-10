@@ -7,6 +7,7 @@
 #![feature(const_fn_trait_bound)]
 #![feature(box_syntax)]
 #![feature(bindings_after_at)]
+#![feature(entry_insert)]
 #![deny(clippy::disallowed_method)]
 
 use std::{io::Write, process::Command};

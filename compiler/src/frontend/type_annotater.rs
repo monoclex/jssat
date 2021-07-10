@@ -693,7 +693,7 @@ pub struct PureAnnotatedBlocks {
 }
 
 impl SymbolicEngine {
-    pub fn extract(self) -> PureAnnotatedBlocks {
+    pub fn extract(mut self) -> PureAnnotatedBlocks {
         let blocks = Arc::try_unwrap(self.blocks).expect("nothing should be using the arc");
         let blocks = RwLock::into_inner(blocks);
 
@@ -706,17 +706,44 @@ impl SymbolicEngine {
         let mut return_types = FxHashMap::default();
 
         for (pure_block_id, invocation_args, evaluation) in executions.into_all_fn_invocations() {
-            // TODO
-            let invocation_idx = invocations.len();
-            invocations.push(AnnotatedBlockInformation {
-                args: invocation_args,
-                registers: todo!(),
-            });
+            let typed_fn = self.typed_blocks.get(&evaluation.key()).unwrap();
 
-            id_map.insert(
-                annotated_block_id_gen.next(),
-                AnnotatedBlockTag(pure_block_id, invocation_idx),
-            );
+            let mut blocks_and_args = vec![(pure_block_id, invocation_args)];
+            for (a, b, c, d) in typed_fn.eval_blocks.iter() {
+                blocks_and_args.push((*a, b.clone()));
+            }
+
+            for (pure_block_id, invocation_args) in blocks_and_args {
+                let annotated_blk_id = annotated_block_id_gen.next();
+
+                return_types.insert(annotated_blk_id, typed_fn.return_type.clone());
+
+                let mut registers = None;
+                for (a, b, _, d) in typed_fn.eval_blocks.iter() {
+                    if *a == pure_block_id && b == &invocation_args {
+                        registers = Some(d);
+                        break;
+                    }
+                }
+                let registers = registers.unwrap().clone();
+
+                invocation_map
+                    .entry(pure_block_id)
+                    .or_insert_with(FxHashMap::default)
+                    .entry(BlockInvocationArgs(invocation_args.clone()))
+                    .insert(annotated_blk_id);
+
+                let invocation_idx = invocations.len();
+                invocations.push(AnnotatedBlockInformation {
+                    args: invocation_args,
+                    registers,
+                });
+
+                id_map.insert(
+                    annotated_blk_id,
+                    AnnotatedBlockTag(pure_block_id, invocation_idx),
+                );
+            }
         }
 
         PureAnnotatedBlocks {
@@ -727,14 +754,6 @@ impl SymbolicEngine {
             return_types,
         }
     }
-}
-
-#[derive(RefCast)]
-#[repr(transparent)]
-pub struct Wrapper(Vec<usize>);
-
-pub fn make_wrapped(data: &Vec<usize>) -> &Wrapper {
-    Wrapper::ref_cast(data)
 }
 
 impl PureAnnotatedBlocks {

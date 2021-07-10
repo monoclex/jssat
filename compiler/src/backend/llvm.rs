@@ -315,7 +315,7 @@ pub fn compile(ir: BackendIR) -> BuildArtifact {
         .expect("couldn't compile to assembly");
 
     BuildArtifact {
-        llvm_ir: text_buff.to_string(),
+        llvm_ir: text_buff,
         obj: obj_buff.as_slice().to_vec(),
     }
 }

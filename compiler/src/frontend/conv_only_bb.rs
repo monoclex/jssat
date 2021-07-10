@@ -19,8 +19,8 @@ fn new_bifxhashmap<K: Eq + Hash, V: Eq + Hash>() -> BiFxHashMap<K, V> {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct HostBlock {
-    original_function: FunctionId<IrCtx>,
-    original_block: BlockId<IrCtx>,
+    pub original_function: FunctionId<IrCtx>,
+    pub original_block: BlockId<IrCtx>,
 }
 
 #[derive(Debug, Clone)]
