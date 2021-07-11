@@ -33,34 +33,28 @@ pub struct Block {
 
 #[derive(Debug, Clone)]
 pub struct PureBlocks {
-    blocks: Vec<Block>,
-    map_host: FxHashMap<HostBlock, usize>,
-    map_id: FxHashMap<BlockId<PureBbCtx>, usize>,
+    map_to_host: BiFxHashMap<HostBlock, BlockId<PureBbCtx>>,
+    blocks: FxHashMap<BlockId<PureBbCtx>, Block>,
 }
 
 impl PureBlocks {
     pub fn new(map: FxHashMap<HostBlock, Block>) -> Self {
-        let mut blocks = Vec::with_capacity(map.len());
-        let mut map_host = FxHashMap::default();
+        let mut map_to_host = new_bifxhashmap();
         let mut map_id = FxHashMap::default();
 
         for (key, block) in map.into_iter() {
-            let idx = blocks.len();
-            map_host.insert(key, idx);
-            map_id.insert(block.id, idx);
-            blocks.push(block);
+            map_to_host.insert(key, block.id);
+            map_id.insert(block.id, block);
         }
 
         Self {
-            blocks,
-            map_host,
-            map_id,
+            map_to_host,
+            blocks: map_id,
         }
     }
 
     pub fn get_block(&self, id: BlockId<PureBbCtx>) -> &Block {
-        let block_idx = self.get_block_key_id(id);
-        &self.blocks[block_idx]
+        self.blocks.get(&id).unwrap()
     }
 
     pub fn get_block_by_host(
@@ -68,12 +62,8 @@ impl PureBlocks {
         original_function: FunctionId<IrCtx>,
         original_block: BlockId<IrCtx>,
     ) -> &Block {
-        let key = HostBlock {
-            original_block,
-            original_function,
-        };
-        let block_idx = self.get_block_key_host(key);
-        &self.blocks[block_idx]
+        let id = self.get_block_id_by_host(original_function, original_block);
+        self.get_block(id)
     }
 
     pub fn get_block_id_by_host(
@@ -81,32 +71,12 @@ impl PureBlocks {
         original_function: FunctionId<IrCtx>,
         original_block: BlockId<IrCtx>,
     ) -> BlockId<PureBbCtx> {
-        self.get_block_by_host(original_function, original_block).id
-    }
+        let host_block = HostBlock {
+            original_function,
+            original_block,
+        };
 
-    fn get_block_key_host(&self, key: HostBlock) -> usize {
-        match self.map_host.get(&key) {
-            Some(&block_idx) => {
-                debug_assert!(block_idx < self.blocks.len());
-                block_idx
-            }
-            None => {
-                panic!(
-                    "expected block: fn id {:?}, blk id {:?}",
-                    key.original_function, key.original_block
-                );
-            }
-        }
-    }
-
-    fn get_block_key_id(&self, key: BlockId<PureBbCtx>) -> usize {
-        match self.map_id.get(&key) {
-            Some(&block_idx) => {
-                debug_assert!(block_idx < self.blocks.len());
-                block_idx
-            }
-            None => panic!("expected block: block id {:?}", key),
-        }
+        *self.map_to_host.get_by_left(&host_block).unwrap()
     }
 }
 
@@ -149,7 +119,7 @@ struct Algo<'duration> {
     flow: &'duration Flow,
     function: &'duration mut RewritingFn,
     reg_counter: &'duration mut Counter<RegisterId<PureBbCtx>>,
-    block_id_gen: &'duration Counter<BlockId<PureBbCtx>>,
+    // block_id_gen: &'duration Counter<BlockId<PureBbCtx>>,
     blocks: FxHashMap<NodeIndex, BlockState>,
 }
 
@@ -163,13 +133,13 @@ impl<'d> Algo<'d> {
         flow: &'d Flow,
         function: &'d mut RewritingFn,
         reg_counter: &'d mut Counter<RegisterId<PureBbCtx>>,
-        block_id_gen: &'d Counter<BlockId<PureBbCtx>>,
+        // block_id_gen: &'d Counter<BlockId<PureBbCtx>>,
     ) -> Self {
         Self {
             flow,
             function,
             reg_counter,
-            block_id_gen,
+            // block_id_gen,
             blocks: Default::default(),
         }
     }
@@ -450,7 +420,7 @@ pub fn translate_function(
         &flow,
         &mut granular_rewrite,
         &mut reg_counter,
-        &block_id_gen,
+        // &block_id_gen,
     );
     algo.solve();
 
@@ -473,7 +443,7 @@ pub fn translate_function(
     granular_rewrite
         .blocks
         .into_iter()
-        .map(|(id, block)| {
+        .map(|(_, block)| {
             (
                 HostBlock {
                     original_function: fn_id,

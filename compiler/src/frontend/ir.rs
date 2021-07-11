@@ -97,7 +97,7 @@ pub struct FunctionBlock {
 }
 
 #[derive(Debug, Clone)]
-pub enum Instruction<C = crate::id::IrCtx> {
+pub enum Instruction<C = crate::id::IrCtx, C2 = crate::id::IrCtx> {
     // RecordGet(RegisterId /*=*/, RegisterId, RecordKey),
     // RecordSet(RegisterId, RecordKey, Value),
     // RefIsEmpty(RegisterId /*=*/, RegisterId),
@@ -124,7 +124,7 @@ pub enum Instruction<C = crate::id::IrCtx> {
     /// the constant referenced is a valid UTF-16 string.
     // TODO: the conv_bb_block phase doesn't mutate constants, so they're still
     // in the old constant phase. is this valid?
-    MakeString(RegisterId<C>, crate::id::ConstantId<C>),
+    MakeString(RegisterId<C>, crate::id::ConstantId<C2>),
     // /// # [`Instruction::Unreachable`]
     // ///
     // /// Indicates that the executing code path will never reach this instruction.
@@ -179,9 +179,7 @@ impl<C: ContextTag> Instruction<C> {
                 args.into_iter().map(|r| r.map_context::<C2>()).collect(),
             ),
             Instruction::GetRuntime(r) => Instruction::GetRuntime(r.map_context::<C2>()),
-            Instruction::MakeString(r, s) => {
-                Instruction::MakeString(r.map_context::<C2>(), s.map_context::<C2>())
-            }
+            Instruction::MakeString(r, s) => Instruction::MakeString(r.map_context::<C2>(), s),
             Instruction::MakeInteger(r, n) => Instruction::MakeInteger(r.map_context::<C2>(), n),
             Instruction::CompareLessThan(r, l, rhs) => Instruction::CompareLessThan(
                 r.map_context::<C2>(),

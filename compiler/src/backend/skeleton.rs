@@ -7,7 +7,7 @@ use crate::backend::llvm::{
     OpaqueStruct, Parameter,
 };
 
-use crate::frontend::assembler::{self, Program, ReturnType, Type};
+use crate::frontend::assembler::{self, Program, ReturnType};
 use crate::frontend::ir::{self};
 use crate::frontend::type_annotater;
 use crate::{id::*, UnwrapNone};
@@ -248,19 +248,16 @@ impl assembler::ReturnType {
     }
 }
 
-impl assembler::Type {
+impl type_annotater::ValueType {
     fn into_llvm(self, rt_types: &RuntimeTypes) -> llvm::ValueType {
         match self {
-            Type::FFI(ir::FFIValueType::Any) | Type::Val(type_annotater::ValueType::Any) => {
-                llvm::ValueType::Opaque(rt_types.value).into_ptr()
-            }
-            Type::FFI(ir::FFIValueType::Runtime)
-            | Type::Val(type_annotater::ValueType::Runtime) => {
+            type_annotater::ValueType::Any => llvm::ValueType::Opaque(rt_types.value).into_ptr(),
+            type_annotater::ValueType::Runtime => {
                 llvm::ValueType::Opaque(rt_types.runtime).into_ptr()
             }
-            Type::Val(
-                type_annotater::ValueType::Number | type_annotater::ValueType::ExactInteger(_),
-            ) => llvm::ValueType::BitType(64),
+            type_annotater::ValueType::Number | type_annotater::ValueType::ExactInteger(_) => {
+                llvm::ValueType::BitType(64)
+            }
             t => unimplemented!("for {:?}", t),
         }
     }
@@ -401,8 +398,8 @@ pub fn translate(program: Program) -> BackendIR<'static> {
                         //
                         match (from, to) {
                             (
-                                Type::Val(type_annotater::ValueType::ExactString(id)),
-                                Type::FFI(ir::FFIValueType::Any),
+                                type_annotater::ValueType::ExactString(id),
+                                type_annotater::ValueType::Any,
                             ) => {
                                 instructions.push(llvm::Instruction::Call(
                                     Some(reg_map.map(*result)),
@@ -411,8 +408,8 @@ pub fn translate(program: Program) -> BackendIR<'static> {
                                 ));
                             }
                             (
-                                Type::Val(type_annotater::ValueType::ExactInteger(n)),
-                                Type::FFI(ir::FFIValueType::Any),
+                                type_annotater::ValueType::ExactInteger(n),
+                                type_annotater::ValueType::Any,
                             ) => {
                                 instructions.push(llvm::Instruction::Call(
                                     Some(reg_map.map(*result)),
