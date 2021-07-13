@@ -64,6 +64,22 @@ pub enum Returns<T> {
     Void,
 }
 
+pub trait Unifyable: Clone {
+    fn unify(&self, other: &Self) -> Self;
+}
+
+impl<T: Unifyable> Unifyable for Returns<T> {
+    fn unify(&self, other: &Self) -> Self {
+        match (self, other) {
+            (Returns::Value(lhs), Returns::Value(rhs)) => Returns::Value(lhs.unify(rhs)),
+            (Returns::Value(v), Returns::Void) | (Returns::Void, Returns::Value(v)) => {
+                Returns::Value(v.clone())
+            }
+            (Returns::Void, Returns::Void) => Returns::Void,
+        }
+    }
+}
+
 pub type FFIReturnType = Returns<FFIValueType>;
 
 // #[derive(Debug, Clone)]

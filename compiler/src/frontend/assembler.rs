@@ -637,7 +637,8 @@ impl<'d> InstWriter<'d> {
                         .insert(reg, self.type_info.get_type(orig_reg).clone());
                 }
 
-                todo!("what about never types?");
+                // TODO: figure out what happens
+                // panic!("what about never types?");
             }
         };
         HaltStatus::Continue

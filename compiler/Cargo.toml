@@ -24,11 +24,7 @@ swc_atoms = { version = "0.2.6", optional = true }
 swc_common = { version = "0.10.20", features = ["tty-emitter"], optional = true }
 swc_ecmascript = { version = "0.36.0", features = ["parser", "utils"], optional = true }
 tempfile = "3.2.0"
-thiserror = "1.0.24"
-elsa = "1.4.0"
-static_assertions = "1.1.0"
 bimap = "0.6.1"
-tokio = { version = "1.7.1", features = ["sync", "rt-multi-thread"] }
 ref-cast = "1.0.6"
 
 [dependencies.inkwell]

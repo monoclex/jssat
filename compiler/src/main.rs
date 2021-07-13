@@ -8,6 +8,8 @@
 #![feature(box_syntax)]
 #![feature(bindings_after_at)]
 #![feature(entry_insert)]
+#![feature(unboxed_closures)]
+#![feature(fn_traits)]
 #![deny(clippy::disallowed_method)]
 
 use std::{io::Write, process::Command};
@@ -15,6 +17,7 @@ use std::{io::Write, process::Command};
 pub mod backend;
 pub mod frontend;
 pub mod id;
+pub mod interner;
 pub mod name;
 
 /// can't have nice things :'( https://github.com/rust-lang/rust/issues/62633
