@@ -520,11 +520,21 @@ impl<'d> InstWriter<'d> {
                 condition,
                 true_path,
                 false_path,
-            } => EndInstruction::JumpIf {
-                condition: self.reg_map.map(*condition),
-                true_path: self.map_bbjump(true_path),
-                false_path: self.map_bbjump(false_path),
-            },
+            } => {
+                let condition = self.reg_map.map(*condition);
+                match self.register_types.get(&condition).unwrap() {
+                    ValueType::Bool(true) => EndInstruction::Jump(self.map_bbjump(true_path)),
+                    ValueType::Bool(false) => EndInstruction::Jump(self.map_bbjump(false_path)),
+                    ValueType::Boolean => EndInstruction::JumpIf {
+                        condition,
+                        true_path: self.map_bbjump(true_path),
+                        false_path: self.map_bbjump(false_path),
+                    },
+                    _ => unreachable!(
+                        "invalid conditional register, this should be caught by typ annotation"
+                    ),
+                }
+            }
             ir::ControlFlowInstruction::Ret(reg) => {
                 EndInstruction::Return(reg.map(|r| self.reg_map.map(r)))
             }
@@ -669,6 +679,8 @@ impl<'d> InstWriter<'d> {
                         && res.is_none() == original_res.is_none()
                 );
                 if let (Some(reg), Some(orig_reg)) = (res, *original_res) {
+                    // TODO: handle never type
+
                     self.register_types
                         .insert(reg, self.type_info.get_type(orig_reg).clone());
                 }

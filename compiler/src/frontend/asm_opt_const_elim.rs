@@ -67,7 +67,7 @@ fn opt_blk(reg_tps: &FxHashMap<RegisterId<AssemblerCtx>, ValueType>, cnsts: &Cns
             | ValueType::Word => unreachable!("not simple type"),
         }
     }
-    b.instructions = b.instructions.splice(0..0, prepend).collect();
+    b.instructions.splice(0..0, prepend);
 
     b.parameters = b
         .parameters
@@ -99,6 +99,25 @@ fn opt_blk(reg_tps: &FxHashMap<RegisterId<AssemblerCtx>, ValueType>, cnsts: &Cns
         },
         EndInstruction::Return(r) => EndInstruction::Return(r),
     };
+
+    // if we call any functions with const params, we want to remove those too
+    // because when we modify the params of all blocks, we modify the params of the entry block,
+    // and the params of the entry block are the params of the function
+    for i in b.instructions.iter_mut() {
+        match i {
+            Instruction::Call(_, Callable::Static(_), args) => {
+                let mut new_args = vec![];
+                for arg in args.iter_mut() {
+                    let typ = reg_tps.get(arg).unwrap();
+                    if !typ.is_simple() {
+                        new_args.push(*arg);
+                    }
+                }
+                *args = new_args;
+            }
+            _ => continue,
+        }
+    }
 
     // let reg_typ = |r| reg_tps.get(&r).unwrap();
     // let mut to_be_removed = vec![];
