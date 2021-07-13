@@ -1,3 +1,4 @@
+pub mod asm_opt_const_elim;
 pub mod assembler;
 pub mod builder;
 pub mod conv_only_bb;

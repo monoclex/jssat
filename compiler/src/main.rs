@@ -157,7 +157,10 @@ fn main() {
     let assembled = frontend::assembler::assemble(&ir, &as_only_blocks, annotations);
     eprintln!("{:#?}", assembled);
 
-    let build = backend::compile(assembled);
+    let program = frontend::asm_opt_const_elim::opt_constant_elimination(assembled);
+    eprintln!("{:#?}", program);
+
+    let build = backend::compile(program);
     eprintln!("OUTPUT LLVM IR (use unix pipes to redirect this into a file):");
     println!("{}", build.llvm_ir);
 

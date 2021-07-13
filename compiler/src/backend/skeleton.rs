@@ -511,6 +511,7 @@ pub fn translate(program: Program) -> BackendIR<'static> {
                     assembler::Instruction::Unreachable => {
                         instructions.push(llvm::Instruction::Unreachable);
                     }
+                    assembler::Instruction::Noop => {}
                 }
             }
 

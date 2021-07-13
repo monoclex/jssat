@@ -81,6 +81,7 @@ pub enum Instruction {
         to: ValueType,
     },
     Unreachable,
+    Noop,
 }
 
 #[derive(Clone, Debug)]
@@ -277,6 +278,11 @@ impl<'d> Assembler<'d> {
         }
     }
 
+    pub fn fn_id_annblk(&self, annblk: BlockId<AnnotatedCtx>) -> FunctionId<AssemblerCtx> {
+        let type_info = self.type_annotations.get_type_info_by_id(annblk);
+        self.fn_id_gen.map(type_info.annotated_id)
+    }
+
     pub fn fn_id(
         &self,
         bb_id: BlockId<PureBbCtx>,
@@ -289,16 +295,31 @@ impl<'d> Assembler<'d> {
         self.fn_id_gen.map(type_info.annotated_id)
     }
 
+    pub fn blk_id(
+        &self,
+        bb_id: BlockId<PureBbCtx>,
+        args: &Vec<ValueType>,
+    ) -> BlockId<AnnotatedCtx> {
+        let type_info = self
+            .type_annotations
+            .get_invocations(bb_id)
+            .get_type_info_by_invocation(args);
+        type_info.annotated_id
+    }
+
     pub fn intern_constant(&self, payload: &[u8]) -> ConstantId<AssemblerCtx> {
         self.constant_map.map(payload)
     }
 
-    fn entry_record(&self) -> (BlockId<PureBbCtx>, Vec<ValueType>) {
+    fn entry_record(&self) -> BlockId<AnnotatedCtx> {
         let entry_fn = self.ir.entrypoint;
         let entry_blk = self.ir.entry_block();
         let entry_bb_blk = self.pure_bocks.get_block_id_by_host(entry_fn, entry_blk);
         let entry_args = Vec::new();
-        (entry_bb_blk, entry_args)
+        self.type_annotations
+            .get_invocations(entry_bb_blk)
+            .get_type_info_by_invocation(&entry_args)
+            .annotated_id
     }
 
     pub fn assemble(self) -> Program {
@@ -307,23 +328,21 @@ impl<'d> Assembler<'d> {
         let mut fns = VecDeque::new();
         fns.push_back(self.entry_record());
 
-        while let Some((bb_id, args)) = fns.pop_front() {
-            let type_info = self
-                .type_annotations
-                .get_invocations(bb_id)
-                .get_type_info_by_invocation(&args);
+        while let Some(id) = fns.pop_front() {
+            let type_info = self.type_annotations.get_type_info_by_id(id);
 
             let fn_id = self.fn_id_gen.map(type_info.annotated_id);
 
             // let assembled = FnAssembler::new(&self, fn_id, type_info, bb_id, args).assemble();
-            let assembled = FnAssembler::new(&self, type_info).assemble();
+            let (assembled, to_assemble) = FnAssembler::new(&self, type_info).assemble();
+            fns.extend(to_assemble);
 
             functions.insert(fn_id, assembled);
         }
 
         // `entrypoint`
-        let (bb_id, args) = self.entry_record();
-        let entrypoint = self.fn_id(bb_id, &args);
+        let entry_blk_id = self.entry_record();
+        let entrypoint = self.fn_id_annblk(entry_blk_id);
 
         // `constants`
         let (const_payloads, const_ids) = Mutex::into_inner(self.constant_map.map)
@@ -380,12 +399,13 @@ impl<'d> FnAssembler<'d> {
         }
     }
 
-    pub fn assemble(self) -> Function {
+    pub fn assemble(self) -> (Function, Vec<BlockId<AnnotatedCtx>>) {
         let entry_block = self.block_id_map.map(self.type_info.annotated_id);
 
         let mut blocks = FxHashMap::default();
         let mut register_types = FxHashMap::default();
         let mut reg_map = RegIdMap::default();
+        let mut to_assemble = Vec::new();
 
         let mut block_queue = VecDeque::new();
         block_queue.push_back(entry_block);
@@ -396,7 +416,7 @@ impl<'d> FnAssembler<'d> {
             }
 
             let (block, to_visit, reg_types) =
-                InstWriter::new(&self, block_id, &mut reg_map).write();
+                InstWriter::new(&self, block_id, &mut reg_map, &mut to_assemble).write();
             blocks.insert(block_id, block);
 
             register_types.extend(reg_types);
@@ -406,12 +426,15 @@ impl<'d> FnAssembler<'d> {
 
         let return_type = self.type_info.return_type.clone().into_type();
 
-        Function {
-            register_types,
-            entry_block,
-            blocks,
-            return_type,
-        }
+        (
+            Function {
+                register_types,
+                entry_block,
+                blocks,
+                return_type,
+            },
+            to_assemble,
+        )
     }
 
     fn type_info_for_assembler_block(&self, id: BlockId<AssemblerCtx>) -> &TypeInformation {
@@ -426,6 +449,7 @@ struct InstWriter<'duration> {
     fn_assembler: &'duration FnAssembler<'duration>,
     reg_map: &'duration mut RegIdMap<PureBbCtx, AssemblerCtx>,
     type_info: &'duration TypeInformation,
+    to_assemble: &'duration mut Vec<BlockId<AnnotatedCtx>>,
     bb: &'duration conv_only_bb::Block,
     register_types: FxHashMap<RegisterId<AssemblerCtx>, ValueType>,
     instructions: Vec<Instruction>,
@@ -442,6 +466,7 @@ impl<'d> InstWriter<'d> {
         fn_assembler: &'d FnAssembler<'d>,
         block_id: BlockId<AssemblerCtx>,
         reg_map: &'d mut RegIdMap<PureBbCtx, AssemblerCtx>,
+        to_assemble: &'d mut Vec<BlockId<AnnotatedCtx>>,
     ) -> Self {
         let type_info = fn_assembler.type_info_for_assembler_block(block_id);
         let bb = (fn_assembler.assembler.pure_bocks).get_block(type_info.pure_id);
@@ -450,6 +475,7 @@ impl<'d> InstWriter<'d> {
             fn_assembler,
             reg_map,
             type_info,
+            to_assemble,
             bb,
             register_types: Default::default(),
             instructions: Default::default(),
@@ -582,10 +608,24 @@ impl<'d> InstWriter<'d> {
                     .get(fn_id)
                     .unwrap();
 
-                let args = args.iter().map(|r| self.reg_map.map(*r)).collect();
+                let args = args
+                    .iter()
+                    .map(|r| self.reg_map.map(*r))
+                    .collect::<Vec<_>>();
 
                 let val_types = (ext_fn.parameters.iter())
                     .map(|t| t.clone().into_value_type())
+                    .collect::<Vec<_>>();
+
+                debug_assert_eq!(args.len(), val_types.len());
+                let args = args
+                    .into_iter()
+                    .zip(val_types.iter())
+                    .map(|(register, coercion_type)| {
+                        // TODO(far future): don't clone when split/partial borrows come along
+                        let register_typ = self.register_types.get(&register).unwrap().clone();
+                        self.coerce(register, &register_typ, coercion_type)
+                    })
                     .collect::<Vec<_>>();
 
                 self.instructions.push(Instruction::Call(
@@ -601,11 +641,6 @@ impl<'d> InstWriter<'d> {
                         panic!("expected assignment to a register to be non void");
                     }
                 }
-
-                todo!(
-                    "need to coerce registers into the types asked via {:?}",
-                    val_types
-                );
             }
             ir::Instruction::Call(res, ir::Callable::Static(fn_id), args) => {
                 let original_res = res;
@@ -619,6 +654,7 @@ impl<'d> InstWriter<'d> {
                 let arg_typs = self.regs_to_typs(&args);
 
                 let annotated_fn_id = self.fn_assembler.assembler.fn_id(pure_bb_id, &arg_typs);
+                let annotated_blk_id = self.fn_assembler.assembler.blk_id(pure_bb_id, &arg_typs);
 
                 let args = args.iter().map(|r| self.reg_map.map(*r)).collect();
 
@@ -637,8 +673,7 @@ impl<'d> InstWriter<'d> {
                         .insert(reg, self.type_info.get_type(orig_reg).clone());
                 }
 
-                // TODO: figure out what happens
-                // panic!("what about never types?");
+                self.to_assemble.push(annotated_blk_id);
             }
         };
         HaltStatus::Continue
@@ -657,6 +692,7 @@ impl<'d> InstWriter<'d> {
             .get_type_info_by_invocation(&arg_types);
 
         let id = self.fn_assembler.block_id_map.map(typ_info.annotated_id);
+        self.to_visit.push(id);
 
         let args = args
             .iter()
@@ -671,39 +707,140 @@ impl<'d> InstWriter<'d> {
             .map(|r| self.type_info.get_type(*r).clone())
             .collect()
     }
+
+    fn coerce(
+        &mut self,
+        reg: RegisterId<AssemblerCtx>,
+        current: &ValueType,
+        into: &ValueType,
+    ) -> RegisterId<AssemblerCtx> {
+        if current == into {
+            return reg;
+        }
+
+        let result = self.reg_map.gen();
+        self.instructions.push(Instruction::Widen {
+            result,
+            input: reg,
+            from: current.clone(),
+            to: into.clone(),
+        });
+
+        result
+    }
 }
 
-// impl ValueType {
-//     pub fn to_type(&self) -> Type {
-//         Type::Val(self.clone())
-//     }
+impl ValueType {
+    pub fn is_const(&self) -> bool {
+        match self {
+            ValueType::Any
+            | ValueType::Runtime
+            | ValueType::String
+            | ValueType::Number
+            | ValueType::Pointer(_)
+            | ValueType::Word
+            | ValueType::Boolean => false,
+            ValueType::ExactInteger(_) | ValueType::ExactString(_) | ValueType::Bool(_) => true,
+        }
+    }
 
-//     pub fn is_const(&self) -> bool {
-//         match self {
-//             ValueType::Any
-//             | ValueType::Runtime
-//             | ValueType::String
-//             | ValueType::Number
-//             | ValueType::Pointer(_)
-//             | ValueType::Word
-//             | ValueType::Boolean => false,
-//             ValueType::ExactInteger(_) | ValueType::ExactString(_) | ValueType::Bool(_) => true,
-//         }
-//     }
+    /// States whether the type is "simple" or not. Simple types are extremely
+    /// cheap to rebuild at any moment in the IR, and are considered cheaper to
+    /// build than to pass around. Passing them around is considered "expensive"
+    /// because then we're using more registers than necessary, which cause
+    /// performance deficits because the more registers we use the more likely
+    /// we'll need to spill onto the stack to generate a function.
+    pub fn is_simple(&self) -> bool {
+        matches!(
+            self,
+            ValueType::Runtime
+                | ValueType::ExactInteger(_)
+                | ValueType::Bool(_)
+                | ValueType::ExactString(_)
+        )
+    }
+}
 
-//     /// States whether the type is "simple" or not. Simple types are extremely
-//     /// cheap to rebuild at any moment in the IR, and are considered cheaper to
-//     /// build than to pass around. Passing them around is considered "expensive"
-//     /// because then we're using more registers than necessary, which cause
-//     /// performance deficits because the more registers we use the more likely
-//     /// we'll need to spill onto the stack to generate a function.
-//     pub fn is_simple(&self) -> bool {
-//         matches!(
-//             self,
-//             ValueType::Runtime
-//                 | ValueType::ExactInteger(_)
-//                 | ValueType::Bool(_)
-//                 | ValueType::ExactString(_)
-//         )
-//     }
-// }
+impl Instruction {
+    pub fn assigned_to(&self) -> Option<RegisterId<AssemblerCtx>> {
+        match self {
+            Instruction::Call(result, _, _) => *result,
+            Instruction::GetRuntime(result)
+            | Instruction::MakeString(result, _)
+            | Instruction::MakeNumber(result, _)
+            | Instruction::MakeBoolean(result, _)
+            | Instruction::Widen { result, .. } => Some(*result),
+            Instruction::Unreachable | Instruction::Noop => None,
+        }
+    }
+
+    pub fn used_registers(&self) -> Vec<RegisterId<AssemblerCtx>> {
+        match self {
+            Instruction::Call(_, _, params) => params.clone(),
+            // Instruction::CompareLessThan(_, lhs, rhs) | Instruction::Add(_, lhs, rhs) => {
+            //     vec![*lhs, *rhs]
+            // }
+            Instruction::GetRuntime(_)
+            | Instruction::MakeString(_, _)
+            | Instruction::MakeNumber(_, _)
+            | Instruction::MakeBoolean(_, _) => Vec::new(),
+            Instruction::Widen { input, .. } => vec![*input],
+            Instruction::Unreachable | Instruction::Noop => vec![],
+        }
+    }
+
+    pub fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<AssemblerCtx>> {
+        match self {
+            Instruction::Call(_, _, params) => params.iter_mut().collect::<Vec<_>>(),
+            // Instruction::CompareLessThan(_, lhs, rhs) | Instruction::Add(_, lhs, rhs) => {
+            //     vec![*lhs, *rhs]
+            // }
+            Instruction::GetRuntime(_)
+            | Instruction::MakeString(_, _)
+            | Instruction::MakeNumber(_, _)
+            | Instruction::MakeBoolean(_, _) => Vec::new(),
+            Instruction::Widen { input, .. } => vec![input],
+            Instruction::Unreachable | Instruction::Noop => vec![],
+        }
+    }
+}
+
+impl EndInstruction {
+    pub fn used_registers(&self) -> Vec<RegisterId<AssemblerCtx>> {
+        match self {
+            EndInstruction::Jump(path) => path.1.clone(),
+            EndInstruction::JumpIf {
+                condition,
+                true_path,
+                false_path,
+            } => {
+                let mut r = vec![*condition];
+                r.extend(true_path.1.clone());
+                r.extend(false_path.1.clone());
+                r
+            }
+            EndInstruction::Return(Some(r)) => vec![*r],
+            EndInstruction::Return(None) => vec![],
+            EndInstruction::Unreachable => vec![],
+        }
+    }
+
+    pub fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<AssemblerCtx>> {
+        match self {
+            EndInstruction::Jump(path) => path.1.iter_mut().collect(),
+            EndInstruction::JumpIf {
+                condition,
+                true_path,
+                false_path,
+            } => {
+                let mut r = vec![condition];
+                r.extend(true_path.1.iter_mut());
+                r.extend(false_path.1.iter_mut());
+                r
+            }
+            EndInstruction::Return(Some(r)) => vec![r],
+            EndInstruction::Return(None) => vec![],
+            EndInstruction::Unreachable => vec![],
+        }
+    }
+}
