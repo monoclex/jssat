@@ -1,9 +1,5 @@
-use inkwell::{
-    passes::{PassManager, PassManagerBuilder},
-    targets::TargetData,
-};
 use rustc_hash::FxHashMap;
-use std::{hash::Hash, marker::PhantomData};
+use std::hash::Hash;
 
 use super::BuildArtifact;
 
@@ -19,11 +15,15 @@ use inkwell::{
     builder::Builder,
     context::Context,
     module::{Linkage, Module},
+    passes::{PassManager, PassManagerBuilder},
     targets::{CodeModel, FileType, RelocMode, Target, TargetMachine},
     types::{BasicType, BasicTypeEnum, IntType, StructType},
     values::{BasicValue, BasicValueEnum, FunctionValue, GlobalValue, IntValue},
     AddressSpace, OptimizationLevel,
 };
+
+#[cfg(not(feature = "link-llvm"))]
+use std::marker::PhantomData;
 
 #[cfg(not(feature = "link-llvm"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -178,8 +178,8 @@ pub enum ValueType {
 
 enum SizeLevel {
     NoSizeOptimization = 0,
-    Os = 1,
-    Oz = 2,
+    // Os = 1,
+    // Oz = 2,
 }
 
 impl ValueType {
@@ -529,7 +529,7 @@ impl<'c> BackendCompiler<'c, '_> {
             .collect::<Vec<_>>();
 
         let mut block_map = FxHashMap::default();
-        for (idx, block) in blocks.iter() {
+        for (idx, _) in blocks.iter() {
             let basic_block = self.context.append_basic_block(function.llvm, "");
             block_map.insert(*idx, basic_block);
         }
@@ -554,7 +554,7 @@ impl<'c> BackendCompiler<'c, '_> {
                             .map(|r| {
                                 *register_values
                                     .get(&r)
-                                    .expect(&format!("error calling {:?}, {:?}", r, args))
+                                    .unwrap_or_else(|| panic!("error calling {:?}, {:?}", r, args))
                             })
                             .collect::<Vec<_>>();
 

@@ -1,5 +1,3 @@
-use core::num;
-
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::backend::llvm::{
@@ -8,7 +6,6 @@ use crate::backend::llvm::{
 };
 
 use crate::frontend::assembler::{self, Program, ReturnType};
-use crate::frontend::ir::{self};
 use crate::frontend::type_annotater;
 use crate::{id::*, UnwrapNone};
 
@@ -96,7 +93,7 @@ impl RuntimeTypes {
 
     fn init(&mut self) {
         self.runtime = self.insert("struct.Runtime");
-        self.value = self.insert("struct.Value");
+        self.value = self.insert("struct.Any");
         self.string = self.insert("struct.String");
     }
 
@@ -349,8 +346,8 @@ pub fn translate(program: Program) -> BackendIR<'static> {
 
         for (&id, block) in function.blocks.iter() {
             let llvm_id = id.map_context();
-            let mut phi_insts = Vec::with_capacity(block.parameters.len());
-            let mut instructions = Vec::new();
+            let phi_insts = Vec::with_capacity(block.parameters.len());
+            let instructions = Vec::new();
 
             blocks.insert(llvm_id, (phi_insts, instructions));
         }
@@ -398,7 +395,7 @@ pub fn translate(program: Program) -> BackendIR<'static> {
                         //
                         match (from, to) {
                             (
-                                type_annotater::ValueType::ExactString(id),
+                                type_annotater::ValueType::ExactString(_),
                                 type_annotater::ValueType::Any,
                             ) => {
                                 instructions.push(llvm::Instruction::Call(
@@ -408,7 +405,7 @@ pub fn translate(program: Program) -> BackendIR<'static> {
                                 ));
                             }
                             (
-                                type_annotater::ValueType::ExactInteger(n),
+                                type_annotater::ValueType::ExactInteger(_),
                                 type_annotater::ValueType::Any,
                             ) => {
                                 instructions.push(llvm::Instruction::Call(
@@ -441,7 +438,7 @@ pub fn translate(program: Program) -> BackendIR<'static> {
                         assembler::Callable::Extern(fn_id),
                         args,
                     ) => {
-                        let mut calling_args = args
+                        let calling_args = args
                             .iter()
                             .map(|r| {
                                 if rt_regs.contains(r) {

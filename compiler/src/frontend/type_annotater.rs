@@ -1,13 +1,9 @@
 use ref_cast::RefCast;
-use std::collections::VecDeque;
-use std::hash::{Hash, Hasher};
-use std::sync::Arc;
-
-use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
+use rustc_hash::FxHashMap;
+use std::hash::Hash;
 
 use crate::frontend::ir::*;
-use crate::name::DebugName;
-use crate::{id::*, UnwrapNone};
+use crate::id::*;
 
 use super::conv_only_bb::{Block, PureBlocks};
 
@@ -145,9 +141,9 @@ impl<'d> SymbolicExecutionEngine<'d> {
                 // recursive loop. bail now
                 todo!("return 'never' & include need for least fixed point");
             }
-            ExecutionStatus::Completed(result) => {
+            ExecutionStatus::Completed(_) => {
                 // already executed, we don't have to execute this
-                wtf_borrow_checker = true;
+                wtf_borrow_checker = true; // because we can't usee the data inside of Completed
             }
         };
 
