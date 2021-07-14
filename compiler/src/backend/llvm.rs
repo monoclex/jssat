@@ -1,3 +1,7 @@
+use inkwell::{
+    passes::{PassManager, PassManagerBuilder},
+    targets::TargetData,
+};
 use rustc_hash::FxHashMap;
 use std::{hash::Hash, marker::PhantomData};
 
@@ -172,6 +176,12 @@ pub enum ValueType {
     Pointer(Box<ValueType>),
 }
 
+enum SizeLevel {
+    NoSizeOptimization = 0,
+    Os = 1,
+    Oz = 2,
+}
+
 impl ValueType {
     pub fn into_ptr(self) -> ValueType {
         ValueType::Pointer(box self)
@@ -280,8 +290,6 @@ pub fn compile(ir: BackendIR) -> BuildArtifact {
         );
     }
 
-    // do actual LLVM compilation
-
     #[cfg(debug_assertions)]
     {
         // print llvm ir incase llvm segfaults while compiling
@@ -291,6 +299,32 @@ pub fn compile(ir: BackendIR) -> BuildArtifact {
             text_buff
         );
     }
+
+    // do some LLVM opts
+    let pass_mgr = PassManagerBuilder::create();
+    pass_mgr.set_optimization_level(OptimizationLevel::Aggressive);
+    pass_mgr.set_size_level(SizeLevel::NoSizeOptimization as u32);
+
+    let fpm = PassManager::create(&module);
+    pass_mgr.populate_function_pass_manager(&fpm);
+
+    let lpm = PassManager::create(());
+    pass_mgr.populate_lto_pass_manager(&lpm, true, true);
+    pass_mgr.populate_module_pass_manager(&lpm);
+
+    while lpm.run_on(&module) {}
+
+    #[cfg(debug_assertions)]
+    {
+        // print llvm ir incase llvm segfaults while compiling
+        let text_buff = module.print_to_string().to_string();
+        println!(
+            "OPTIMIZED EARLY LLVM IR:\n=== LLVM START\n{}\n=== LLVM END",
+            text_buff
+        );
+    }
+
+    // do actual LLVM compilation
 
     Target::initialize_all(&Default::default());
     let target_triple = TargetMachine::get_default_triple();
