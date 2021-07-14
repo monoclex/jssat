@@ -3,6 +3,7 @@ use rustc_hash::FxHashMap;
 use super::{
     assembler::{Block, Function, Program},
     type_annotater::ValueType,
+    types::RegMap,
 };
 use crate::{
     frontend::assembler::{BlockJump, Callable, EndInstruction, Instruction},
@@ -39,14 +40,12 @@ fn opt_fn(f: &mut Function, cnsts: &Cnsts) {
     }
 }
 
-fn opt_blk(reg_tps: &FxHashMap<RegisterId<AssemblerCtx>, ValueType>, cnsts: &Cnsts, b: &mut Block) {
-    let reg_typ = |r| reg_tps.get(r).unwrap();
-
+fn opt_blk(regs: &RegMap<AssemblerCtx>, cnsts: &Cnsts, b: &mut Block) {
     // remove const params
     let const_params = b
         .parameters
         .iter()
-        .filter(|p| reg_typ(&p.register).is_const())
+        .filter(|p| regs.is_const(p.register))
         .collect::<Vec<_>>();
 
     let mut prepend = Vec::with_capacity(const_params.len());
@@ -58,6 +57,9 @@ fn opt_blk(reg_tps: &FxHashMap<RegisterId<AssemblerCtx>, ValueType>, cnsts: &Cns
             }
             &ValueType::ExactInteger(i) => prepend.push(Instruction::MakeNumber(r, i)),
             &ValueType::Bool(b) => prepend.push(Instruction::MakeBoolean(r, b)),
+            &ValueType::Record(alloc) => {
+                todo!("cannot create records on the stack yet")
+            }
             ValueType::Any
             | ValueType::Runtime
             | ValueType::String
@@ -69,17 +71,17 @@ fn opt_blk(reg_tps: &FxHashMap<RegisterId<AssemblerCtx>, ValueType>, cnsts: &Cns
     }
     b.instructions.splice(0..0, prepend);
 
+    // now use only the non constant parameters
     b.parameters = b
         .parameters
         .iter()
-        .filter(|p| !reg_typ(&p.register).is_const())
+        .filter(|p| !regs.is_const(p.register))
         .cloned()
         .collect();
 
     let filter_args = |args: Vec<RegisterId<AssemblerCtx>>| {
-        args.into_iter()
-            .filter(|r| !reg_tps.get(r).unwrap().is_const())
-            .collect()
+        // when we filter args, we're looking to remove constant args
+        args.into_iter().filter(|r| !regs.is_const(*r)).collect()
     };
 
     // remove const params when jumping to other blocks
@@ -108,8 +110,7 @@ fn opt_blk(reg_tps: &FxHashMap<RegisterId<AssemblerCtx>, ValueType>, cnsts: &Cns
             Instruction::Call(_, Callable::Static(_), args) => {
                 let mut new_args = vec![];
                 for arg in args.iter_mut() {
-                    let typ = reg_tps.get(arg).unwrap();
-                    if !typ.is_simple() {
+                    if !regs.is_simple(*arg) {
                         new_args.push(*arg);
                     }
                 }

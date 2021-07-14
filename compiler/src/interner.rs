@@ -2,7 +2,7 @@ use rustc_hash::{FxHashMap, FxHasher};
 use std::hash::{Hash, Hasher};
 
 // TODO: maybe there's a better way to implement a generic interner?
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(transparent)]
 pub struct InternedIdx(usize);
 

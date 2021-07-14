@@ -10,6 +10,7 @@ use super::{
     ir,
     ir::{FFIValueType, IR},
     type_annotater::{self, TypeAnnotations, TypeInformation, ValueType},
+    types::RegMap,
 };
 use crate::{frontend::ir::BasicBlockJump, id::*};
 
@@ -30,7 +31,7 @@ pub struct ExternalFunction {
 
 #[derive(Clone, Debug)]
 pub struct Function {
-    pub register_types: FxHashMap<RegisterId<AssemblerCtx>, ValueType>,
+    pub register_types: RegMap<AssemblerCtx>,
     pub entry_block: BlockId<AssemblerCtx>,
     pub blocks: FxHashMap<BlockId<AssemblerCtx>, Block>,
     pub return_type: ReturnType,
@@ -403,7 +404,7 @@ impl<'d> FnAssembler<'d> {
         let entry_block = self.block_id_map.map(self.type_info.annotated_id);
 
         let mut blocks = FxHashMap::default();
-        let mut register_types = FxHashMap::default();
+        let mut register_types = RegMap::default();
         let mut reg_map = RegIdMap::default();
         let mut to_assemble = Vec::new();
 
@@ -451,7 +452,7 @@ struct InstWriter<'duration> {
     type_info: &'duration TypeInformation,
     to_assemble: &'duration mut Vec<BlockId<AnnotatedCtx>>,
     bb: &'duration conv_only_bb::Block,
-    register_types: FxHashMap<RegisterId<AssemblerCtx>, ValueType>,
+    register_types: RegMap<AssemblerCtx>,
     instructions: Vec<Instruction>,
     to_visit: Vec<BlockId<AssemblerCtx>>,
 }
@@ -483,13 +484,7 @@ impl<'d> InstWriter<'d> {
         }
     }
 
-    pub fn write(
-        mut self,
-    ) -> (
-        Block,
-        Vec<BlockId<AssemblerCtx>>,
-        FxHashMap<RegisterId<AssemblerCtx>, ValueType>,
-    ) {
+    pub fn write(mut self) -> (Block, Vec<BlockId<AssemblerCtx>>, RegMap<AssemblerCtx>) {
         let parameters = self
             .bb
             .parameters
@@ -522,7 +517,7 @@ impl<'d> InstWriter<'d> {
                 false_path,
             } => {
                 let condition = self.reg_map.map(*condition);
-                match self.register_types.get(&condition).unwrap() {
+                match self.register_types.get(condition) {
                     ValueType::Bool(true) => EndInstruction::Jump(self.map_bbjump(true_path)),
                     ValueType::Bool(false) => EndInstruction::Jump(self.map_bbjump(false_path)),
                     ValueType::Boolean => EndInstruction::JumpIf {
@@ -633,7 +628,7 @@ impl<'d> InstWriter<'d> {
                     .zip(val_types.iter())
                     .map(|(register, coercion_type)| {
                         // TODO(far future): don't clone when split/partial borrows come along
-                        let register_typ = self.register_types.get(&register).unwrap().clone();
+                        let register_typ = self.register_types.get(register).clone();
                         self.coerce(register, &register_typ, coercion_type)
                     })
                     .collect::<Vec<_>>();
@@ -739,37 +734,6 @@ impl<'d> InstWriter<'d> {
         });
 
         result
-    }
-}
-
-impl ValueType {
-    pub fn is_const(&self) -> bool {
-        match self {
-            ValueType::Any
-            | ValueType::Runtime
-            | ValueType::String
-            | ValueType::Number
-            | ValueType::Pointer(_)
-            | ValueType::Word
-            | ValueType::Boolean => false,
-            ValueType::ExactInteger(_) | ValueType::ExactString(_) | ValueType::Bool(_) => true,
-        }
-    }
-
-    /// States whether the type is "simple" or not. Simple types are extremely
-    /// cheap to rebuild at any moment in the IR, and are considered cheaper to
-    /// build than to pass around. Passing them around is considered "expensive"
-    /// because then we're using more registers than necessary, which cause
-    /// performance deficits because the more registers we use the more likely
-    /// we'll need to spill onto the stack to generate a function.
-    pub fn is_simple(&self) -> bool {
-        matches!(
-            self,
-            ValueType::Runtime
-                | ValueType::ExactInteger(_)
-                | ValueType::Bool(_)
-                | ValueType::ExactString(_)
-        )
     }
 }
 

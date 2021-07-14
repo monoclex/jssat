@@ -503,4 +503,7 @@ pub enum ValueType {
     /// Pointer to data of the specified size. Pointer(16) -> `i16*`.
     Pointer(u16),
     Word,
+    /// A record. The ID present inside of the object is the allocation id. The
+    /// allocation id is then linked to a table of allocation IDs to the
+    Record(AllocationId<NoContext>),
 }
