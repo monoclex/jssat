@@ -7,6 +7,7 @@ use crate::backend::llvm::{
 
 use crate::frontend::assembler::{self, Program, ReturnType};
 use crate::frontend::type_annotater;
+use crate::frontend::types::{RecordShape, RegMap};
 use crate::{id::*, UnwrapNone};
 
 use super::llvm::ValueType;
@@ -286,15 +287,64 @@ impl RegisterMapper {
     }
 }
 
-pub fn translate(program: Program) -> BackendIR<'static> {
-    //     //
-    //     // let mut external_functions = FxHashMap::default();
-    //     // let mut function = FxHashMap::default();
+#[derive(Default)]
+struct GlobalRecordStructBuilder<'rt_types, 'duration> {
+    builders: FxHashMap<FunctionId<AssemblerCtx>, RecordStructBuilder<'rt_types, 'duration>>,
+}
 
+impl<'rt, 'd> GlobalRecordStructBuilder<'rt, 'd> {
+    pub fn insert(
+        &mut self,
+        fn_id: FunctionId<AssemblerCtx>,
+        builder: RecordStructBuilder<'rt, 'd>,
+    ) {
+        self.builders.insert(fn_id, builder);
+    }
+}
+
+struct RecordStructBuilder<'rt_types, 'duration> {
+    rt_types: &'rt_types RuntimeTypes,
+    reg_map: &'duration RegMap<AssemblerCtx>,
+}
+
+impl<'rt, 'd> RecordStructBuilder<'rt, 'd> {
+    pub fn new(rt_types: &'rt RuntimeTypes, reg_map: &'d RegMap<AssemblerCtx>) -> Self {
+        Self { rt_types, reg_map }
+    }
+
+    pub fn build_type<'a>(
+        &mut self,
+        id: AllocationId<NoContext>,
+        history: impl Iterator<Item = &'a RecordShape>,
+    ) {
+        let shape = history.fold(RecordShape::default(), |a, b| a.union(b, self.reg_map));
+        todo!("build struct from shape");
+    }
+
+    pub fn get_type(&self, id: AllocationId<NoContext>) {
+        todo!()
+    }
+}
+
+pub fn translate(program: Program) -> BackendIR<'static> {
     let mut constants = ConstantMapper::new(&program.constants);
     constants.map_all();
 
     let rt_types = RuntimeTypes::new();
+
+    let mut global_structs = GlobalRecordStructBuilder::default();
+    for (f_id, f) in program.functions.iter() {
+        let mut record_struct_builder = RecordStructBuilder::new(&rt_types, &f.register_types);
+        for (id, history) in f.register_types.allocations() {
+            record_struct_builder.build_type(
+                *id,
+                history
+                    .iter()
+                    .map(|id| f.register_types.get_shape_by_id(id)),
+            );
+        }
+        global_structs.insert(*f_id, record_struct_builder);
+    }
 
     let mut ext_fns = ExternalFunctionMapper::new(&rt_types);
     ext_fns.extend(program.external_functions.clone());
@@ -509,6 +559,13 @@ pub fn translate(program: Program) -> BackendIR<'static> {
                         instructions.push(llvm::Instruction::Unreachable);
                     }
                     assembler::Instruction::Noop => {}
+                    assembler::Instruction::RecordNew(_) => todo!(),
+                    assembler::Instruction::RecordGet {
+                        result,
+                        record,
+                        key,
+                    } => todo!(),
+                    assembler::Instruction::RecordSet { record, key, value } => todo!(),
                 }
             }
 

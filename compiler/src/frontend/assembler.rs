@@ -8,9 +8,9 @@ use rustc_hash::FxHashMap;
 use super::{
     conv_only_bb::{self, PureBlocks},
     ir,
-    ir::{FFIValueType, IR},
+    ir::{FFIValueType, RecordKey, IR},
     type_annotater::{self, TypeAnnotations, TypeInformation, ValueType},
-    types::RegMap,
+    types::{RegMap, ShapeKey},
 };
 use crate::{frontend::ir::BasicBlockJump, id::*};
 
@@ -64,6 +64,17 @@ pub struct Parameter {
 
 #[derive(Clone, Debug)]
 pub enum Instruction {
+    RecordNew(RegisterId<AssemblerCtx>),
+    RecordGet {
+        result: RegisterId<AssemblerCtx>,
+        record: RegisterId<AssemblerCtx>,
+        key: RecordKey<AssemblerCtx>,
+    },
+    RecordSet {
+        record: RegisterId<AssemblerCtx>,
+        key: RecordKey<AssemblerCtx>,
+        value: RegisterId<AssemblerCtx>,
+    },
     Call(
         Option<RegisterId<AssemblerCtx>>,
         Callable,
@@ -682,13 +693,83 @@ impl<'d> InstWriter<'d> {
 
                 self.to_assemble.push(annotated_blk_id);
             }
-            ir::Instruction::RecordNew(_) => todo!(),
+            // TODO: the fact that this is literally copied and pasted from type_annotater makes me rethink
+            // if this entire `assembler` phase is even necessary
+            //
+            // i'll probably end up trashing this entire struct
+            &ir::Instruction::RecordNew(r) => {
+                let r = self.reg_map.map(r);
+                self.instructions.push(Instruction::RecordNew(r));
+                let alloc = self.register_types.insert_alloc();
+                self.register_types.insert(r, ValueType::Record(alloc));
+            }
             ir::Instruction::RecordGet {
                 result,
                 record,
                 key,
-            } => todo!(),
-            ir::Instruction::RecordSet { record, key, value } => todo!(),
+            } => {
+                let result = &self.reg_map.map(*result);
+                let record = &self.reg_map.map(*record);
+                let key = match key {
+                    &RecordKey::Value(r) => match self.register_types.get(self.reg_map.map(r)) {
+                        ValueType::String => ShapeKey::String,
+                        ValueType::ExactString(str) => ShapeKey::Str(str.clone()),
+                        ValueType::Any
+                        | ValueType::Number
+                        | ValueType::ExactInteger(_)
+                        | ValueType::Boolean
+                        | ValueType::Bool(_)
+                        | ValueType::Word => {
+                            todo!("may be implemented at a later date, but dunno")
+                        }
+                        ValueType::Runtime | ValueType::Pointer(_) | ValueType::Record(_) => {
+                            unimplemented!("unsupported record key type")
+                        }
+                    },
+                    RecordKey::InternalSlot(slot) => ShapeKey::InternalSlot(slot),
+                };
+
+                if let ValueType::Record(alloc) = *self.register_types.get(*record) {
+                    let shape = self.register_types.get_shape(alloc);
+                    let prop_value_typ = shape.type_at_key(&key).clone();
+                    self.register_types.insert(*result, prop_value_typ);
+                } else {
+                    panic!("cannot call RecordGet on non record");
+                }
+            }
+            ir::Instruction::RecordSet { record, key, value } => {
+                let record = &self.reg_map.map(*record);
+                let value = &self.reg_map.map(*value);
+
+                let key = match *key {
+                    RecordKey::Value(v) => match self.register_types.get(self.reg_map.map(v)) {
+                        ValueType::String => ShapeKey::String,
+                        ValueType::ExactString(str) => ShapeKey::Str(str.clone()),
+                        ValueType::Any
+                        | ValueType::Number
+                        | ValueType::ExactInteger(_)
+                        | ValueType::Boolean
+                        | ValueType::Bool(_)
+                        | ValueType::Word => {
+                            todo!("may be implemented at a later date, but dunno")
+                        }
+                        ValueType::Runtime | ValueType::Pointer(_) | ValueType::Record(_) => {
+                            unimplemented!("unsupported record key type")
+                        }
+                    },
+                    RecordKey::InternalSlot(slot) => ShapeKey::InternalSlot(slot),
+                };
+
+                if let ValueType::Record(alloc) = *self.register_types.get(*record) {
+                    let shape = self.register_types.get_shape(alloc);
+                    let value_typ = self.register_types.get(*value).clone();
+                    let shape = shape.add_prop(key, value_typ);
+                    let shape_id = self.register_types.insert_shape(shape);
+                    self.register_types.assign_new_shape(alloc, shape_id);
+                } else {
+                    panic!("cannot call RecordSet on non record");
+                }
+            }
         };
         HaltStatus::Continue
     }
@@ -752,8 +833,10 @@ impl Instruction {
             | Instruction::MakeString(result, _)
             | Instruction::MakeNumber(result, _)
             | Instruction::MakeBoolean(result, _)
-            | Instruction::Widen { result, .. } => Some(*result),
-            Instruction::Unreachable | Instruction::Noop => None,
+            | Instruction::Widen { result, .. }
+            | Instruction::RecordNew(result)
+            | Instruction::RecordGet { result, .. } => Some(*result),
+            Instruction::Unreachable | Instruction::Noop | Instruction::RecordSet { .. } => None,
         }
     }
 
@@ -768,7 +851,27 @@ impl Instruction {
             | Instruction::MakeNumber(_, _)
             | Instruction::MakeBoolean(_, _) => Vec::new(),
             Instruction::Widen { input, .. } => vec![*input],
-            Instruction::Unreachable | Instruction::Noop => vec![],
+            Instruction::RecordGet {
+                record,
+                key: RecordKey::Value(v),
+                ..
+            } => vec![*record, *v],
+            Instruction::RecordGet {
+                record,
+                key: RecordKey::InternalSlot(_),
+                ..
+            } => vec![*record],
+            Instruction::RecordSet {
+                record,
+                key: RecordKey::Value(v),
+                value,
+            } => vec![*record, *v, *value],
+            Instruction::RecordSet {
+                record,
+                key: RecordKey::InternalSlot(_),
+                value,
+            } => vec![*record, *value],
+            Instruction::Unreachable | Instruction::Noop | Instruction::RecordNew(_) => vec![],
         }
     }
 
@@ -783,7 +886,27 @@ impl Instruction {
             | Instruction::MakeNumber(_, _)
             | Instruction::MakeBoolean(_, _) => Vec::new(),
             Instruction::Widen { input, .. } => vec![input],
-            Instruction::Unreachable | Instruction::Noop => vec![],
+            Instruction::RecordGet {
+                record,
+                key: RecordKey::Value(v),
+                ..
+            } => vec![record, v],
+            Instruction::RecordGet {
+                record,
+                key: RecordKey::InternalSlot(_),
+                ..
+            } => vec![record],
+            Instruction::RecordSet {
+                record,
+                key: RecordKey::Value(v),
+                value,
+            } => vec![record, v, value],
+            Instruction::RecordSet {
+                record,
+                key: RecordKey::InternalSlot(_),
+                value,
+            } => vec![record, value],
+            Instruction::Unreachable | Instruction::Noop | Instruction::RecordNew(_) => vec![],
         }
     }
 }

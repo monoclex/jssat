@@ -5,18 +5,48 @@ use super::type_annotater::ValueType;
 
 #[derive(Debug, Clone, Default)]
 pub struct RecordShape {
-    key_value_map: FxHashMap<ShapeKey, ValueType>,
+    map: FxHashMap<ShapeKey, ValueType>,
 }
 
 impl RecordShape {
     pub fn add_prop(&self, key: ShapeKey, value: ValueType) -> RecordShape {
-        let mut key_value_map = self.key_value_map.clone();
+        let mut key_value_map = self.map.clone();
         key_value_map.insert(key, value);
-        RecordShape { key_value_map }
+        RecordShape { map: key_value_map }
     }
 
     pub fn type_at_key<'me>(&'me self, key: &ShapeKey) -> &'me ValueType {
-        self.key_value_map.get(key).unwrap()
+        self.map.get(key).unwrap()
+    }
+
+    pub fn union<C: ContextTag>(&self, other: &RecordShape, reg_map: &RegMap<C>) -> RecordShape {
+        let mut map = self.map.clone();
+        let mut unmerged = vec![];
+
+        // both maps should contain the same properties
+        for (k, v) in other.map.iter() {
+            match map.get_mut(k) {
+                Some(_) => {
+                    unmerged.push((k, v));
+                }
+                None => {
+                    map.insert(k.clone(), v.clone());
+                }
+            };
+        }
+
+        // now we're left with conflicts
+        for (k, v) in unmerged {
+            let v_dest = map.get(k).unwrap();
+
+            if v == v_dest {
+                // there is no conflict, we're good
+            } else {
+                todo!("cannot unify different props yet")
+            }
+        }
+
+        RecordShape { map }
     }
 }
 
@@ -88,8 +118,17 @@ impl<C: ContextTag> RegMap<C> {
 
     pub fn get_shape(&self, allocation: AllocationId<NoContext>) -> &RecordShape {
         let shapes = self.allocations.get(&allocation).unwrap();
-        let shape_id = shapes.last().unwrap();
+        self.get_shape_by_id(shapes.last().unwrap())
+    }
+
+    pub fn get_shape_by_id(&self, shape_id: &ShapeId<C>) -> &RecordShape {
         self.shapes.get(shape_id).unwrap()
+    }
+
+    pub fn allocations(
+        &self,
+    ) -> impl Iterator<Item = (&AllocationId<NoContext>, &Vec<ShapeId<C>>)> {
+        self.allocations.iter()
     }
 
     pub fn is_const(&self, register: RegisterId<C>) -> bool {
@@ -112,7 +151,7 @@ impl<C: ContextTag> RegMap<C> {
 
     pub fn is_const_shape(&self, allocation: AllocationId<NoContext>) -> bool {
         let shape = self.get_shape(allocation);
-        for (k, v) in shape.key_value_map.iter() {
+        for (k, v) in shape.map.iter() {
             if k.is_const() && self.is_const_typ(v) {
                 continue;
             } else {
