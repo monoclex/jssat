@@ -3,6 +3,7 @@ use rustc_hash::FxHashMap;
 use std::hash::Hash;
 
 use crate::frontend::ir::*;
+use crate::frontend::types::ShapeKey;
 use crate::id::*;
 
 use super::conv_only_bb::{Block, PureBlocks};
@@ -249,13 +250,73 @@ impl<'d> SymbolicExecutionEngine<'d> {
                         }
                     };
                 }
-                Instruction::RecordNew(_) => todo!(),
+                &Instruction::RecordNew(r) => {
+                    let allocation = registers.insert_alloc();
+                    registers.insert(r, ValueType::Record(allocation));
+                }
                 Instruction::RecordGet {
                     result,
                     record,
                     key,
-                } => todo!(),
-                Instruction::RecordSet { record, key, value } => todo!(),
+                } => {
+                    let key = match key {
+                        &RecordKey::Value(r) => match registers.get(r) {
+                            ValueType::String => ShapeKey::String,
+                            ValueType::ExactString(str) => ShapeKey::Str(str.clone()),
+                            ValueType::Any
+                            | ValueType::Number
+                            | ValueType::ExactInteger(_)
+                            | ValueType::Boolean
+                            | ValueType::Bool(_)
+                            | ValueType::Word => {
+                                todo!("may be implemented at a later date, but dunno")
+                            }
+                            ValueType::Runtime | ValueType::Pointer(_) | ValueType::Record(_) => {
+                                unimplemented!("unsupported record key type")
+                            }
+                        },
+                        RecordKey::InternalSlot(slot) => ShapeKey::InternalSlot(slot),
+                    };
+
+                    if let ValueType::Record(alloc) = *registers.get(*record) {
+                        let shape = registers.get_shape(alloc);
+                        let prop_value_typ = shape.type_at_key(&key).clone();
+                        registers.insert(*result, prop_value_typ);
+                    } else {
+                        panic!("cannot call RecordGet on non record");
+                    }
+                }
+                Instruction::RecordSet { record, key, value } => {
+                    // TODO: deduplicate ShapeKey code
+                    let key = match *key {
+                        RecordKey::Value(v) => match registers.get(v) {
+                            ValueType::String => ShapeKey::String,
+                            ValueType::ExactString(str) => ShapeKey::Str(str.clone()),
+                            ValueType::Any
+                            | ValueType::Number
+                            | ValueType::ExactInteger(_)
+                            | ValueType::Boolean
+                            | ValueType::Bool(_)
+                            | ValueType::Word => {
+                                todo!("may be implemented at a later date, but dunno")
+                            }
+                            ValueType::Runtime | ValueType::Pointer(_) | ValueType::Record(_) => {
+                                unimplemented!("unsupported record key type")
+                            }
+                        },
+                        RecordKey::InternalSlot(slot) => ShapeKey::InternalSlot(slot),
+                    };
+
+                    if let ValueType::Record(alloc) = *registers.get(*record) {
+                        let shape = registers.get_shape(alloc);
+                        let value_typ = registers.get(*value).clone();
+                        let shape = shape.add_prop(key, value_typ);
+                        let shape_id = registers.insert_shape(shape);
+                        registers.assign_new_shape(alloc, shape_id);
+                    } else {
+                        panic!("cannot call RecordSet on non record");
+                    }
+                }
             };
         }
 
