@@ -160,6 +160,9 @@ fn main() {
     let program = frontend::asm_opt_const_elim::opt_constant_elimination(assembled);
     eprintln!("{:#?}", program);
 
+    let program = frontend::asm_opt_dead_register_elim::opt_dead_register_elimination(program);
+    eprintln!("{:#?}", program);
+
     let build = backend::compile(program);
     eprintln!("OUTPUT LLVM IR (use unix pipes to redirect this into a file):");
     println!("{}", build.llvm_ir);
