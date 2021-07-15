@@ -648,5 +648,6 @@ pub fn translate(program: Program) -> BackendIR<'static> {
         opaque_structs,
         external_functions,
         functions,
+        structs: todo!(),
     }
 }

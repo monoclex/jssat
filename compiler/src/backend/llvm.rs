@@ -1,3 +1,4 @@
+use inkwell::values::StructValue;
 use rustc_hash::FxHashMap;
 use std::hash::Hash;
 
@@ -7,6 +8,7 @@ type BlockId = crate::id::BlockId<crate::id::LlvmCtx>;
 type FunctionId = crate::id::FunctionId<crate::id::LlvmCtx>;
 type ConstantId = crate::id::ConstantId<crate::id::LlvmCtx>;
 type RegisterId = crate::id::RegisterId<crate::id::LlvmCtx>;
+type StructId = crate::id::StructId<crate::id::LlvmCtx>;
 type OpaqueStructId = crate::id::OpaqueStructId<crate::id::LlvmCtx>;
 type ExternalFunctionId = crate::id::ExternalFunctionId<crate::id::LlvmCtx>;
 
@@ -22,6 +24,9 @@ use inkwell::{
     AddressSpace, OptimizationLevel,
 };
 
+#[cfg(feature = "link-llvm")]
+use crate::UnwrapNone;
+
 #[cfg(not(feature = "link-llvm"))]
 use std::marker::PhantomData;
 
@@ -33,6 +38,7 @@ pub struct FunctionValue<'a>(PhantomData<&'a ()>);
 pub struct BackendIR<'name> {
     pub constants: FxHashMap<ConstantId, Constant<'name>>,
     pub opaque_structs: FxHashMap<OpaqueStructId, OpaqueStruct<'name>>,
+    pub structs: FxHashMap<StructId, Struct>,
     pub external_functions: FxHashMap<ExternalFunctionId, ExternalFunction>, // <'name>>,
     pub functions: FxHashMap<FunctionId, Function<'name>>,
 }
@@ -46,6 +52,11 @@ pub struct Constant<'name> {
 #[derive(Debug, Clone)]
 pub struct OpaqueStruct<'name> {
     pub name: &'name str,
+}
+
+#[derive(Debug, Clone)]
+pub struct Struct {
+    pub fields: Vec<ValueType>,
 }
 
 #[derive(Debug, Clone)]
@@ -157,6 +168,20 @@ pub enum Instruction {
     /// Will choose a value for the given register based on the value of
     /// another register.
     Phi(RegisterId, Vec<(BlockId, RegisterId)>),
+    New {
+        result: RegisterId,
+        struct_type: StructId,
+    },
+    Store {
+        value: RegisterId,
+        into_struct: RegisterId,
+        field_index: usize,
+    },
+    Load {
+        result: RegisterId,
+        from_struct: RegisterId,
+        field_index: usize,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -173,6 +198,7 @@ pub enum ValueType {
     WordSizeBitType,
     BitType(u16),
     Opaque(OpaqueStructId),
+    Defined(StructId),
     Pointer(Box<ValueType>),
 }
 
@@ -256,10 +282,25 @@ pub fn compile(ir: BackendIR) -> BuildArtifact {
         things: &opaque_structs,
     };
 
+    let mut structs = FxHashMap::default();
+    for (id, structure) in ir.structs.into_iter() {
+        let current_resolver = StructResolver { things: &structs };
+        let llvm_type = compiler.llvm_custom_struct(
+            &structure.fields,
+            &opaque_struct_resolver,
+            &current_resolver,
+        );
+        structs.insert(id, llvm_type);
+    }
+    let struct_resolver = StructResolver { things: &structs };
+
     let mut external_functions = FxHashMap::default();
     for (id, external_function) in ir.external_functions.into_iter() {
-        let external_function =
-            compiler.llvm_external_function(external_function, &opaque_struct_resolver);
+        let external_function = compiler.llvm_external_function(
+            external_function,
+            &opaque_struct_resolver,
+            &struct_resolver,
+        );
         external_functions.insert(id, external_function);
     }
     let external_function_resolver = ExternalFunctionResolver {
@@ -268,7 +309,8 @@ pub fn compile(ir: BackendIR) -> BuildArtifact {
 
     let mut functions = FxHashMap::default();
     for (id, function) in ir.functions.into_iter() {
-        let function = compiler.llvm_function_start(function, &opaque_struct_resolver);
+        let function =
+            compiler.llvm_function_start(function, &opaque_struct_resolver, &struct_resolver);
         functions.insert(id, function);
     }
 
@@ -287,6 +329,7 @@ pub fn compile(ir: BackendIR) -> BuildArtifact {
             &opaque_struct_resolver,
             &external_function_resolver,
             &function_resolver,
+            &struct_resolver,
         );
     }
 
@@ -368,6 +411,9 @@ type ExternalFunctionResolver<'structs, 'ctx> =
 type FunctionResolver<'structs, 'ctx> = Resolver<'structs, FunctionId, FunctionValue<'ctx>>;
 
 #[cfg(feature = "link-llvm")]
+type StructResolver<'structs, 'ctx> = Resolver<'structs, StructId, StructType<'ctx>>;
+
+#[cfg(feature = "link-llvm")]
 struct Resolver<'map, K, V> {
     things: &'map FxHashMap<K, V>,
 }
@@ -434,15 +480,34 @@ impl<'c> BackendCompiler<'c, '_> {
         self.context.opaque_struct_type(opaque_struct.name)
     }
 
+    pub fn llvm_custom_struct(
+        &self,
+        fields: &[ValueType],
+        opaque_struct_resolver: &OpaqueStructResolver<'_, 'c>,
+        struct_resolver: &StructResolver<'_, 'c>,
+    ) -> StructType<'c> {
+        // TODO: at this time, recursive structs don't work.
+        // the work needed to get that working would be to then automatically box the struct,
+        // or somehow get a pointer to it, or do regional inference for how long it lives.
+        // basically, some fun stuff. i think that will be left up to the `skeleton` phase and prior though
+        let field_types = fields
+            .iter()
+            .map(|t| self.llvm_typeify_value(t.clone(), opaque_struct_resolver, &struct_resolver))
+            .collect::<Vec<_>>();
+
+        self.context.struct_type(&field_types, false)
+    }
+
     pub fn llvm_external_function(
         &self,
         external_function: ExternalFunction,
         opaque_struct_resolver: &OpaqueStructResolver<'_, 'c>,
+        struct_resolver: &StructResolver<'_, 'c>,
     ) -> FunctionValue<'c> {
         let parameter_types = external_function
             .parameters
             .into_iter()
-            .map(|v| self.llvm_typeify_value(v, &opaque_struct_resolver))
+            .map(|v| self.llvm_typeify_value(v, &opaque_struct_resolver, &struct_resolver))
             .collect::<Vec<_>>();
 
         let parameter_types = parameter_types.as_slice();
@@ -450,7 +515,7 @@ impl<'c> BackendCompiler<'c, '_> {
         let function = match external_function.return_type {
             ReturnType::Void => self.context.void_type().fn_type(parameter_types, false),
             ReturnType::Value(v) => self
-                .llvm_typeify_value(v, &opaque_struct_resolver)
+                .llvm_typeify_value(v, &opaque_struct_resolver, &struct_resolver)
                 .fn_type(parameter_types, false),
         };
 
@@ -465,6 +530,7 @@ impl<'c> BackendCompiler<'c, '_> {
         &self,
         function: Function,
         opaque_struct_resolver: &OpaqueStructResolver<'_, 'c>,
+        struct_resolver: &StructResolver<'_, 'c>,
     ) -> PartialFunction<'c> {
         let mut parameter_registers = Vec::with_capacity(function.parameters.len());
 
@@ -473,7 +539,7 @@ impl<'c> BackendCompiler<'c, '_> {
             .into_iter()
             .map(|v| {
                 parameter_registers.push(v.register);
-                self.llvm_typeify_value(v.r#type, &opaque_struct_resolver)
+                self.llvm_typeify_value(v.r#type, &opaque_struct_resolver, &struct_resolver)
             })
             .collect::<Vec<_>>();
 
@@ -482,7 +548,7 @@ impl<'c> BackendCompiler<'c, '_> {
         let llvm_function = match function.return_type {
             ReturnType::Void => self.context.void_type().fn_type(parameter_types, false),
             ReturnType::Value(v) => self
-                .llvm_typeify_value(v, &opaque_struct_resolver)
+                .llvm_typeify_value(v, &opaque_struct_resolver, &struct_resolver)
                 .fn_type(parameter_types, false),
         };
 
@@ -505,6 +571,7 @@ impl<'c> BackendCompiler<'c, '_> {
         opaque_struct_resolver: &OpaqueStructResolver<'_, 'c>,
         external_function_resolver: &ExternalFunctionResolver<'_, 'c>,
         function_resolver: &FunctionResolver<'_, 'c>,
+        struct_resolver: &StructResolver<'_, 'c>,
     ) {
         println!("llvm_function_end: {:?} -> {:#?}", function, function);
 
@@ -521,7 +588,9 @@ impl<'c> BackendCompiler<'c, '_> {
         let mut register_values = FxHashMap::default();
 
         for (idx, parameter) in function.parameters.iter().enumerate() {
-            register_values.insert(*parameter, function.llvm.get_nth_param(idx as u32).unwrap());
+            register_values
+                .insert(*parameter, function.llvm.get_nth_param(idx as u32).unwrap())
+                .expect_free();
         }
 
         let blocks = std::iter::once(entry_block)
@@ -531,7 +600,7 @@ impl<'c> BackendCompiler<'c, '_> {
         let mut block_map = FxHashMap::default();
         for (idx, _) in blocks.iter() {
             let basic_block = self.context.append_basic_block(function.llvm, "");
-            block_map.insert(*idx, basic_block);
+            block_map.insert(*idx, basic_block).expect_free();
         }
 
         for (idx, block) in blocks.into_iter() {
@@ -566,13 +635,15 @@ impl<'c> BackendCompiler<'c, '_> {
                             self.builder.build_call(llvm_callable, args.as_slice(), "");
 
                         if let Some(result) = result {
-                            register_values.insert(
-                                result,
-                                llvm_result
-                                    .try_as_basic_value()
-                                    .left()
-                                    .expect("expected value"),
-                            );
+                            register_values
+                                .insert(
+                                    result,
+                                    llvm_result
+                                        .try_as_basic_value()
+                                        .left()
+                                        .expect("expected value"),
+                                )
+                                .expect_free();
                         }
                     }
                     Instruction::LoadConstantPtr(result, constant) => {
@@ -593,7 +664,9 @@ impl<'c> BackendCompiler<'c, '_> {
                         );
                         // BLACK MAGIC END
 
-                        register_values.insert(result, get_element_ptr);
+                        register_values
+                            .insert(result, get_element_ptr)
+                            .expect_free();
                     }
                     Instruction::ChangePtrSize {
                         result,
@@ -602,18 +675,20 @@ impl<'c> BackendCompiler<'c, '_> {
                     } => {
                         let source_ptr_type = register_values.get(&input).unwrap();
                         let target_ptr_type = self
-                            .llvm_typeify_value(size, &opaque_struct_resolver)
+                            .llvm_typeify_value(size, &opaque_struct_resolver, &struct_resolver)
                             .ptr_type(AddressSpace::Generic);
 
                         let casted =
                             self.builder
                                 .build_bitcast(*source_ptr_type, target_ptr_type, "");
 
-                        register_values.insert(result, casted);
+                        register_values.insert(result, casted).expect_free();
                     }
                     Instruction::LoadNumber { result, value } => {
                         let number = self.llvm_manifest_number(value);
-                        register_values.insert(result, number.as_basic_value_enum());
+                        register_values
+                            .insert(result, number.as_basic_value_enum())
+                            .expect_free();
                     }
                     Instruction::MathDivide {
                         result,
@@ -630,13 +705,16 @@ impl<'c> BackendCompiler<'c, '_> {
                         let rhs = rhs.into_int_value();
 
                         let division = self.builder.build_int_unsigned_div(lhs, rhs, "");
-                        register_values.insert(result, division.as_basic_value_enum());
+                        register_values
+                            .insert(result, division.as_basic_value_enum())
+                            .expect_free();
                     }
                     Instruction::LoadConstantLen(result, constant) => {
                         let (len, _) = constant_resolver.resolve(&constant);
 
                         register_values
-                            .insert(result, self.word_size.const_int(len as u64, false).into());
+                            .insert(result, self.word_size.const_int(len as u64, false).into())
+                            .expect_free();
                     }
                     Instruction::Unreachable => {
                         self.builder.build_unreachable();
@@ -681,7 +759,7 @@ impl<'c> BackendCompiler<'c, '_> {
                         }
 
                         let typ = register_types.pop().unwrap();
-                        register_values.insert(result, typ);
+                        register_values.insert(result, typ).expect_free();
 
                         let phi = self.builder.build_phi(typ.get_type(), "");
 
@@ -701,6 +779,51 @@ impl<'c> BackendCompiler<'c, '_> {
                             .collect::<Vec<_>>();
 
                         phi.add_incoming(incoming.as_slice());
+                    }
+                    Instruction::New {
+                        result,
+                        struct_type,
+                    } => {
+                        let structure = self
+                            .builder
+                            .build_alloca(struct_resolver.resolve(&struct_type), "");
+                        register_values
+                            .insert(result, structure.as_basic_value_enum())
+                            .expect_free();
+                    }
+                    Instruction::Store {
+                        value,
+                        into_struct,
+                        field_index,
+                    } => {
+                        let structure = register_values.get(&into_struct).unwrap();
+                        debug_assert!(structure.is_pointer_value());
+                        let structure = structure.into_pointer_value();
+
+                        let field = self
+                            .builder
+                            .build_struct_gep(structure, field_index as u32, "")
+                            .unwrap();
+
+                        let value = *register_values.get(&value).unwrap();
+                        self.builder.build_store(field, value);
+                    }
+                    Instruction::Load {
+                        result,
+                        from_struct,
+                        field_index,
+                    } => {
+                        let structure = register_values.get(&from_struct).unwrap();
+                        debug_assert!(structure.is_pointer_value());
+                        let structure = structure.into_pointer_value();
+
+                        let field = self
+                            .builder
+                            .build_struct_gep(structure, field_index as u32, "")
+                            .unwrap();
+
+                        let value = self.builder.build_load(field, "");
+                        register_values.insert(result, value).expect_free();
                     }
                 }
             }
@@ -726,10 +849,11 @@ impl<'c> BackendCompiler<'c, '_> {
         &self,
         value_type: ValueType,
         opaque_struct_resolver: &OpaqueStructResolver<'_, 'c>,
+        struct_resolver: &StructResolver<'_, 'c>,
     ) -> BasicTypeEnum<'c> {
         match value_type {
             ValueType::Pointer(inner) => self
-                .llvm_typeify_value(*inner, &opaque_struct_resolver)
+                .llvm_typeify_value(*inner, &opaque_struct_resolver, &struct_resolver)
                 .ptr_type(AddressSpace::Generic)
                 .as_basic_type_enum(),
             ValueType::WordSizeBitType => self.word_size.as_basic_type_enum(),
@@ -738,6 +862,7 @@ impl<'c> BackendCompiler<'c, '_> {
                 .context
                 .custom_width_int_type(bits as u32)
                 .as_basic_type_enum(),
+            ValueType::Defined(id) => struct_resolver.resolve(&id).as_basic_type_enum(),
         }
     }
 }
