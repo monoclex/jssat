@@ -45,22 +45,22 @@ pub fn traverse(source: String) -> IR {
 
     let mut builder = ProgramBuilder::new();
 
-    let print_stub = {
-        let (mut print_stub, [any]) = builder.start_function("print_stub");
+    // let print_stub = {
+    //     let (mut print_stub, [any]) = builder.start_function("print_stub");
 
-        let print = builder.external_function(
-            "jssatrt_print_any",
-            [FFIValueType::Runtime, FFIValueType::Any],
-            Returns::Void,
-        );
+    //     let print = builder.external_function(
+    //         "jssatrt_print_any",
+    //         [FFIValueType::Runtime, FFIValueType::Any],
+    //         Returns::Void,
+    //     );
 
-        let mut block = print_stub.start_block_main();
-        let runtime = block.get_runtime();
-        block.call_external_function(print, [runtime, any]);
-        print_stub.end_block(block.ret(None));
+    //     let mut block = print_stub.start_block_main();
+    //     let runtime = block.get_runtime();
+    //     block.call_external_function(print, [runtime, any]);
+    //     print_stub.end_block(block.ret(None));
 
-        builder.end_function(print_stub)
-    };
+    //     builder.end_function(print_stub)
+    // };
 
     let _fib = {
         // let (mut fib, [n]) = builder.start_function("fib");
@@ -100,75 +100,75 @@ pub fn traverse(source: String) -> IR {
         */
     };
 
-    let sum = {
-        let (mut sum, [n]) = builder.start_function("sum");
+    // let sum = {
+    //     let (mut sum, [n]) = builder.start_function("sum");
 
-        /*
-        def sum(n):
-            total = 0
-            for i in range(0, n):
-                total += i
-            return total
+    //     /*
+    //     def sum(n):
+    //         total = 0
+    //         for i in range(0, n):
+    //             total += i
+    //         return total
 
-        sum(n):
-            Entry():
-                i = 0
-                total = 0
-                jmp Check(i, total)
-            Check(ci, ctotal):
-                should_iterate = ci < n
-                if (should_iterate)
-                    jmp Loop(ci, ctotal)
-                else
-                    jmp End(ctotal)
-            Loop(li, ltotal):
-                print(li) # add stateful effect so the optimizer doesn't optimize everything
-                total2 = ltotal + li
-                i2 = li + 1
-                jmp Check(i2, total2)
-            End(etotal):
-                ret etotal
-        */
-        let mut entry = sum.start_block_main();
-        let (mut check, [ci, ctotal]) = sum.start_block();
-        let (mut bloop, [li, ltotal]) = sum.start_block();
-        let (end, [etotal]) = sum.start_block();
+    //     sum(n):
+    //         Entry():
+    //             i = 0
+    //             total = 0
+    //             jmp Check(i, total)
+    //         Check(ci, ctotal):
+    //             should_iterate = ci < n
+    //             if (should_iterate)
+    //                 jmp Loop(ci, ctotal)
+    //             else
+    //                 jmp End(ctotal)
+    //         Loop(li, ltotal):
+    //             print(li) # add stateful effect so the optimizer doesn't optimize everything
+    //             total2 = ltotal + li
+    //             i2 = li + 1
+    //             jmp Check(i2, total2)
+    //         End(etotal):
+    //             ret etotal
+    //     */
+    //     let mut entry = sum.start_block_main();
+    //     let (mut check, [ci, ctotal]) = sum.start_block();
+    //     let (mut bloop, [li, ltotal]) = sum.start_block();
+    //     let (end, [etotal]) = sum.start_block();
 
-        let check_sig = check.signature();
+    //     let check_sig = check.signature();
 
-        {
-            let i = entry.make_number_decimal(0);
-            let total = entry.make_number_decimal(0);
-            sum.end_block(entry.jmp(check.signature(), [i, total]));
-        }
-        {
-            let should_iterate = check.compare_less_than(ci, n);
-            sum.end_block(check.jmpif(
-                should_iterate,
-                bloop.signature(),
-                [ci, ctotal],
-                end.signature(),
-                [ctotal],
-            ));
-        }
-        {
-            bloop.call(print_stub, [li]);
-            let total2 = bloop.add(ltotal, li);
-            let one = bloop.make_number_decimal(1);
-            let i2 = bloop.add(li, one);
-            sum.end_block(bloop.jmp(check_sig, [i2, total2]));
-        }
-        {
-            sum.end_block(end.ret(Some(etotal)));
-        }
+    //     {
+    //         let i = entry.make_number_decimal(0);
+    //         let total = entry.make_number_decimal(0);
+    //         sum.end_block(entry.jmp(check.signature(), [i, total]));
+    //     }
+    //     {
+    //         let should_iterate = check.compare_less_than(ci, n);
+    //         sum.end_block(check.jmpif(
+    //             should_iterate,
+    //             bloop.signature(),
+    //             [ci, ctotal],
+    //             end.signature(),
+    //             [ctotal],
+    //         ));
+    //     }
+    //     {
+    //         bloop.call(print_stub, [li]);
+    //         let total2 = bloop.add(ltotal, li);
+    //         let one = bloop.make_number_decimal(1);
+    //         let i2 = bloop.add(li, one);
+    //         sum.end_block(bloop.jmp(check_sig, [i2, total2]));
+    //     }
+    //     {
+    //         sum.end_block(end.ret(Some(etotal)));
+    //     }
 
-        builder.end_function(sum)
-    };
+    //     builder.end_function(sum)
+    // };
 
     let _main = {
         let mut main = builder.start_function_main();
 
-        let hello_world = builder.constant_str_utf16("hello_world", "Hello, World!".into());
+        // let hello_world = builder.constant_str_utf16("hello_world", "Hello, World!".into());
 
         let mut block = main.start_block_main();
         // let (mut cond, [condition]) = main.start_block();
@@ -187,10 +187,17 @@ pub fn traverse(source: String) -> IR {
 
         // main.end_block(end.ret(None));
 
-        let hello_world = block.make_string(hello_world);
-        block.call(print_stub, [hello_world]);
-        let max = block.make_number_decimal(3);
-        block.call(sum, [max]);
+        // TODO: make compiling `sum` and hello world a test
+        // let hello_world = block.make_string(hello_world);
+        // block.call(print_stub, [hello_world]);
+        // let max = block.make_number_decimal(3);
+        // block.call(sum, [max]);
+        let obj = block.record_new();
+        let key = block.make_string(builder.constant_str_utf16("", "key".into()));
+        let value = block.make_number_decimal(69);
+        block.record_set_prop(obj, key, value);
+        let value = block.make_number_decimal(1);
+        block.record_set_slot(obj, "is_cool", value);
         main.end_block(block.ret(None));
 
         builder.end_function(main)

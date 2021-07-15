@@ -682,6 +682,13 @@ impl<'d> InstWriter<'d> {
 
                 self.to_assemble.push(annotated_blk_id);
             }
+            ir::Instruction::RecordNew(_) => todo!(),
+            ir::Instruction::RecordGet {
+                result,
+                record,
+                key,
+            } => todo!(),
+            ir::Instruction::RecordSet { record, key, value } => todo!(),
         };
         HaltStatus::Continue
     }

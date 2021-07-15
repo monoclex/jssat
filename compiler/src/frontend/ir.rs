@@ -113,7 +113,27 @@ pub struct FunctionBlock {
 }
 
 #[derive(Debug, Clone)]
+pub enum RecordKey<C = crate::id::IrCtx> {
+    Value(RegisterId<C>),
+    /// Denoted in the ECMAScript standard with double brackets: `[[Example]]`.
+    /// Properties that are internal to only the engine. The internal slot
+    /// `[[Example]]` is constructed like so: `RecordKey::InternalSlot("Example")`.
+    InternalSlot(&'static str),
+}
+
+#[derive(Debug, Clone)]
 pub enum Instruction<C = crate::id::IrCtx, C2 = crate::id::IrCtx> {
+    RecordNew(RegisterId<C>),
+    RecordGet {
+        result: RegisterId<C>,
+        record: RegisterId<C>,
+        key: RecordKey<C>,
+    },
+    RecordSet {
+        record: RegisterId<C>,
+        key: RecordKey<C>,
+        value: RegisterId<C>,
+    },
     // RecordGet(RegisterId /*=*/, RegisterId, RecordKey),
     // RecordSet(RegisterId, RecordKey, Value),
     // RefIsEmpty(RegisterId /*=*/, RegisterId),
@@ -207,6 +227,27 @@ impl<C: ContextTag> Instruction<C> {
                 l.map_context::<C2>(),
                 rh.map_context::<C2>(),
             ),
+            Instruction::RecordNew(r) => Instruction::RecordNew(r.map_context()),
+            Instruction::RecordGet {
+                result,
+                record,
+                key,
+            } => Instruction::RecordGet {
+                result: result.map_context(),
+                record: record.map_context(),
+                key: match key {
+                    RecordKey::Value(v) => RecordKey::Value(v.map_context()),
+                    RecordKey::InternalSlot(s) => RecordKey::InternalSlot(s),
+                },
+            },
+            Instruction::RecordSet { record, key, value } => Instruction::RecordSet {
+                record: record.map_context(),
+                key: match key {
+                    RecordKey::Value(v) => RecordKey::Value(v.map_context()),
+                    RecordKey::InternalSlot(s) => RecordKey::InternalSlot(s),
+                },
+                value: value.map_context(),
+            },
         }
     }
 }
@@ -259,7 +300,10 @@ impl<C: Copy> Instruction<C> {
             | Instruction::MakeString(result, _)
             | Instruction::MakeInteger(result, _)
             | Instruction::CompareLessThan(result, _, _)
-            | Instruction::Add(result, _, _) => Some(*result),
+            | Instruction::Add(result, _, _)
+            | Instruction::RecordNew(result)
+            | Instruction::RecordGet { result, .. } => Some(*result),
+            Instruction::RecordSet { .. } => None,
         }
     }
 
@@ -271,7 +315,28 @@ impl<C: Copy> Instruction<C> {
             }
             Instruction::GetRuntime(_)
             | Instruction::MakeString(_, _)
-            | Instruction::MakeInteger(_, _) => Vec::new(),
+            | Instruction::MakeInteger(_, _)
+            | Instruction::RecordNew(_) => Vec::new(),
+            Instruction::RecordGet {
+                result: _,
+                record,
+                key: RecordKey::Value(key),
+            } => vec![*record, *key],
+            Instruction::RecordGet {
+                result: _,
+                record,
+                key: RecordKey::InternalSlot(_),
+            } => vec![*record],
+            Instruction::RecordSet {
+                record,
+                key: RecordKey::Value(key),
+                value,
+            } => vec![*record, *key, *value],
+            Instruction::RecordSet {
+                record,
+                key: RecordKey::InternalSlot(_),
+                value,
+            } => vec![*record, *value],
         }
     }
 
@@ -283,7 +348,28 @@ impl<C: Copy> Instruction<C> {
             }
             Instruction::GetRuntime(_)
             | Instruction::MakeString(_, _)
-            | Instruction::MakeInteger(_, _) => Vec::new(),
+            | Instruction::MakeInteger(_, _)
+            | Instruction::RecordNew(_) => Vec::new(),
+            Instruction::RecordGet {
+                result: _,
+                record,
+                key: RecordKey::Value(key),
+            } => vec![record, key],
+            Instruction::RecordGet {
+                result: _,
+                record,
+                key: RecordKey::InternalSlot(_),
+            } => vec![record],
+            Instruction::RecordSet {
+                record,
+                key: RecordKey::Value(key),
+                value,
+            } => vec![record, key, value],
+            Instruction::RecordSet {
+                record,
+                key: RecordKey::InternalSlot(_),
+                value,
+            } => vec![record, value],
         }
     }
 }

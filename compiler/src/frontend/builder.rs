@@ -342,6 +342,48 @@ impl<const P: usize> BlockBuilder<P> {
         result
     }
 
+    pub fn record_new(&mut self) -> RegisterId {
+        let result = self.gen_register_id.next();
+        self.instructions.push(Instruction::RecordNew(result));
+        result
+    }
+
+    pub fn record_get_prop(&mut self, record: RegisterId, property: RegisterId) -> RegisterId {
+        let result = self.gen_register_id.next();
+        self.instructions.push(Instruction::RecordGet {
+            result,
+            record,
+            key: RecordKey::Value(property),
+        });
+        result
+    }
+
+    pub fn record_get_slot(&mut self, record: RegisterId, slot: &'static str) -> RegisterId {
+        let result = self.gen_register_id.next();
+        self.instructions.push(Instruction::RecordGet {
+            result,
+            record,
+            key: RecordKey::InternalSlot(slot),
+        });
+        result
+    }
+
+    pub fn record_set_prop(&mut self, record: RegisterId, property: RegisterId, value: RegisterId) {
+        self.instructions.push(Instruction::RecordSet {
+            record,
+            key: RecordKey::Value(property),
+            value,
+        });
+    }
+
+    pub fn record_set_slot(&mut self, record: RegisterId, slot: &'static str, value: RegisterId) {
+        self.instructions.push(Instruction::RecordSet {
+            record,
+            key: RecordKey::InternalSlot(slot),
+            value,
+        });
+    }
+
     pub fn add(&mut self, lhs: RegisterId, rhs: RegisterId) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions.push(Instruction::Add(result, lhs, rhs));

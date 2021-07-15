@@ -248,6 +248,13 @@ impl<'d> SymbolicExecutionEngine<'d> {
                         }
                     };
                 }
+                Instruction::RecordNew(_) => todo!(),
+                Instruction::RecordGet {
+                    result,
+                    record,
+                    key,
+                } => todo!(),
+                Instruction::RecordSet { record, key, value } => todo!(),
             };
         }
 
