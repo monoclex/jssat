@@ -1,4 +1,3 @@
-use inkwell::values::StructValue;
 use rustc_hash::FxHashMap;
 use std::hash::Hash;
 
@@ -20,7 +19,7 @@ use inkwell::{
     passes::{PassManager, PassManagerBuilder},
     targets::{CodeModel, FileType, RelocMode, Target, TargetMachine},
     types::{BasicType, BasicTypeEnum, IntType, StructType},
-    values::{BasicValue, BasicValueEnum, FunctionValue, GlobalValue, IntValue},
+    values::{BasicValue, BasicValueEnum, FunctionValue, GlobalValue, IntValue, StructValue},
     AddressSpace, OptimizationLevel,
 };
 

@@ -7,10 +7,10 @@ use crate::backend::llvm::{
 
 use crate::frontend::assembler::{self, Program, ReturnType};
 use crate::frontend::type_annotater;
-use crate::frontend::types::{RecordShape, RegMap};
+use crate::frontend::types::{RecordShape, RegMap, ShapeKey};
 use crate::{id::*, UnwrapNone};
 
-use super::llvm::ValueType;
+use super::llvm::{Struct, ValueType};
 
 struct ConstantMapper<'constants, 'name> {
     constants: &'constants FxHashMap<ConstantId<AssemblerCtx>, Vec<u8>>,
@@ -288,28 +288,66 @@ impl RegisterMapper {
 }
 
 #[derive(Default)]
-struct GlobalRecordStructBuilder<'rt_types, 'duration> {
-    builders: FxHashMap<FunctionId<AssemblerCtx>, RecordStructBuilder<'rt_types, 'duration>>,
+struct GlobalRecordStructBuilder<'rt_types, 'duration, 'counter> {
+    counter: Counter<StructId<LlvmCtx>>,
+    builders:
+        FxHashMap<FunctionId<AssemblerCtx>, RecordStructBuilder<'rt_types, 'duration, 'counter>>,
 }
 
-impl<'rt, 'd> GlobalRecordStructBuilder<'rt, 'd> {
+impl<'rt, 'd, 'c> GlobalRecordStructBuilder<'rt, 'd, 'c> {
     pub fn insert(
         &mut self,
         fn_id: FunctionId<AssemblerCtx>,
-        builder: RecordStructBuilder<'rt, 'd>,
+        builder: RecordStructBuilder<'rt, 'd, 'c>,
     ) {
         self.builders.insert(fn_id, builder);
     }
+
+    pub fn get(&self, fn_id: FunctionId<AssemblerCtx>) -> &RecordStructBuilder<'rt, 'd, 'c> {
+        self.builders.get(&fn_id).unwrap()
+    }
+
+    // TODO: somehow fix this to accept a `self`
+    pub fn into_structs(&self) -> FxHashMap<StructId<LlvmCtx>, Struct> {
+        let mut structs = FxHashMap::default();
+
+        for (f, s) in self.builders.iter() {
+            for (k, ss) in s.structs.iter() {
+                structs.insert(*k, ss.llvm.clone());
+            }
+        }
+
+        structs
+    }
 }
 
-struct RecordStructBuilder<'rt_types, 'duration> {
+struct RecordStructBuilder<'rt_types, 'register_map, 'counter> {
     rt_types: &'rt_types RuntimeTypes,
-    reg_map: &'duration RegMap<AssemblerCtx>,
+    reg_map: &'register_map RegMap<AssemblerCtx>,
+    counter: &'counter Counter<StructId<LlvmCtx>>,
+    mapping: FxHashMap<AllocationId<NoContext>, StructId<LlvmCtx>>,
+    structs: FxHashMap<StructId<LlvmCtx>, SkeletonStruct>,
 }
 
-impl<'rt, 'd> RecordStructBuilder<'rt, 'd> {
-    pub fn new(rt_types: &'rt RuntimeTypes, reg_map: &'d RegMap<AssemblerCtx>) -> Self {
-        Self { rt_types, reg_map }
+struct SkeletonStruct {
+    id: StructId<LlvmCtx>,
+    llvm: Struct,
+    field_idx: FxHashMap<ShapeKey, usize>,
+}
+
+impl<'rt, 'r, 'c> RecordStructBuilder<'rt, 'r, 'c> {
+    pub fn new(
+        rt_types: &'rt RuntimeTypes,
+        reg_map: &'r RegMap<AssemblerCtx>,
+        counter: &'c Counter<StructId<LlvmCtx>>,
+    ) -> Self {
+        Self {
+            rt_types,
+            reg_map,
+            counter,
+            mapping: Default::default(),
+            structs: Default::default(),
+        }
     }
 
     pub fn build_type<'a>(
@@ -317,12 +355,35 @@ impl<'rt, 'd> RecordStructBuilder<'rt, 'd> {
         id: AllocationId<NoContext>,
         history: impl Iterator<Item = &'a RecordShape>,
     ) {
+        let mut field_idx = FxHashMap::default();
+
         let shape = history.fold(RecordShape::default(), |a, b| a.union(b, self.reg_map));
-        todo!("build struct from shape");
+
+        let struct_id = self.counter.next();
+        let mut fields = vec![];
+
+        for (idx, (k, v)) in shape.fields().enumerate() {
+            field_idx.insert(k.clone(), idx);
+            fields.push(v.clone().into_llvm(self.rt_types));
+        }
+
+        self.structs
+            .insert(
+                struct_id,
+                SkeletonStruct {
+                    id: struct_id,
+                    llvm: Struct { fields },
+                    field_idx,
+                },
+            )
+            .expect_free();
+
+        self.mapping.insert(id, struct_id).expect_free();
     }
 
-    pub fn get_type(&self, id: AllocationId<NoContext>) {
-        todo!()
+    pub fn get_type(&self, id: AllocationId<NoContext>) -> &SkeletonStruct {
+        let s_id = self.mapping.get(&id).unwrap();
+        self.structs.get(s_id).unwrap()
     }
 }
 
@@ -334,7 +395,8 @@ pub fn translate(program: Program) -> BackendIR<'static> {
 
     let mut global_structs = GlobalRecordStructBuilder::default();
     for (f_id, f) in program.functions.iter() {
-        let mut record_struct_builder = RecordStructBuilder::new(&rt_types, &f.register_types);
+        let mut record_struct_builder =
+            RecordStructBuilder::new(&rt_types, &f.register_types, &global_structs.counter);
         for (id, history) in f.register_types.allocations() {
             record_struct_builder.build_type(
                 *id,
@@ -343,15 +405,15 @@ pub fn translate(program: Program) -> BackendIR<'static> {
                     .map(|id| f.register_types.get_shape_by_id(id)),
             );
         }
-        global_structs.insert(*f_id, record_struct_builder);
+        global_structs.builders.insert(*f_id, record_struct_builder);
     }
 
     let mut ext_fns = ExternalFunctionMapper::new(&rt_types);
     ext_fns.extend(program.external_functions.clone());
 
     let mut functions = FxHashMap::default();
-    for (id, function) in program.functions.into_iter() {
-        let id = id.map_context();
+    for (fn_id, function) in program.functions.iter() {
+        let id = fn_id.map_context();
 
         let is_entrypoint = id == program.entrypoint.map_context();
 
@@ -386,6 +448,8 @@ pub fn translate(program: Program) -> BackendIR<'static> {
 
             params
         };
+
+        let reg_types = &function.register_types;
 
         let entry_block = function.entry_block.map_context();
 
@@ -432,6 +496,8 @@ pub fn translate(program: Program) -> BackendIR<'static> {
                     rt_reg
                 }
             };
+
+            let defined_structs = global_structs.get(*fn_id);
 
             let mut rt_regs = FxHashSet::default();
             for instruction in block.instructions.iter() {
@@ -559,13 +625,111 @@ pub fn translate(program: Program) -> BackendIR<'static> {
                         instructions.push(llvm::Instruction::Unreachable);
                     }
                     assembler::Instruction::Noop => {}
-                    assembler::Instruction::RecordNew(_) => todo!(),
+                    &assembler::Instruction::RecordNew(r_o) => {
+                        if let type_annotater::ValueType::Record(r) = reg_types.get(r_o) {
+                            let s = defined_structs.get_type(*r);
+
+                            let result = reg_map.map(r_o);
+
+                            instructions.push(llvm::Instruction::New {
+                                result,
+                                struct_type: s.id,
+                            });
+                        } else {
+                            panic!("cannot new record")
+                        }
+                    }
                     assembler::Instruction::RecordGet {
                         result,
                         record,
                         key,
-                    } => todo!(),
-                    assembler::Instruction::RecordSet { record, key, value } => todo!(),
+                    } => {
+                        if let type_annotater::ValueType::Record(r) = reg_types.get(*record) {
+                            let s = defined_structs.get_type(*r);
+
+                            let shape_key = match key {
+                                crate::frontend::ir::RecordKey::Value(r) => match reg_types.get(*r)
+                                {
+                                    type_annotater::ValueType::String => ShapeKey::String,
+                                    type_annotater::ValueType::ExactString(s) => {
+                                        ShapeKey::Str(s.clone())
+                                    }
+                                    type_annotater::ValueType::Any
+                                    | type_annotater::ValueType::Runtime
+                                    | type_annotater::ValueType::Number
+                                    | type_annotater::ValueType::ExactInteger(_)
+                                    | type_annotater::ValueType::Boolean
+                                    | type_annotater::ValueType::Bool(_)
+                                    | type_annotater::ValueType::Pointer(_)
+                                    | type_annotater::ValueType::Word
+                                    | type_annotater::ValueType::Record(_) => todo!(),
+                                },
+                                crate::frontend::ir::RecordKey::InternalSlot(r) => {
+                                    ShapeKey::InternalSlot(r)
+                                }
+                            };
+
+                            let mut field_idx = None;
+                            for (k, idx) in s.field_idx.iter() {
+                                if k == &shape_key {
+                                    field_idx = Some(*idx);
+                                }
+                            }
+                            let field_idx = field_idx.unwrap();
+
+                            instructions.push(llvm::Instruction::Load {
+                                result: reg_map.map(*result),
+                                from_struct: reg_map.map(*record),
+                                field_index: field_idx,
+                            });
+                        } else {
+                            panic!("cannot get non-record")
+                        }
+                    }
+                    assembler::Instruction::RecordSet { record, key, value } => {
+                        if let type_annotater::ValueType::Record(r) = reg_types.get(*record) {
+                            let s = defined_structs.get_type(*r);
+
+                            // TODO: deduplicate this
+                            let shape_key = match key {
+                                crate::frontend::ir::RecordKey::Value(r) => match reg_types.get(*r)
+                                {
+                                    type_annotater::ValueType::String => ShapeKey::String,
+                                    type_annotater::ValueType::ExactString(s) => {
+                                        ShapeKey::Str(s.clone())
+                                    }
+                                    type_annotater::ValueType::Any
+                                    | type_annotater::ValueType::Runtime
+                                    | type_annotater::ValueType::Number
+                                    | type_annotater::ValueType::ExactInteger(_)
+                                    | type_annotater::ValueType::Boolean
+                                    | type_annotater::ValueType::Bool(_)
+                                    | type_annotater::ValueType::Pointer(_)
+                                    | type_annotater::ValueType::Word
+                                    | type_annotater::ValueType::Record(_) => todo!(),
+                                },
+                                crate::frontend::ir::RecordKey::InternalSlot(r) => {
+                                    ShapeKey::InternalSlot(r)
+                                }
+                            };
+
+                            let mut field_idx = None;
+                            for (k, idx) in s.field_idx.iter() {
+                                if k == &shape_key {
+                                    field_idx = Some(*idx);
+                                }
+                            }
+                            let field_idx = field_idx.unwrap();
+
+                            instructions.push(llvm::Instruction::Store {
+                                value: reg_map.map(*value),
+                                into_struct: reg_map.map(*record),
+                                field_index: field_idx,
+                            });
+                        } else {
+                            panic!("cannot get non-record")
+                        }
+                    }
                 }
             }
 
@@ -641,6 +805,7 @@ pub fn translate(program: Program) -> BackendIR<'static> {
 
     let constants = constants.into_llvm_constants();
     let external_functions = ext_fns.into_external_functions();
+    let structs = global_structs.into_structs();
     let opaque_structs = rt_types.into_opaque_structs();
 
     BackendIR {
@@ -648,6 +813,6 @@ pub fn translate(program: Program) -> BackendIR<'static> {
         opaque_structs,
         external_functions,
         functions,
-        structs: todo!(),
+        structs,
     }
 }

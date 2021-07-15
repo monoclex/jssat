@@ -48,6 +48,10 @@ impl RecordShape {
 
         RecordShape { map }
     }
+
+    pub fn fields(&self) -> impl Iterator<Item = (&ShapeKey, &ValueType)> {
+        self.map.iter()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
