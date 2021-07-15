@@ -491,7 +491,7 @@ impl<'d> InstWriter<'d> {
             .iter()
             .map(|r| {
                 let parameter = Parameter {
-                    typ: self.type_info.register_types.get(r).unwrap().clone(),
+                    typ: self.type_info.register_types.get(*r).clone(),
                     register: self.reg_map.map(*r),
                 };
                 self.register_types

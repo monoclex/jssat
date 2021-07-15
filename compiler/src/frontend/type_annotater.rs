@@ -6,6 +6,7 @@ use crate::frontend::ir::*;
 use crate::id::*;
 
 use super::conv_only_bb::{Block, PureBlocks};
+use super::types::RegMap;
 
 /// Type annotation mechanism in JSSAT.
 ///
@@ -69,7 +70,7 @@ pub struct InvocationArgs(Vec<ValueType>);
 pub struct TypeInformation {
     pub pure_id: BlockId<PureBbCtx>,
     pub annotated_id: BlockId<AnnotatedCtx>,
-    pub register_types: FxHashMap<RegisterId<PureBbCtx>, ValueType>,
+    pub register_types: RegMap<PureBbCtx>,
     pub return_type: ReturnType,
 }
 
@@ -78,13 +79,13 @@ impl TypeInformation {
         bblock
             .parameters
             .iter()
-            .map(|r| self.register_types.get(r).unwrap())
+            .map(|r| self.register_types.get(*r))
             .cloned()
             .collect()
     }
 
     pub fn get_type(&self, register_id: RegisterId<PureBbCtx>) -> &ValueType {
-        self.register_types.get(&register_id).unwrap()
+        self.register_types.get(register_id)
     }
 }
 
@@ -98,7 +99,7 @@ struct SymbolicExecutionEngine<'duration> {
 
 #[derive(Clone)]
 struct ExecutionResult {
-    registers: FxHashMap<RegisterId<PureBbCtx>, ValueType>,
+    registers: RegMap<PureBbCtx>,
     returns: ReturnType,
 }
 
@@ -160,7 +161,7 @@ impl<'d> SymbolicExecutionEngine<'d> {
 
         // symbolically execute the function
 
-        let mut registers = FxHashMap::default();
+        let mut registers = RegMap::default();
 
         debug_assert_eq!(arg_types.len(), block.parameters.len());
         for (register, arg_type) in block.parameters.iter().zip(arg_types.iter()) {
@@ -181,8 +182,8 @@ impl<'d> SymbolicExecutionEngine<'d> {
                     registers.insert(r, ValueType::ExactInteger(v));
                 }
                 &Instruction::CompareLessThan(res, l, r) => {
-                    let l = registers.get(&l).unwrap();
-                    let r = registers.get(&r).unwrap();
+                    let l = registers.get(l);
+                    let r = registers.get(r);
 
                     let res_typ = match (l, r) {
                         (ValueType::Number, ValueType::Number)
@@ -197,8 +198,8 @@ impl<'d> SymbolicExecutionEngine<'d> {
                     registers.insert(res, res_typ);
                 }
                 &Instruction::Add(res, l, r) => {
-                    let l = registers.get(&l).unwrap();
-                    let r = registers.get(&r).unwrap();
+                    let l = registers.get(l);
+                    let r = registers.get(r);
 
                     let res_typ = match (l, r) {
                         (ValueType::Number, ValueType::Number)
@@ -218,7 +219,7 @@ impl<'d> SymbolicExecutionEngine<'d> {
 
                     let arg_typs = args
                         .iter()
-                        .map(|r| registers.get(r).unwrap().clone())
+                        .map(|r| registers.get(*r).clone())
                         .collect::<Vec<_>>();
 
                     let result = self.execute(blk_id, arg_typs);
@@ -271,7 +272,7 @@ impl<'d> SymbolicExecutionEngine<'d> {
                     true_path,
                     false_path,
                 } => {
-                    let condition = registers.get(condition).unwrap();
+                    let condition = registers.get(*condition);
 
                     match condition {
                         ValueType::Boolean => {
@@ -292,7 +293,7 @@ impl<'d> SymbolicExecutionEngine<'d> {
                     }
                 }
                 ControlFlowInstruction::Ret(Some(result)) => {
-                    let ret_typ = registers.get(result).unwrap();
+                    let ret_typ = registers.get(*result);
                     ReturnType::Value(ret_typ.clone())
                 }
                 ControlFlowInstruction::Ret(None) => ReturnType::Void,
@@ -320,13 +321,13 @@ impl<'d> SymbolicExecutionEngine<'d> {
     fn execute_jmp(
         &mut self,
         jump: &BasicBlockJump<PureBbCtx, PureBbCtx>,
-        registers: &FxHashMap<RegisterId<PureBbCtx>, ValueType>,
+        registers: &RegMap<PureBbCtx>,
     ) -> &ExecutionResult {
         let BasicBlockJump(blk_id, args) = jump;
 
         let arg_typs = args
             .iter()
-            .map(|r| registers.get(r).unwrap().clone())
+            .map(|r| registers.get(*r).clone())
             .collect::<Vec<_>>();
 
         self.execute(*blk_id, arg_typs)
