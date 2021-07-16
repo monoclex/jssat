@@ -280,6 +280,9 @@ impl type_annotater::ValueType {
             type_annotater::ValueType::Record(r) => {
                 llvm::ValueType::Defined(struct_resolver.get_type(r).id).into_ptr()
             }
+            // function pointers aren't implemented as actual function pointers but a number that switches
+            // where to go based on the value
+            type_annotater::ValueType::FnPtr(_) => llvm::ValueType::WordSizeBitType,
             t => unimplemented!("for {:?}", t),
         }
     }
@@ -550,6 +553,16 @@ pub fn translate(program: Program) -> BackendIR<'static> {
             let mut rt_regs = FxHashSet::default();
             for instruction in block.instructions.iter() {
                 match instruction {
+                    &assembler::Instruction::MakeFnPtr(result, block_id) => {
+                        // fnptrs are implemented with a number and switch where to go based on that number
+                        // TODO: make function pointer values "smartly" allocated - e.g. for fnptrs like
+                        // BlockId(2) | BlockId(7) | BlockId(9) instead of => 2 | 7 | 9 it should be allocated
+                        // numbers 0, 1, and 2
+                        instructions.push(llvm::Instruction::LoadNumber {
+                            result: reg_map.map(result),
+                            value: NumberValue::UnsignedNative(block_id.value()),
+                        });
+                    }
                     assembler::Instruction::Widen {
                         result,
                         input,
@@ -710,7 +723,8 @@ pub fn translate(program: Program) -> BackendIR<'static> {
                                     | type_annotater::ValueType::Bool(_)
                                     | type_annotater::ValueType::Pointer(_)
                                     | type_annotater::ValueType::Word
-                                    | type_annotater::ValueType::Record(_) => todo!(),
+                                    | type_annotater::ValueType::Record(_)
+                                    | type_annotater::ValueType::FnPtr(_) => todo!(),
                                 },
                                 crate::frontend::ir::RecordKey::InternalSlot(r) => {
                                     ShapeKey::InternalSlot(r)
@@ -754,7 +768,8 @@ pub fn translate(program: Program) -> BackendIR<'static> {
                                     | type_annotater::ValueType::Bool(_)
                                     | type_annotater::ValueType::Pointer(_)
                                     | type_annotater::ValueType::Word
-                                    | type_annotater::ValueType::Record(_) => todo!(),
+                                    | type_annotater::ValueType::Record(_)
+                                    | type_annotater::ValueType::FnPtr(_) => todo!(),
                                 },
                                 crate::frontend::ir::RecordKey::InternalSlot(r) => {
                                     ShapeKey::InternalSlot(r)

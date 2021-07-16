@@ -81,6 +81,7 @@ pub enum Instruction {
         Vec<RegisterId<AssemblerCtx>>,
     ),
     GetRuntime(RegisterId<AssemblerCtx>),
+    MakeFnPtr(RegisterId<AssemblerCtx>, BlockId<PureBbCtx>),
     MakeString(RegisterId<AssemblerCtx>, ConstantId<AssemblerCtx>),
     MakeNumber(RegisterId<AssemblerCtx>, i64),
     MakeBoolean(RegisterId<AssemblerCtx>, bool),
@@ -575,6 +576,15 @@ impl<'d> InstWriter<'d> {
 
     fn write_inst(&mut self, inst: &ir::Instruction<PureBbCtx>) -> HaltStatus {
         match inst {
+            &ir::Instruction::ReferenceOfFunction(result, func) => {
+                let fnptr = self.reg_map.map(result);
+                let static_fn = self.fn_assembler.assembler.ir.functions.get(&func).unwrap();
+                let entry_blk = static_fn.entry_block;
+                let pure_bb_id =
+                    (self.fn_assembler.assembler.pure_bocks).get_block_id_by_host(func, entry_blk);
+                self.instructions
+                    .push(Instruction::MakeFnPtr(fnptr, pure_bb_id));
+            }
             &ir::Instruction::GetRuntime(rt) => {
                 let rt = self.reg_map.map(rt);
                 self.instructions.push(Instruction::GetRuntime(rt));
@@ -741,6 +751,74 @@ impl<'d> InstWriter<'d> {
 
                 self.to_assemble.push(annotated_blk_id);
             }
+            ir::Instruction::Call(res, ir::Callable::Virtual(fn_ptr_id), args) => {
+                let fn_ptr_id = self.reg_map.map(*fn_ptr_id);
+                let pure_bb_id = if let ValueType::FnPtr(id) = self.register_types.get(fn_ptr_id) {
+                    *id
+                } else {
+                    panic!("cannot virtual call non fnptr")
+                };
+
+                // TODO: don't blatantly copy Call(Static())
+
+                let original_res = res;
+                let res = res.map(|r| self.reg_map.map(r));
+
+                // TODO: use `zip_eq`
+                println!("!!!! preparing call!!!!!!1!!!!!!");
+                let src_regs = args
+                    .iter()
+                    .map(|r| self.reg_map.map(*r))
+                    .collect::<Vec<_>>();
+                let dest_regs = self
+                    .fn_assembler
+                    .assembler
+                    .pure_bocks
+                    .get_block(pure_bb_id)
+                    .parameters
+                    .iter()
+                    .copied()
+                    .collect::<Vec<_>>();
+                debug_assert_eq!(src_regs.len(), dest_regs.len());
+                let invocation_args = self
+                    .register_types
+                    .prepare_invocation(src_regs.into_iter().zip(dest_regs.into_iter()));
+                println!(
+                    "preparing to call function:::::: {:#?} into block {:#?}",
+                    invocation_args,
+                    self.fn_assembler.assembler.pure_bocks.get_block(pure_bb_id)
+                );
+
+                let annotated_fn_id = self
+                    .fn_assembler
+                    .assembler
+                    .fn_id(pure_bb_id, &invocation_args);
+                let annotated_blk_id = self
+                    .fn_assembler
+                    .assembler
+                    .blk_id(pure_bb_id, &invocation_args);
+
+                let args = args.iter().map(|r| self.reg_map.map(*r)).collect();
+
+                self.instructions.push(Instruction::Call(
+                    res,
+                    Callable::Static(annotated_fn_id),
+                    args,
+                ));
+
+                debug_assert!(
+                    res.is_some() == original_res.is_some()
+                        && res.is_none() == original_res.is_none()
+                );
+                if let (Some(reg), Some(orig_reg)) = (res, *original_res) {
+                    // TODO: handle never type
+
+                    self.register_types
+                        .insert(reg, self.type_info.get_type(orig_reg).clone());
+                }
+
+                self.to_assemble.push(annotated_blk_id);
+            }
             // TODO: the fact that this is literally copied and pasted from type_annotater makes me rethink
             // if this entire `assembler` phase is even necessary
             //
@@ -770,7 +848,10 @@ impl<'d> InstWriter<'d> {
                         | ValueType::Word => {
                             todo!("may be implemented at a later date, but dunno")
                         }
-                        ValueType::Runtime | ValueType::Pointer(_) | ValueType::Record(_) => {
+                        ValueType::Runtime
+                        | ValueType::Pointer(_)
+                        | ValueType::Record(_)
+                        | ValueType::FnPtr(_) => {
                             unimplemented!("unsupported record key type")
                         }
                     },
@@ -801,7 +882,10 @@ impl<'d> InstWriter<'d> {
                         | ValueType::Word => {
                             todo!("may be implemented at a later date, but dunno")
                         }
-                        ValueType::Runtime | ValueType::Pointer(_) | ValueType::Record(_) => {
+                        ValueType::Runtime
+                        | ValueType::Pointer(_)
+                        | ValueType::Record(_)
+                        | ValueType::FnPtr(_) => {
                             unimplemented!("unsupported record key type")
                         }
                     },
@@ -901,7 +985,8 @@ impl Instruction {
             | Instruction::MakeBoolean(result, _)
             | Instruction::Widen { result, .. }
             | Instruction::RecordNew(result)
-            | Instruction::RecordGet { result, .. } => Some(*result),
+            | Instruction::RecordGet { result, .. }
+            | Instruction::MakeFnPtr(result, _) => Some(*result),
             Instruction::Unreachable | Instruction::Noop | Instruction::RecordSet { .. } => None,
         }
     }
@@ -915,7 +1000,8 @@ impl Instruction {
             Instruction::GetRuntime(_)
             | Instruction::MakeString(_, _)
             | Instruction::MakeNumber(_, _)
-            | Instruction::MakeBoolean(_, _) => Vec::new(),
+            | Instruction::MakeBoolean(_, _)
+            | Instruction::MakeFnPtr(_, _) => Vec::new(),
             Instruction::Widen { input, .. } => vec![*input],
             Instruction::RecordGet {
                 record,
@@ -950,7 +1036,8 @@ impl Instruction {
             Instruction::GetRuntime(_)
             | Instruction::MakeString(_, _)
             | Instruction::MakeNumber(_, _)
-            | Instruction::MakeBoolean(_, _) => Vec::new(),
+            | Instruction::MakeBoolean(_, _)
+            | Instruction::MakeFnPtr(_, _) => Vec::new(),
             Instruction::Widen { input, .. } => vec![input],
             Instruction::RecordGet {
                 record,

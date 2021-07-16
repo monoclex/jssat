@@ -69,7 +69,7 @@ macro_rules! gen_id {
     };
 }
 
-pub trait IdCompat: PartialEq + Eq + Hash + Sized + Default {
+pub trait IdCompat: PartialEq + Eq + Hash + Sized + Default + Debug + Copy + Clone {
     fn new() -> Self {
         Self::default()
     }

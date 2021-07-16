@@ -342,6 +342,13 @@ impl<const P: usize> BlockBuilder<P> {
         result
     }
 
+    pub fn make_fnptr(&mut self, function_id: FunctionId) -> RegisterId {
+        let result = self.gen_register_id.next();
+        self.instructions
+            .push(Instruction::ReferenceOfFunction(result, function_id));
+        result
+    }
+
     pub fn record_new(&mut self) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions.push(Instruction::RecordNew(result));
@@ -411,6 +418,41 @@ impl<const P: usize> BlockBuilder<P> {
             Callable::Static(function_id),
             values,
         ));
+    }
+
+    pub fn call_virt<const PARAMETERS: usize>(
+        &mut self,
+        fn_ptr: RegisterId,
+        values: [RegisterId; PARAMETERS],
+    ) {
+        self.call_virt_dynargs(fn_ptr, values.to_vec())
+    }
+
+    pub fn call_virt_dynargs(&mut self, fn_ptr: RegisterId, values: Vec<RegisterId>) {
+        self.instructions
+            .push(Instruction::Call(None, Callable::Virtual(fn_ptr), values));
+    }
+
+    pub fn call_virt_with_result<const PARAMETERS: usize>(
+        &mut self,
+        fn_ptr: RegisterId,
+        values: [RegisterId; PARAMETERS],
+    ) -> RegisterId {
+        self.call_virt_dynargs_with_result(fn_ptr, values.to_vec())
+    }
+
+    pub fn call_virt_dynargs_with_result(
+        &mut self,
+        fn_ptr: RegisterId,
+        values: Vec<RegisterId>,
+    ) -> RegisterId {
+        let result = self.gen_register_id.next();
+        self.instructions.push(Instruction::Call(
+            Some(result),
+            Callable::Virtual(fn_ptr),
+            values,
+        ));
+        result
     }
 
     pub fn call_with_result<const PARAMETERS: usize>(

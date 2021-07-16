@@ -173,8 +173,10 @@ pub fn traverse(source: String) -> IR {
         let key = block.make_string(builder.constant_str_utf16("", "key".into()));
         let prop_at_key = block.record_get_prop(record, key);
         let prop_at_slot = block.record_get_slot(record, "is_cool");
+        let call_it = block.record_get_slot(record, "Call");
         block.call(print_stub, [prop_at_key]);
         block.call(print_stub, [prop_at_slot]);
+        block.call_virt(call_it, [key]);
 
         func.end_block(block.ret(None));
         builder.end_function(func)
@@ -213,6 +215,8 @@ pub fn traverse(source: String) -> IR {
         block.record_set_prop(obj, key, value);
         let value = block.make_number_decimal(1);
         block.record_set_slot(obj, "is_cool", value);
+        let fnptr = block.make_fnptr(print_stub.id);
+        block.record_set_slot(obj, "Call", fnptr);
 
         block.call(print_is_cool_and_key, [obj]);
 

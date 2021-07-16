@@ -129,8 +129,11 @@ fn stack_alloc_valule(
     regs: &mut RegMap<AssemblerCtx>,
 ) {
     match p {
+        &ValueType::FnPtr(func_id) => {
+            prepend.push(Instruction::MakeFnPtr(r, func_id));
+        }
         ValueType::ExactString(payload) => {
-            prepend.push(Instruction::MakeString(r, cnsts.intern(&payload)))
+            prepend.push(Instruction::MakeString(r, cnsts.intern(&payload)));
         }
         &ValueType::ExactInteger(i) => prepend.push(Instruction::MakeNumber(r, i)),
         &ValueType::Bool(b) => prepend.push(Instruction::MakeBoolean(r, b)),

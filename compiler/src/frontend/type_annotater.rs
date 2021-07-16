@@ -181,6 +181,12 @@ impl<'d> SymbolicExecutionEngine<'d> {
         let mut never_infected = false;
         for instruction in block.instructions.iter() {
             match instruction {
+                &Instruction::ReferenceOfFunction(r, fn_id) => {
+                    let func = self.ir.functions.get(&fn_id).unwrap();
+                    let blk_id = self.blocks.get_block_id_by_host(fn_id, func.entry_block);
+
+                    registers.insert(r, ValueType::FnPtr(blk_id));
+                }
                 &Instruction::GetRuntime(r) => {
                     registers.insert(r, ValueType::Runtime);
                 }
@@ -269,6 +275,44 @@ impl<'d> SymbolicExecutionEngine<'d> {
                         }
                     };
                 }
+                Instruction::Call(res, Callable::Virtual(fn_id), args) => {
+                    let fn_reg_typ = registers.get(*fn_id);
+                    let blk_id = if let ValueType::FnPtr(blk_id) = fn_reg_typ {
+                        *blk_id
+                    } else {
+                        panic!("cannot call function when register has no fnptr");
+                    };
+
+                    // TODO: don't blatantly copy Call(_, Callable::Static(_), _)
+                    // TODO: use zip_eq
+                    println!("!!!! preparing call");
+                    let src_regs = args.iter().copied().collect::<Vec<_>>();
+                    let dest_regs = self
+                        .blocks
+                        .get_block(blk_id)
+                        .parameters
+                        .iter()
+                        .copied()
+                        .collect::<Vec<_>>();
+                    debug_assert_eq!(src_regs.len(), dest_regs.len());
+
+                    let invocation_args = registers
+                        .prepare_invocation(src_regs.into_iter().zip(dest_regs.into_iter()));
+
+                    let result = self.execute(blk_id, invocation_args);
+
+                    match (res, result.return_type()) {
+                        (Some(_), ReturnType::Void) => panic!("cannot assign register to void"),
+                        (None, _) => {}
+                        (_, ReturnType::Never) => {
+                            never_infected = true;
+                            break;
+                        }
+                        (Some(reg), ReturnType::Value(v)) => {
+                            registers.insert(*reg, v);
+                        }
+                    };
+                }
                 &Instruction::RecordNew(r) => {
                     let allocation = registers.insert_alloc();
                     registers.insert(r, ValueType::Record(allocation));
@@ -290,7 +334,10 @@ impl<'d> SymbolicExecutionEngine<'d> {
                             | ValueType::Word => {
                                 todo!("may be implemented at a later date, but dunno")
                             }
-                            ValueType::Runtime | ValueType::Pointer(_) | ValueType::Record(_) => {
+                            ValueType::Runtime
+                            | ValueType::Pointer(_)
+                            | ValueType::Record(_)
+                            | ValueType::FnPtr(_) => {
                                 unimplemented!("unsupported record key type")
                             }
                         },
@@ -319,7 +366,10 @@ impl<'d> SymbolicExecutionEngine<'d> {
                             | ValueType::Word => {
                                 todo!("may be implemented at a later date, but dunno")
                             }
-                            ValueType::Runtime | ValueType::Pointer(_) | ValueType::Record(_) => {
+                            ValueType::Runtime
+                            | ValueType::Pointer(_)
+                            | ValueType::Record(_)
+                            | ValueType::FnPtr(_) => {
                                 unimplemented!("unsupported record key type")
                             }
                         },
@@ -600,6 +650,7 @@ pub enum ValueType {
     /// A record. The ID present inside of the object is the allocation id. The
     /// allocation id is then linked to a table of allocation IDs to the
     Record(AllocationId<NoContext>),
+    FnPtr(BlockId<PureBbCtx>),
 }
 
 /// A snapshot of a [`ValueType`].

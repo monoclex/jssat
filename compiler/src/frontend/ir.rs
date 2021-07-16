@@ -122,7 +122,7 @@ pub enum RecordKey<C = crate::id::IrCtx> {
 }
 
 #[derive(Debug, Clone)]
-pub enum Instruction<C = crate::id::IrCtx, C2 = crate::id::IrCtx> {
+pub enum Instruction<C: ContextTag = crate::id::IrCtx, C2: ContextTag = crate::id::IrCtx> {
     RecordNew(RegisterId<C>),
     RecordGet {
         result: RegisterId<C>,
@@ -134,6 +134,7 @@ pub enum Instruction<C = crate::id::IrCtx, C2 = crate::id::IrCtx> {
         key: RecordKey<C>,
         value: RegisterId<C>,
     },
+    ReferenceOfFunction(RegisterId<C>, crate::id::FunctionId<C2>),
     // RecordGet(RegisterId /*=*/, RegisterId, RecordKey),
     // RecordSet(RegisterId, RecordKey, Value),
     // RefIsEmpty(RegisterId /*=*/, RegisterId),
@@ -145,7 +146,7 @@ pub enum Instruction<C = crate::id::IrCtx, C2 = crate::id::IrCtx> {
     // FAR FUTURE: GcTracingUnmarkRoot(RegisterId),
     Call(
         Option<RegisterId<C>>, /*=*/
-        Callable,
+        Callable<C>,
         Vec<RegisterId<C>>,
     ),
     // Phi(RegisterId /*=*/, Vec<BlockImpliesRegister>),
@@ -191,11 +192,11 @@ pub enum ControlFlowInstruction<Ctx = IrCtx, Path = IrCtx> {
 }
 
 #[derive(Debug, Clone)]
-pub enum Callable {
+pub enum Callable<C: ContextTag> {
     External(ExternalFunctionId),
     Static(FunctionId),
     // virtual just means fn pointer
-    // Virtual(RegisterId),
+    Virtual(RegisterId<C>),
 }
 
 // pub enum RecordKey {
@@ -211,7 +212,11 @@ impl<C: ContextTag> Instruction<C> {
         match self {
             Instruction::Call(result, callable, args) => Instruction::Call(
                 result.map(|r| r.map_context::<C2>()),
-                callable,
+                match callable {
+                    Callable::External(a) => Callable::External(a),
+                    Callable::Static(a) => Callable::Static(a),
+                    Callable::Virtual(a) => Callable::Virtual(a.map_context()),
+                },
                 args.into_iter().map(|r| r.map_context::<C2>()).collect(),
             ),
             Instruction::GetRuntime(r) => Instruction::GetRuntime(r.map_context::<C2>()),
@@ -248,6 +253,9 @@ impl<C: ContextTag> Instruction<C> {
                 },
                 value: value.map_context(),
             },
+            Instruction::ReferenceOfFunction(r, f) => {
+                Instruction::ReferenceOfFunction(r.map_context(), f.map_context())
+            }
         }
     }
 }
@@ -292,7 +300,7 @@ impl<CO: ContextTag, PO: ContextTag> ControlFlowInstruction<CO, PO> {
     }
 }
 
-impl<C: Copy> Instruction<C> {
+impl<C: ContextTag> Instruction<C> {
     pub fn assigned_to(&self) -> Option<RegisterId<C>> {
         match self {
             Instruction::Call(result, _, _) => *result,
@@ -302,7 +310,8 @@ impl<C: Copy> Instruction<C> {
             | Instruction::CompareLessThan(result, _, _)
             | Instruction::Add(result, _, _)
             | Instruction::RecordNew(result)
-            | Instruction::RecordGet { result, .. } => Some(*result),
+            | Instruction::RecordGet { result, .. }
+            | Instruction::ReferenceOfFunction(result, _) => Some(*result),
             Instruction::RecordSet { .. } => None,
         }
     }
@@ -316,7 +325,8 @@ impl<C: Copy> Instruction<C> {
             Instruction::GetRuntime(_)
             | Instruction::MakeString(_, _)
             | Instruction::MakeInteger(_, _)
-            | Instruction::RecordNew(_) => Vec::new(),
+            | Instruction::RecordNew(_)
+            | Instruction::ReferenceOfFunction(_, _) => Vec::new(),
             Instruction::RecordGet {
                 result: _,
                 record,
@@ -349,7 +359,8 @@ impl<C: Copy> Instruction<C> {
             Instruction::GetRuntime(_)
             | Instruction::MakeString(_, _)
             | Instruction::MakeInteger(_, _)
-            | Instruction::RecordNew(_) => Vec::new(),
+            | Instruction::RecordNew(_)
+            | Instruction::ReferenceOfFunction(_, _) => Vec::new(),
             Instruction::RecordGet {
                 result: _,
                 record,
