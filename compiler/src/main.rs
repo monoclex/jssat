@@ -14,6 +14,8 @@
 
 use std::{io::Write, process::Command};
 
+use crate::frontend::display::display;
+
 pub mod backend;
 pub mod frontend;
 pub mod id;
@@ -155,14 +157,20 @@ fn main() {
     let annotations = frontend::type_annotater::annotate(&ir, &as_only_blocks);
     eprintln!("{:#?}", annotations);
 
-    let assembled = frontend::assembler::assemble(&ir, &as_only_blocks, annotations);
-    eprintln!("{:#?}", assembled);
-
-    let program = frontend::asm_opt_const_elim::opt_constant_elimination(assembled);
+    let program = frontend::assembler::assemble(&ir, &as_only_blocks, annotations);
     eprintln!("{:#?}", program);
+
+    println!("=== PRE OPT ===");
+    println!("{}", display(&program));
+
+    let program = frontend::asm_opt_const_elim::opt_constant_elimination(program);
+    // eprintln!("{:#?}", program);
 
     let program = frontend::asm_opt_dead_register_elim::opt_dead_register_elimination(program);
-    eprintln!("{:#?}", program);
+    // eprintln!("{:#?}", program);
+
+    println!("=== POST OPT ===");
+    println!("{}", display(&program));
 
     let build = backend::compile(program);
     eprintln!("OUTPUT LLVM IR (use unix pipes to redirect this into a file):");

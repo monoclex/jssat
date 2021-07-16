@@ -1,3 +1,4 @@
+use std::fmt::Display;
 use std::hash::Hash;
 
 use rustc_hash::FxHashMap;
@@ -119,6 +120,15 @@ pub enum RecordKey<C = crate::id::IrCtx> {
     /// Properties that are internal to only the engine. The internal slot
     /// `[[Example]]` is constructed like so: `RecordKey::InternalSlot("Example")`.
     InternalSlot(&'static str),
+}
+
+impl<C> Display for RecordKey<C> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RecordKey::Value(v) => write!(f, "%{}", v),
+            RecordKey::InternalSlot(n) => write!(f, "[[{}]]", n),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

@@ -3,6 +3,7 @@ pub mod asm_opt_dead_register_elim;
 pub mod assembler;
 pub mod builder;
 pub mod conv_only_bb;
+pub mod display;
 pub mod ir;
 pub mod js;
 pub mod type_annotater;
