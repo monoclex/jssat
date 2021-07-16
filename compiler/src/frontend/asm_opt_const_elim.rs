@@ -6,7 +6,10 @@ use super::{
     types::RegMap,
 };
 use crate::{
-    frontend::assembler::{BlockJump, Callable, EndInstruction, Instruction},
+    frontend::{
+        assembler::{BlockJump, Callable, EndInstruction, Instruction},
+        ir::RecordKey,
+    },
     id::*,
 };
 
@@ -36,11 +39,11 @@ pub fn opt_constant_elimination(program: Program) -> Program {
 
 fn opt_fn(f: &mut Function, cnsts: &Cnsts) {
     for (_, b) in f.blocks.iter_mut() {
-        opt_blk(&f.register_types, cnsts, b);
+        opt_blk(&mut f.register_types, cnsts, b);
     }
 }
 
-fn opt_blk(regs: &RegMap<AssemblerCtx>, cnsts: &Cnsts, b: &mut Block) {
+fn opt_blk(regs: &mut RegMap<AssemblerCtx>, cnsts: &Cnsts, b: &mut Block) {
     // remove const params
     let const_params = b
         .parameters
@@ -51,23 +54,7 @@ fn opt_blk(regs: &RegMap<AssemblerCtx>, cnsts: &Cnsts, b: &mut Block) {
     let mut prepend = Vec::with_capacity(const_params.len());
     for p in const_params {
         let r = p.register;
-        match &p.typ {
-            ValueType::ExactString(payload) => {
-                prepend.push(Instruction::MakeString(r, cnsts.intern(&payload)))
-            }
-            &ValueType::ExactInteger(i) => prepend.push(Instruction::MakeNumber(r, i)),
-            &ValueType::Bool(b) => prepend.push(Instruction::MakeBoolean(r, b)),
-            &ValueType::Record(alloc) => {
-                todo!("cannot create records on the stack yet")
-            }
-            ValueType::Any
-            | ValueType::Runtime
-            | ValueType::String
-            | ValueType::Number
-            | ValueType::Boolean
-            | ValueType::Pointer(_)
-            | ValueType::Word => unreachable!("not simple type"),
-        }
+        stack_alloc_valule(&p.typ, &mut prepend, r, cnsts, regs);
     }
     b.instructions.splice(0..0, prepend);
 
@@ -110,7 +97,7 @@ fn opt_blk(regs: &RegMap<AssemblerCtx>, cnsts: &Cnsts, b: &mut Block) {
             Instruction::Call(_, Callable::Static(_), args) => {
                 let mut new_args = vec![];
                 for arg in args.iter_mut() {
-                    if !regs.is_simple(*arg) {
+                    if !regs.is_const(*arg) {
                         new_args.push(*arg);
                     }
                 }
@@ -132,6 +119,59 @@ fn opt_blk(regs: &RegMap<AssemblerCtx>, cnsts: &Cnsts, b: &mut Block) {
     //         }
     //     }
     // }
+}
+
+fn stack_alloc_valule(
+    p: &ValueType,
+    prepend: &mut Vec<Instruction>,
+    r: RegisterId<AssemblerCtx>,
+    cnsts: &Cnsts,
+    regs: &mut RegMap<AssemblerCtx>,
+) {
+    match p {
+        ValueType::ExactString(payload) => {
+            prepend.push(Instruction::MakeString(r, cnsts.intern(&payload)))
+        }
+        &ValueType::ExactInteger(i) => prepend.push(Instruction::MakeNumber(r, i)),
+        &ValueType::Bool(b) => prepend.push(Instruction::MakeBoolean(r, b)),
+        &ValueType::Record(alloc) => {
+            prepend.push(Instruction::RecordNew(r));
+            regs.insert(r, ValueType::Record(alloc));
+
+            let shape = regs.get_shape(alloc).clone();
+            for (k, v) in shape.fields() {
+                let key = match k {
+                    crate::frontend::types::ShapeKey::String => unreachable!("non const key"),
+                    crate::frontend::types::ShapeKey::Str(key) => {
+                        let key_id = regs.gen_id();
+                        prepend.push(Instruction::MakeString(key_id, cnsts.intern(key)));
+                        regs.insert(key_id, ValueType::ExactString(key.clone()));
+                        RecordKey::Value(key_id)
+                    }
+                    crate::frontend::types::ShapeKey::InternalSlot(slot) => {
+                        RecordKey::InternalSlot(slot)
+                    }
+                };
+
+                let value = regs.gen_id();
+                stack_alloc_valule(v, prepend, value, cnsts, regs);
+
+                prepend.push(Instruction::RecordSet {
+                    record: r,
+                    key,
+                    value,
+                });
+            }
+        }
+        ValueType::Any
+        | ValueType::Runtime
+        | ValueType::String
+        | ValueType::Number
+        | ValueType::Boolean
+        | ValueType::Pointer(_)
+        | ValueType::Word => unreachable!("not simple type"),
+    };
+    regs.insert(r, p.clone());
 }
 
 struct Cnsts<'constants> {

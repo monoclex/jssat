@@ -63,7 +63,7 @@ pub enum ShapeKey {
 
 impl ShapeKey {
     pub fn is_const(&self) -> bool {
-        matches!(self, ShapeKey::Str(_))
+        matches!(self, ShapeKey::Str(_) | ShapeKey::InternalSlot(_))
     }
 }
 
@@ -77,6 +77,16 @@ pub struct RegMap<C: ContextTag> {
 }
 
 impl<C: ContextTag> RegMap<C> {
+    pub fn gen_id(&mut self) -> RegisterId<C> {
+        let mut none = RegisterId::default();
+        for (k, _) in self.registers.iter() {
+            if k.value() >= none.value() {
+                none = RegisterId::new_with_value(k.value() + 1);
+            }
+        }
+        none
+    }
+
     pub fn insert(&mut self, register: RegisterId<C>, typ: ValueType) {
         if let ValueType::Record(alloc) = &typ {
             debug_assert!(
@@ -194,9 +204,8 @@ impl<C: ContextTag> RegMap<C> {
             | ValueType::Bool(_)
             | ValueType::ExactString(_) => true,
             ValueType::Record(alloc) => {
-                // let shape = self.get_shape(*alloc);
-                // self.is_simple_shape(shape)
-                false
+                let shape = self.get_shape(*alloc);
+                self.is_simple_shape(shape)
             }
             _ => false,
         }
