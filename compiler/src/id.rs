@@ -7,12 +7,6 @@ macro_rules! gen_id {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
         pub struct $name<Ctx>(::std::num::NonZeroUsize, ::std::marker::PhantomData<Ctx>);
 
-        impl<C: ContextTag> Default for $name<C> {
-            fn default() -> Self {
-                Self::new()
-            }
-        }
-
         impl<C: ContextTag> $name<C> {
             pub fn new() -> Self {
                 Self::new_const()
@@ -61,6 +55,12 @@ macro_rules! gen_id {
             }
         }
 
+        impl<C: ContextTag> Default for $name<C> {
+            fn default() -> Self {
+                Self::new_with_value(0)
+            }
+        }
+
         impl<C> ::std::fmt::Display for $name<C> {
             fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
                 write!(f, "{}", self.0)
@@ -69,9 +69,9 @@ macro_rules! gen_id {
     };
 }
 
-pub trait IdCompat: PartialEq + Eq + Hash + Sized {
+pub trait IdCompat: PartialEq + Eq + Hash + Sized + Default {
     fn new() -> Self {
-        Self::new_with_value(0)
+        Self::default()
     }
 
     fn new_with_value(value: usize) -> Self;
@@ -252,6 +252,53 @@ where
 }
 
 impl<T, U> Default for BlockIdMap<T, U>
+where
+    T: ContextTag,
+    U: ContextTag,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+pub struct AllocIdMap<T, U> {
+    registers: FxHashMap<AllocationId<T>, AllocationId<U>>,
+    reg_counter: Counter<AllocationId<U>>,
+}
+
+impl<T, U> AllocIdMap<T, U>
+where
+    T: ContextTag,
+    U: ContextTag,
+{
+    pub fn new() -> Self {
+        Self {
+            registers: Default::default(),
+            reg_counter: Default::default(),
+        }
+    }
+
+    pub fn map(&mut self, source: AllocationId<T>) -> AllocationId<U> {
+        let (id, _) = self.map_is_new(source);
+        id
+    }
+
+    pub fn map_is_new(&mut self, source: AllocationId<T>) -> (AllocationId<U>, bool) {
+        let reg_counter = &self.reg_counter;
+        let mut is_new = false;
+        let alloc = *(self.registers).entry(source).or_insert_with(|| {
+            is_new = true;
+            reg_counter.next()
+        });
+        (alloc, is_new)
+    }
+
+    pub fn gen(&mut self) -> AllocationId<U> {
+        self.reg_counter.next()
+    }
+}
+
+impl<T, U> Default for AllocIdMap<T, U>
 where
     T: ContextTag,
     U: ContextTag,

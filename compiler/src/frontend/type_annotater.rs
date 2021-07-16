@@ -5,8 +5,10 @@ use std::hash::Hash;
 use crate::frontend::ir::*;
 use crate::frontend::types::ShapeKey;
 use crate::id::*;
+use crate::poor_hashmap::PoorMap;
 
 use super::conv_only_bb::{Block, PureBlocks};
+use super::types::RecordShape;
 use super::types::RegMap;
 
 /// Type annotation mechanism in JSSAT.
@@ -17,7 +19,7 @@ pub fn annotate(ir: &IR, pure_blocks: &PureBlocks) -> TypeAnnotations {
     let mut engine = SymbolicExecutionEngine::new(ir, pure_blocks);
 
     let main = pure_blocks.get_block_id_by_host(ir.entrypoint, ir.entry_block());
-    engine.execute(main, Vec::new());
+    engine.execute(main, InvocationArgs::default());
 
     engine.execution_map.into_type_annotations()
 }
@@ -44,7 +46,7 @@ impl TypeAnnotations {
 
 #[derive(Debug, Clone)]
 pub struct BlockExecutions {
-    runs: FxHashMap<InvocationArgs, TypeInformation>,
+    runs: PoorMap<InvocationArgs, TypeInformation>,
 }
 
 impl BlockExecutions {
@@ -63,9 +65,21 @@ impl BlockExecutions {
     }
 }
 
-#[derive(RefCast, PartialEq, Eq, Hash, Debug, Clone)]
+#[derive(RefCast, PartialEq, Eq, Debug, Clone)]
 #[repr(transparent)]
-pub struct InvocationArgs(Vec<ValueType>);
+pub struct InvocationArgs<C: ContextTag = PureBbCtx>(pub RegMap<C>);
+
+impl<C: ContextTag> Default for InvocationArgs<C> {
+    fn default() -> Self {
+        Self(Default::default())
+    }
+}
+
+impl<C: ContextTag> InvocationArgs<C> {
+    pub fn into_reg_map(self) -> RegMap<C> {
+        self.0
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct TypeInformation {
@@ -122,13 +136,13 @@ impl<'d> SymbolicExecutionEngine<'d> {
     pub fn execute(
         &mut self,
         block_id: BlockId<PureBbCtx>,
-        arg_types: Vec<ValueType>,
+        invocation_args: InvocationArgs,
     ) -> &ExecutionResult {
         let block = self.blocks.get_block(block_id);
 
         let mut execution = self
             .execution_map
-            .get_execution_mut(block_id, InvocationArgs(arg_types.clone()));
+            .get_execution_mut(block_id, invocation_args.clone());
 
         let mut wtf_borrow_checker = false;
 
@@ -152,7 +166,7 @@ impl<'d> SymbolicExecutionEngine<'d> {
         if wtf_borrow_checker {
             let execution = self
                 .execution_map
-                .get_execution_mut(block_id, InvocationArgs(arg_types));
+                .get_execution_mut(block_id, invocation_args);
 
             match &execution.status {
                 ExecutionStatus::Completed(result) => return result,
@@ -162,12 +176,7 @@ impl<'d> SymbolicExecutionEngine<'d> {
 
         // symbolically execute the function
 
-        let mut registers = RegMap::default();
-
-        debug_assert_eq!(arg_types.len(), block.parameters.len());
-        for (register, arg_type) in block.parameters.iter().zip(arg_types.iter()) {
-            registers.insert(*register, arg_type.clone());
-        }
+        let mut registers = invocation_args.into_reg_map();
 
         let mut never_infected = false;
         for instruction in block.instructions.iter() {
@@ -218,12 +227,21 @@ impl<'d> SymbolicExecutionEngine<'d> {
                     let func = self.ir.functions.get(fn_id).unwrap();
                     let blk_id = self.blocks.get_block_id_by_host(*fn_id, func.entry_block);
 
-                    let arg_typs = args
+                    // TODO: use zip_eq
+                    let src_regs = args.iter().copied().collect::<Vec<_>>();
+                    let dest_regs = self
+                        .blocks
+                        .get_block(blk_id)
+                        .parameters
                         .iter()
-                        .map(|r| registers.get(*r).clone())
+                        .copied()
                         .collect::<Vec<_>>();
+                    debug_assert_eq!(src_regs.len(), dest_regs.len());
 
-                    let result = self.execute(blk_id, arg_typs);
+                    let invocation_args = registers
+                        .prepare_invocation(src_regs.into_iter().zip(dest_regs.into_iter()));
+
+                    let result = self.execute(blk_id, invocation_args);
 
                     match (res, result.return_type()) {
                         (Some(_), ReturnType::Void) => panic!("cannot assign register to void"),
@@ -368,7 +386,7 @@ impl<'d> SymbolicExecutionEngine<'d> {
 
         let mut execution = self
             .execution_map
-            .get_execution_mut(block_id, InvocationArgs(arg_types));
+            .get_execution_mut(block_id, invocation_args);
 
         execution.status = ExecutionStatus::Completed(execution_result);
 
@@ -386,12 +404,21 @@ impl<'d> SymbolicExecutionEngine<'d> {
     ) -> &ExecutionResult {
         let BasicBlockJump(blk_id, args) = jump;
 
-        let arg_typs = args
+        // TODO: use zip_eq
+        let src_regs = args.iter().copied().collect::<Vec<_>>();
+        let dest_regs = self
+            .blocks
+            .get_block(*blk_id)
+            .parameters
             .iter()
-            .map(|r| registers.get(*r).clone())
+            .copied()
             .collect::<Vec<_>>();
+        debug_assert_eq!(src_regs.len(), dest_regs.len());
 
-        self.execute(*blk_id, arg_typs)
+        let invocation_args =
+            registers.prepare_invocation(src_regs.into_iter().zip(dest_regs.into_iter()));
+
+        self.execute(*blk_id, invocation_args)
     }
 }
 
@@ -410,7 +437,7 @@ impl Unifyable for ReturnType {
 }
 
 struct ExecutionMap {
-    map: FxHashMap<BlockId<PureBbCtx>, FxHashMap<InvocationArgs, ExecutionInformation>>,
+    map: FxHashMap<BlockId<PureBbCtx>, PoorMap<InvocationArgs, ExecutionInformation>>,
     counter: Counter<BlockId<AnnotatedCtx>>,
 }
 
@@ -420,7 +447,7 @@ impl ExecutionMap {
         block_id: BlockId<PureBbCtx>,
         args: InvocationArgs,
     ) -> &mut ExecutionInformation {
-        let block_invocations = self.map.entry(block_id).or_insert_with(FxHashMap::default);
+        let block_invocations = self.map.entry(block_id).or_insert_with(Default::default);
 
         let counter = &self.counter;
         let factory = || ExecutionInformation {
@@ -440,7 +467,7 @@ impl ExecutionMap {
                 id_to_invoc.insert(b.id, (bb_id, a.clone()));
             }
 
-            let mut runs = FxHashMap::default();
+            let mut runs = PoorMap::default();
             for (args, exec_info) in invocations.into_iter() {
                 let res = if let ExecutionStatus::Completed(r) = exec_info.status {
                     r
@@ -571,4 +598,20 @@ pub enum ValueType {
     /// A record. The ID present inside of the object is the allocation id. The
     /// allocation id is then linked to a table of allocation IDs to the
     Record(AllocationId<NoContext>),
+}
+
+/// A snapshot of a [`ValueType`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SnapshotType {
+    Any,
+    Runtime,
+    String,
+    ExactString(Vec<u8>),
+    Number,
+    ExactInteger(i64),
+    Boolean,
+    Bool(bool),
+    Pointer(u16),
+    Word,
+    Record(ShapeId<NoContext>),
 }

@@ -45,22 +45,22 @@ pub fn traverse(source: String) -> IR {
 
     let mut builder = ProgramBuilder::new();
 
-    // let print_stub = {
-    //     let (mut print_stub, [any]) = builder.start_function("print_stub");
+    let print_stub = {
+        let (mut print_stub, [any]) = builder.start_function("print_stub");
 
-    //     let print = builder.external_function(
-    //         "jssatrt_print_any",
-    //         [FFIValueType::Runtime, FFIValueType::Any],
-    //         Returns::Void,
-    //     );
+        let print = builder.external_function(
+            "jssatrt_print_any",
+            [FFIValueType::Runtime, FFIValueType::Any],
+            Returns::Void,
+        );
 
-    //     let mut block = print_stub.start_block_main();
-    //     let runtime = block.get_runtime();
-    //     block.call_external_function(print, [runtime, any]);
-    //     print_stub.end_block(block.ret(None));
+        let mut block = print_stub.start_block_main();
+        let runtime = block.get_runtime();
+        block.call_external_function(print, [runtime, any]);
+        print_stub.end_block(block.ret(None));
 
-    //     builder.end_function(print_stub)
-    // };
+        builder.end_function(print_stub)
+    };
 
     let _fib = {
         // let (mut fib, [n]) = builder.start_function("fib");
@@ -165,6 +165,21 @@ pub fn traverse(source: String) -> IR {
     //     builder.end_function(sum)
     // };
 
+    let print_is_cool_and_key = {
+        let (mut func, [record]) = builder.start_function("print_is_cool_and_key");
+
+        let mut block = func.start_block_main();
+
+        let key = block.make_string(builder.constant_str_utf16("", "key".into()));
+        let prop_at_key = block.record_get_prop(record, key);
+        let prop_at_slot = block.record_get_slot(record, "is_cool");
+        block.call(print_stub, [prop_at_key]);
+        block.call(print_stub, [prop_at_slot]);
+
+        func.end_block(block.ret(None));
+        builder.end_function(func)
+    };
+
     let _main = {
         let mut main = builder.start_function_main();
 
@@ -198,6 +213,9 @@ pub fn traverse(source: String) -> IR {
         block.record_set_prop(obj, key, value);
         let value = block.make_number_decimal(1);
         block.record_set_slot(obj, "is_cool", value);
+
+        block.call(print_is_cool_and_key, [obj]);
+
         main.end_block(block.ret(None));
 
         builder.end_function(main)

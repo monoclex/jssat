@@ -1,9 +1,9 @@
-use crate::id::*;
+use crate::{id::*, poor_hashmap::PoorMap};
 use rustc_hash::FxHashMap;
 
-use super::type_annotater::ValueType;
+use super::type_annotater::{InvocationArgs, ValueType};
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RecordShape {
     map: FxHashMap<ShapeKey, ValueType>,
 }
@@ -67,8 +67,8 @@ impl ShapeKey {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct RegMap<C> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RegMap<C: ContextTag> {
     registers: FxHashMap<RegisterId<C>, ValueType>,
     allocation_id_gen: AllocationId<NoContext>,
     allocations: FxHashMap<AllocationId<NoContext>, Vec<ShapeId<C>>>,
@@ -181,6 +181,61 @@ impl<C: ContextTag> RegMap<C> {
             _ => false,
         }
     }
+
+    pub fn prepare_invocation<C2: ContextTag>(
+        &self,
+        arguments: impl Iterator<Item = (RegisterId<C>, RegisterId<C2>)>,
+    ) -> InvocationArgs<C2> {
+        let mut map = RegMap::default();
+        let mut alloc_map = AllocIdMap::default();
+
+        for (argument, target) in arguments {
+            let typ = self.get(argument).clone();
+            let typ = self.map_type(typ, &mut map, &mut alloc_map);
+
+            map.insert(target, typ);
+        }
+
+        InvocationArgs(map)
+    }
+
+    fn map_type<C2: ContextTag>(
+        &self,
+        typ: ValueType,
+        target: &mut RegMap<C2>,
+        alloc_map: &mut AllocIdMap<NoContext, NoContext>,
+    ) -> ValueType {
+        match typ {
+            ValueType::Any
+            | ValueType::Runtime
+            | ValueType::String
+            | ValueType::ExactString(_)
+            | ValueType::Number
+            | ValueType::ExactInteger(_)
+            | ValueType::Boolean
+            | ValueType::Bool(_)
+            | ValueType::Pointer(_)
+            | ValueType::Word => typ,
+            ValueType::Record(orig_alloc_id) => {
+                let (alloc_id, is_new) = alloc_map.map_is_new(orig_alloc_id);
+
+                if is_new {
+                    // if the type is new, we need to make a shape
+                    let current_shape = self.get_shape(orig_alloc_id);
+                    let mut new_shape = RecordShape::default();
+
+                    for (k, v) in current_shape.fields() {
+                        new_shape.add_prop(k.clone(), self.map_type(v.clone(), target, alloc_map));
+                    }
+
+                    let shape_id = target.insert_shape(new_shape);
+                    target.assign_new_shape(alloc_id, shape_id);
+                }
+
+                ValueType::Record(alloc_id)
+            }
+        }
+    }
 }
 
 impl<C: ContextTag> Default for RegMap<C> {
@@ -194,3 +249,14 @@ impl<C: ContextTag> Default for RegMap<C> {
         }
     }
 }
+
+// /// A [`RegMap`], but that derives [`PartialEq`] and [`Eq`] to make it suitable
+// /// for use in comparisons.
+// #[derive(Debug, Clone, PartialEq, Eq)]
+// pub struct RegMapView<C: ContextTag> {
+//     registers: PoorMap<RegisterId<C>, ValueType>,
+//     allocation_id_gen: AllocationId<NoContext>,
+//     allocations: FxHashMap<AllocationId<NoContext>, Vec<ShapeId<C>>>,
+//     shape_id_gen: ShapeId<C>,
+//     shapes: FxHashMap<ShapeId<C>, RecordShape>,
+// }
