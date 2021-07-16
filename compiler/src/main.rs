@@ -19,6 +19,7 @@ pub mod frontend;
 pub mod id;
 pub mod interner;
 pub mod name;
+pub mod poor_hashmap;
 
 /// can't have nice things :'( https://github.com/rust-lang/rust/issues/62633
 pub trait UnwrapNone {

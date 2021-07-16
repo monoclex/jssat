@@ -9,7 +9,7 @@ use super::{
     conv_only_bb::{self, PureBlocks},
     ir,
     ir::{FFIValueType, RecordKey, IR},
-    type_annotater::{self, TypeAnnotations, TypeInformation, ValueType},
+    type_annotater::{self, InvocationArgs, TypeAnnotations, TypeInformation, ValueType},
     types::{RegMap, ShapeKey},
 };
 use crate::{frontend::ir::BasicBlockJump, id::*};
@@ -173,6 +173,7 @@ impl type_annotater::ReturnType {
     }
 }
 
+#[derive(Debug)]
 pub struct UniqueFnIdGen {
     gen: Counter<FunctionId<AssemblerCtx>>,
     map: Mutex<FxHashMap<BlockId<AnnotatedCtx>, FunctionId<AssemblerCtx>>>,
@@ -194,6 +195,7 @@ impl UniqueFnIdGen {
     }
 }
 
+#[derive(Debug)]
 pub struct UniqueBlkIdGen {
     gen: Counter<BlockId<AssemblerCtx>>,
     map: Mutex<FxHashMap<BlockId<AnnotatedCtx>, BlockId<AssemblerCtx>>>,
@@ -226,11 +228,13 @@ impl UniqueBlkIdGen {
     }
 }
 
+#[derive(Debug)]
 pub struct UniqueConstantIdGen {
     gen: Counter<ConstantId<AssemblerCtx>>,
     map: Mutex<MutexGuardedUniqueConstantIdGen>,
 }
 
+#[derive(Debug)]
 struct MutexGuardedUniqueConstantIdGen {
     vals: Vec<Vec<u8>>,
     map: FxHashMap<usize, ConstantId<AssemblerCtx>>,
@@ -270,6 +274,7 @@ impl UniqueConstantIdGen {
     }
 }
 
+#[derive(Debug)]
 struct Assembler<'duration> {
     ir: &'duration IR,
     pure_bocks: &'duration PureBlocks,
@@ -298,24 +303,24 @@ impl<'d> Assembler<'d> {
     pub fn fn_id(
         &self,
         bb_id: BlockId<PureBbCtx>,
-        args: &Vec<ValueType>,
+        args: &InvocationArgs,
     ) -> FunctionId<AssemblerCtx> {
         let type_info = self
             .type_annotations
             .get_invocations(bb_id)
-            .get_type_info_by_invocation(args);
+            .get_type_info_by_invocation_args(args);
         self.fn_id_gen.map(type_info.annotated_id)
     }
 
     pub fn blk_id(
         &self,
         bb_id: BlockId<PureBbCtx>,
-        args: &Vec<ValueType>,
+        args: &InvocationArgs,
     ) -> BlockId<AnnotatedCtx> {
         let type_info = self
             .type_annotations
             .get_invocations(bb_id)
-            .get_type_info_by_invocation(args);
+            .get_type_info_by_invocation_args(args);
         type_info.annotated_id
     }
 
@@ -327,10 +332,9 @@ impl<'d> Assembler<'d> {
         let entry_fn = self.ir.entrypoint;
         let entry_blk = self.ir.entry_block();
         let entry_bb_blk = self.pure_bocks.get_block_id_by_host(entry_fn, entry_blk);
-        let entry_args = Vec::new();
         self.type_annotations
             .get_invocations(entry_bb_blk)
-            .get_type_info_by_invocation(&entry_args)
+            .get_type_info_by_invocation_args(&Default::default())
             .annotated_id
     }
 
@@ -384,6 +388,7 @@ impl<'d> Assembler<'d> {
 //     assembly_requests: Vec<BlockId<AnnotatedCtx>>,
 // }
 
+#[derive(Debug)]
 struct FnAssembler<'duration> {
     assembler: &'duration Assembler<'duration>,
     // fn_id: FunctionId<AssemblerCtx>,
@@ -427,8 +432,13 @@ impl<'d> FnAssembler<'d> {
                 continue;
             }
 
+            let reg_typs = self
+                .type_info_for_assembler_block(block_id)
+                .register_types
+                .clone();
+
             let (block, to_visit, reg_types) =
-                InstWriter::new(&self, block_id, &mut reg_map, &mut to_assemble).write();
+                InstWriter::new(&self, block_id, &mut reg_map, &mut to_assemble, reg_typs).write();
             blocks.insert(block_id, block);
 
             register_types.extend(reg_types);
@@ -457,6 +467,7 @@ impl<'d> FnAssembler<'d> {
     }
 }
 
+#[derive(Debug)]
 struct InstWriter<'duration> {
     fn_assembler: &'duration FnAssembler<'duration>,
     reg_map: &'duration mut RegIdMap<PureBbCtx, AssemblerCtx>,
@@ -479,9 +490,15 @@ impl<'d> InstWriter<'d> {
         block_id: BlockId<AssemblerCtx>,
         reg_map: &'d mut RegIdMap<PureBbCtx, AssemblerCtx>,
         to_assemble: &'d mut Vec<BlockId<AnnotatedCtx>>,
+        bb_register_types: RegMap<PureBbCtx>,
     ) -> Self {
         let type_info = fn_assembler.type_info_for_assembler_block(block_id);
         let bb = (fn_assembler.assembler.pure_bocks).get_block(type_info.pure_id);
+
+        let mut register_types = bb_register_types.duplicate_with_allocations();
+        for r in bb_register_types.registers() {
+            register_types.insert(r.map_context(), bb_register_types.get(r).clone());
+        }
 
         Self {
             fn_assembler,
@@ -489,13 +506,14 @@ impl<'d> InstWriter<'d> {
             type_info,
             to_assemble,
             bb,
-            register_types: Default::default(),
+            register_types,
             instructions: Default::default(),
             to_visit: Default::default(),
         }
     }
 
     pub fn write(mut self) -> (Block, Vec<BlockId<AssemblerCtx>>, RegMap<AssemblerCtx>) {
+        println!("writing: {:?}", &self);
         let parameters = self
             .bb
             .parameters
@@ -667,10 +685,40 @@ impl<'d> InstWriter<'d> {
 
                 let pure_bb_id = (self.fn_assembler.assembler.pure_bocks)
                     .get_block_id_by_host(*fn_id, entry_blk);
-                let arg_typs = self.regs_to_typs(&args);
 
-                let annotated_fn_id = self.fn_assembler.assembler.fn_id(pure_bb_id, &arg_typs);
-                let annotated_blk_id = self.fn_assembler.assembler.blk_id(pure_bb_id, &arg_typs);
+                // TODO: use `zip_eq`
+                println!("!!!! preparing call!!!!!!1!!!!!!");
+                let src_regs = args
+                    .iter()
+                    .map(|r| self.reg_map.map(*r))
+                    .collect::<Vec<_>>();
+                let dest_regs = self
+                    .fn_assembler
+                    .assembler
+                    .pure_bocks
+                    .get_block(pure_bb_id)
+                    .parameters
+                    .iter()
+                    .copied()
+                    .collect::<Vec<_>>();
+                debug_assert_eq!(src_regs.len(), dest_regs.len());
+                let invocation_args = self
+                    .register_types
+                    .prepare_invocation(src_regs.into_iter().zip(dest_regs.into_iter()));
+                println!(
+                    "preparing to call function:::::: {:#?} into block {:#?}",
+                    invocation_args,
+                    self.fn_assembler.assembler.pure_bocks.get_block(pure_bb_id)
+                );
+
+                let annotated_fn_id = self
+                    .fn_assembler
+                    .assembler
+                    .fn_id(pure_bb_id, &invocation_args);
+                let annotated_blk_id = self
+                    .fn_assembler
+                    .assembler
+                    .blk_id(pure_bb_id, &invocation_args);
 
                 let args = args.iter().map(|r| self.reg_map.map(*r)).collect();
 
@@ -777,14 +825,32 @@ impl<'d> InstWriter<'d> {
     fn map_bbjump(&mut self, bbjump: &BasicBlockJump<PureBbCtx, PureBbCtx>) -> BlockJump {
         let BasicBlockJump(id, args) = bbjump;
 
-        let arg_types = self.regs_to_typs(&args);
+        // TODO: use `zip_eq`
+        println!("!!!! preparing cal2l!!!!!!!!!!!!");
+        let src_regs = args
+            .iter()
+            .map(|r| self.reg_map.map(*r))
+            .collect::<Vec<_>>();
+        let dest_regs = self
+            .fn_assembler
+            .assembler
+            .pure_bocks
+            .get_block(*id)
+            .parameters
+            .iter()
+            .copied()
+            .collect::<Vec<_>>();
+        debug_assert_eq!(src_regs.len(), dest_regs.len());
+        let invocation_args = self
+            .register_types
+            .prepare_invocation(src_regs.into_iter().zip(dest_regs.into_iter()));
 
         let typ_info = self
             .fn_assembler
             .assembler
             .type_annotations
             .get_invocations(*id)
-            .get_type_info_by_invocation(&arg_types);
+            .get_type_info_by_invocation_args(&invocation_args);
 
         let id = self.fn_assembler.block_id_map.map(typ_info.annotated_id);
         self.to_visit.push(id);

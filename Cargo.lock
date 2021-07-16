@@ -22,6 +22,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "assoc"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "37200bb9adb6850bb06aa3970a77e9697a446ed37517cfd0a8207b2de8cd53a8"
+
+[[package]]
 name = "ast_node"
 version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -283,6 +289,7 @@ dependencies = [
 name = "jssat"
 version = "0.1.0"
 dependencies = [
+ "assoc",
  "bimap",
  "cc",
  "inkwell",

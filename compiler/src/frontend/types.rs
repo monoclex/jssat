@@ -79,7 +79,11 @@ pub struct RegMap<C: ContextTag> {
 impl<C: ContextTag> RegMap<C> {
     pub fn insert(&mut self, register: RegisterId<C>, typ: ValueType) {
         if let ValueType::Record(alloc) = &typ {
-            debug_assert!(self.allocations.contains_key(&alloc.map_context()));
+            debug_assert!(
+                self.allocations.contains_key(&alloc.map_context()),
+                "failed assertion: {:?}",
+                &self
+            );
         }
 
         self.registers.insert(register, typ);
@@ -91,6 +95,10 @@ impl<C: ContextTag> RegMap<C> {
         let alloc_id = self.allocation_id_gen.next_and_mut();
         self.allocations.insert(alloc_id, vec![shape]);
         alloc_id
+    }
+
+    pub fn alloc_alloc(&mut self, alloc_id: AllocationId<NoContext>) {
+        self.allocations.insert(alloc_id, vec![]);
     }
 
     pub fn insert_shape(&mut self, shape: RecordShape) -> ShapeId<C> {
@@ -127,6 +135,10 @@ impl<C: ContextTag> RegMap<C> {
 
     pub fn get_shape_by_id(&self, shape_id: &ShapeId<C>) -> &RecordShape {
         self.shapes.get(shape_id).unwrap()
+    }
+
+    pub fn registers<'me>(&'me self) -> impl Iterator<Item = RegisterId<C>> + 'me {
+        self.registers.keys().copied()
     }
 
     pub fn allocations(
@@ -172,14 +184,27 @@ impl<C: ContextTag> RegMap<C> {
     /// performance deficits because the more registers we use the more likely
     /// we'll need to spill onto the stack to generate a function.
     pub fn is_simple(&self, register: RegisterId<C>) -> bool {
-        match self.get(register) {
+        self.is_simple_typ(self.get(register))
+    }
+
+    pub fn is_simple_typ(&self, typ: &ValueType) -> bool {
+        match typ {
             ValueType::Runtime
             | ValueType::ExactInteger(_)
             | ValueType::Bool(_)
             | ValueType::ExactString(_) => true,
-            ValueType::Record(_) => todo!(),
+            ValueType::Record(alloc) => {
+                let shape = self.get_shape(*alloc);
+                self.is_simple_shape(shape)
+            }
             _ => false,
         }
+    }
+
+    fn is_simple_shape(&self, shape: &RecordShape) -> bool {
+        shape
+            .fields()
+            .fold(true, |current, (_, v)| self.is_simple_typ(v) && current)
     }
 
     pub fn prepare_invocation<C2: ContextTag>(
@@ -220,12 +245,15 @@ impl<C: ContextTag> RegMap<C> {
                 let (alloc_id, is_new) = alloc_map.map_is_new(orig_alloc_id);
 
                 if is_new {
-                    // if the type is new, we need to make a shape
+                    // if the type is new, we need to make a shape and allocation things
+                    target.alloc_alloc(alloc_id);
                     let current_shape = self.get_shape(orig_alloc_id);
                     let mut new_shape = RecordShape::default();
 
                     for (k, v) in current_shape.fields() {
-                        new_shape.add_prop(k.clone(), self.map_type(v.clone(), target, alloc_map));
+                        // TODO: this is a pitfall
+                        new_shape = new_shape
+                            .add_prop(k.clone(), self.map_type(v.clone(), target, alloc_map));
                     }
 
                     let shape_id = target.insert_shape(new_shape);
@@ -235,6 +263,32 @@ impl<C: ContextTag> RegMap<C> {
                 ValueType::Record(alloc_id)
             }
         }
+    }
+
+    pub fn duplicate_with_allocations<C2: ContextTag>(&self) -> RegMap<C2> {
+        let mut target = RegMap::default();
+
+        target.allocation_id_gen = self.allocation_id_gen.clone();
+        target.allocations = self
+            .allocations
+            .clone()
+            .into_iter()
+            .map(|(k, v)| {
+                (
+                    k,
+                    v.into_iter().map(|s| s.map_context()).collect::<Vec<_>>(),
+                )
+            })
+            .collect();
+        target.shape_id_gen = self.shape_id_gen.map_context().clone();
+        target.shapes = self
+            .shapes
+            .clone()
+            .into_iter()
+            .map(|(k, v)| (k.map_context(), v))
+            .collect();
+
+        target
     }
 }
 

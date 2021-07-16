@@ -187,6 +187,7 @@ impl<I: IdCompat> Default for Counter<I> {
     }
 }
 
+#[derive(Debug)]
 pub struct RegIdMap<T, U> {
     registers: FxHashMap<RegisterId<T>, RegisterId<U>>,
     reg_counter: Counter<RegisterId<U>>,

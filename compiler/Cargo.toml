@@ -26,6 +26,7 @@ swc_ecmascript = { version = "0.36.0", features = ["parser", "utils"], optional 
 tempfile = "3.2.0"
 bimap = "0.6.1"
 ref-cast = "1.0.6"
+assoc = "0.1.2"
 
 [dependencies.inkwell]
 git = "https://github.com/TheDan64/inkwell"

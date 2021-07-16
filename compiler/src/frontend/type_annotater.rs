@@ -50,14 +50,14 @@ pub struct BlockExecutions {
 }
 
 impl BlockExecutions {
-    pub fn get_type_info_by_invocation(
-        &self,
-        invocation_args: &Vec<ValueType>,
-    ) -> &TypeInformation {
-        self.get_type_info_by_invocation_args(InvocationArgs::ref_cast(invocation_args))
-    }
+    // pub fn get_type_info_by_invocation(
+    //     &self,
+    //     invocation_args: &Vec<ValueType>,
+    // ) -> &TypeInformation {
+    //     self.get_type_info_by_invocation_args(InvocationArgs::ref_cast(invocation_args))
+    // }
 
-    fn get_type_info_by_invocation_args(
+    pub fn get_type_info_by_invocation_args(
         &self,
         invocation_args: &InvocationArgs,
     ) -> &TypeInformation {
@@ -90,14 +90,14 @@ pub struct TypeInformation {
 }
 
 impl TypeInformation {
-    pub fn invocation_args(&self, bblock: &Block) -> Vec<ValueType> {
-        bblock
-            .parameters
-            .iter()
-            .map(|r| self.register_types.get(*r))
-            .cloned()
-            .collect()
-    }
+    // pub fn invocation_args(&self, bblock: &Block) -> Vec<ValueType> {
+    //     bblock
+    //         .parameters
+    //         .iter()
+    //         .map(|r| self.register_types.get(*r))
+    //         .cloned()
+    //         .collect()
+    // }
 
     pub fn get_type(&self, register_id: RegisterId<PureBbCtx>) -> &ValueType {
         self.register_types.get(register_id)
@@ -176,7 +176,7 @@ impl<'d> SymbolicExecutionEngine<'d> {
 
         // symbolically execute the function
 
-        let mut registers = invocation_args.into_reg_map();
+        let mut registers = invocation_args.clone().into_reg_map();
 
         let mut never_infected = false;
         for instruction in block.instructions.iter() {
@@ -228,6 +228,7 @@ impl<'d> SymbolicExecutionEngine<'d> {
                     let blk_id = self.blocks.get_block_id_by_host(*fn_id, func.entry_block);
 
                     // TODO: use zip_eq
+                    println!("!!!! preparing call");
                     let src_regs = args.iter().copied().collect::<Vec<_>>();
                     let dest_regs = self
                         .blocks
@@ -405,6 +406,7 @@ impl<'d> SymbolicExecutionEngine<'d> {
         let BasicBlockJump(blk_id, args) = jump;
 
         // TODO: use zip_eq
+        println!("!!!! preparing call");
         let src_regs = args.iter().copied().collect::<Vec<_>>();
         let dest_regs = self
             .blocks
