@@ -457,11 +457,15 @@ impl DynBlockBuilder {
     }
 
     pub fn make_null(&mut self) -> RegisterId {
-        todo!()
+        let result = self.gen_register_id.next();
+        self.instructions.push(Instruction::MakeNull(result));
+        result
     }
 
     pub fn make_undefined(&mut self) -> RegisterId {
-        todo!()
+        let result = self.gen_register_id.next();
+        self.instructions.push(Instruction::MakeUndefined(result));
+        result
     }
 
     pub fn make_fnptr(&mut self, function_id: FunctionId) -> RegisterId {
@@ -520,7 +524,10 @@ impl DynBlockBuilder {
     }
 
     pub fn compare_equal(&mut self, lhs: RegisterId, rhs: RegisterId) -> RegisterId {
-        todo!("impl compare eq")
+        let result = self.gen_register_id.next();
+        self.instructions
+            .push(Instruction::CompareEqual(result, lhs, rhs));
+        result
     }
 
     pub fn compare_less_than(&mut self, lhs: RegisterId, rhs: RegisterId) -> RegisterId {
@@ -531,7 +538,9 @@ impl DynBlockBuilder {
     }
 
     pub fn negate(&mut self, value: RegisterId) -> RegisterId {
-        todo!("impl negati9n")
+        let result = self.gen_register_id.next();
+        self.instructions.push(Instruction::Negate(result, value));
+        result
     }
 
     pub fn call<const PARAMETERS: usize>(

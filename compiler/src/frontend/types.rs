@@ -173,7 +173,9 @@ impl<C: ContextTag> RegMap<C> {
             ValueType::ExactInteger(_)
             | ValueType::ExactString(_)
             | ValueType::Bool(_)
-            | ValueType::FnPtr(_) => true,
+            | ValueType::FnPtr(_)
+            | ValueType::Null
+            | ValueType::Undefined => true,
             &ValueType::Record(allocation) => self.is_const_shape(allocation.map_context()),
         }
     }
@@ -254,6 +256,8 @@ impl<C: ContextTag> RegMap<C> {
             | ValueType::Bool(_)
             | ValueType::Pointer(_)
             | ValueType::Word
+            | ValueType::Undefined
+            | ValueType::Null
             | ValueType::FnPtr(_) => typ,
             ValueType::Record(orig_alloc_id) => {
                 let (alloc_id, is_new) = alloc_map.map_is_new(orig_alloc_id);

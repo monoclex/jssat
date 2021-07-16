@@ -170,7 +170,11 @@ pub enum Instruction<C: ContextTag = crate::id::IrCtx, C2: ContextTag = crate::i
     // /// times.
     // Unreachable,
     MakeInteger(RegisterId<C>, i64),
+    MakeNull(RegisterId<C>),
+    MakeUndefined(RegisterId<C>),
     CompareLessThan(RegisterId<C>, RegisterId<C>, RegisterId<C>),
+    CompareEqual(RegisterId<C>, RegisterId<C>, RegisterId<C>),
+    Negate(RegisterId<C>, RegisterId<C>),
     Add(RegisterId<C>, RegisterId<C>, RegisterId<C>),
 }
 
@@ -256,6 +260,12 @@ impl<C: ContextTag> Instruction<C> {
             Instruction::ReferenceOfFunction(r, f) => {
                 Instruction::ReferenceOfFunction(r.map_context(), f.map_context())
             }
+            Instruction::MakeNull(r) => Instruction::MakeNull(r.map_context()),
+            Instruction::MakeUndefined(r) => Instruction::MakeUndefined(r.map_context()),
+            Instruction::CompareEqual(a, b, c) => {
+                Instruction::CompareEqual(a.map_context(), b.map_context(), c.map_context())
+            }
+            Instruction::Negate(a, b) => Instruction::Negate(a.map_context(), b.map_context()),
         }
     }
 }
@@ -307,11 +317,15 @@ impl<C: ContextTag> Instruction<C> {
             Instruction::GetRuntime(result)
             | Instruction::MakeString(result, _)
             | Instruction::MakeInteger(result, _)
+            | Instruction::MakeNull(result)
+            | Instruction::MakeUndefined(result)
             | Instruction::CompareLessThan(result, _, _)
             | Instruction::Add(result, _, _)
             | Instruction::RecordNew(result)
             | Instruction::RecordGet { result, .. }
-            | Instruction::ReferenceOfFunction(result, _) => Some(*result),
+            | Instruction::ReferenceOfFunction(result, _)
+            | Instruction::CompareEqual(result, _, _)
+            | Instruction::Negate(result, _) => Some(*result),
             Instruction::RecordSet { .. } => None,
         }
     }
@@ -325,6 +339,8 @@ impl<C: ContextTag> Instruction<C> {
             Instruction::GetRuntime(_)
             | Instruction::MakeString(_, _)
             | Instruction::MakeInteger(_, _)
+            | Instruction::MakeNull(_)
+            | Instruction::MakeUndefined(_)
             | Instruction::RecordNew(_)
             | Instruction::ReferenceOfFunction(_, _) => Vec::new(),
             Instruction::RecordGet {
@@ -347,6 +363,8 @@ impl<C: ContextTag> Instruction<C> {
                 key: RecordKey::InternalSlot(_),
                 value,
             } => vec![*record, *value],
+            &Instruction::CompareEqual(_, a, b) => vec![a, b],
+            &Instruction::Negate(_, a) => vec![a],
         }
     }
 
@@ -359,6 +377,8 @@ impl<C: ContextTag> Instruction<C> {
             Instruction::GetRuntime(_)
             | Instruction::MakeString(_, _)
             | Instruction::MakeInteger(_, _)
+            | Instruction::MakeNull(_)
+            | Instruction::MakeUndefined(_)
             | Instruction::RecordNew(_)
             | Instruction::ReferenceOfFunction(_, _) => Vec::new(),
             Instruction::RecordGet {
@@ -381,6 +401,8 @@ impl<C: ContextTag> Instruction<C> {
                 key: RecordKey::InternalSlot(_),
                 value,
             } => vec![record, value],
+            Instruction::CompareEqual(_, a, b) => vec![a, b],
+            Instruction::Negate(_, a) => vec![a],
         }
     }
 }

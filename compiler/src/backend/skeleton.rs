@@ -283,6 +283,14 @@ impl type_annotater::ValueType {
             // function pointers aren't implemented as actual function pointers but a number that switches
             // where to go based on the value
             type_annotater::ValueType::FnPtr(_) => llvm::ValueType::WordSizeBitType,
+            // TODO: i keep having to repeat the value types for LLVM things, maybe there's a trait i can implement
+            // for value types or something
+            // like go look at the code to for MakeNull, i have to push a number
+            // and then here i have to add it here too
+            // it's a mega todo to fix that
+            type_annotater::ValueType::Null | type_annotater::ValueType::Undefined => {
+                llvm::ValueType::BitType(1)
+            }
             t => unimplemented!("for {:?}", t),
         }
     }
@@ -723,6 +731,8 @@ pub fn translate(program: Program) -> BackendIR<'static> {
                                     | type_annotater::ValueType::Bool(_)
                                     | type_annotater::ValueType::Pointer(_)
                                     | type_annotater::ValueType::Word
+                                    | type_annotater::ValueType::Undefined
+                                    | type_annotater::ValueType::Null
                                     | type_annotater::ValueType::Record(_)
                                     | type_annotater::ValueType::FnPtr(_) => todo!(),
                                 },
@@ -768,6 +778,8 @@ pub fn translate(program: Program) -> BackendIR<'static> {
                                     | type_annotater::ValueType::Bool(_)
                                     | type_annotater::ValueType::Pointer(_)
                                     | type_annotater::ValueType::Word
+                                    | type_annotater::ValueType::Undefined
+                                    | type_annotater::ValueType::Null
                                     | type_annotater::ValueType::Record(_)
                                     | type_annotater::ValueType::FnPtr(_) => todo!(),
                                 },
@@ -792,6 +804,20 @@ pub fn translate(program: Program) -> BackendIR<'static> {
                         } else {
                             panic!("cannot get non-record")
                         }
+                    }
+                    &assembler::Instruction::MakeNull(r) => {
+                        // TODO: use zero sized types to represent null and undefined maybe?
+                        instructions.push(llvm::Instruction::LoadNumber {
+                            result: reg_map.map(r),
+                            value: NumberValue::SignedArbitrary(1, 0),
+                        });
+                    }
+                    &assembler::Instruction::MakeUndefined(r) => {
+                        // TODO: use zero sized types to represent null and undefined maybe?
+                        instructions.push(llvm::Instruction::LoadNumber {
+                            result: reg_map.map(r),
+                            value: NumberValue::SignedArbitrary(1, 0),
+                        });
                     }
                 }
             }

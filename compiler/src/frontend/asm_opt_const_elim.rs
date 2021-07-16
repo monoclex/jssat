@@ -166,6 +166,12 @@ fn stack_alloc_valule(
                 });
             }
         }
+        ValueType::Null => {
+            prepend.push(Instruction::MakeNull(r));
+        }
+        ValueType::Undefined => {
+            prepend.push(Instruction::MakeUndefined(r));
+        }
         ValueType::Any
         | ValueType::Runtime
         | ValueType::String

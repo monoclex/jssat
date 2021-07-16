@@ -331,6 +331,8 @@ impl<'d> SymbolicExecutionEngine<'d> {
                             | ValueType::ExactInteger(_)
                             | ValueType::Boolean
                             | ValueType::Bool(_)
+                            | ValueType::Null
+                            | ValueType::Undefined
                             | ValueType::Word => {
                                 todo!("may be implemented at a later date, but dunno")
                             }
@@ -363,6 +365,8 @@ impl<'d> SymbolicExecutionEngine<'d> {
                             | ValueType::ExactInteger(_)
                             | ValueType::Boolean
                             | ValueType::Bool(_)
+                            | ValueType::Null
+                            | ValueType::Undefined
                             | ValueType::Word => {
                                 todo!("may be implemented at a later date, but dunno")
                             }
@@ -385,6 +389,54 @@ impl<'d> SymbolicExecutionEngine<'d> {
                     } else {
                         panic!("cannot call RecordSet on non record");
                     }
+                }
+                &Instruction::MakeNull(r) => {
+                    registers.insert(r, ValueType::Null);
+                }
+                &Instruction::MakeUndefined(r) => {
+                    registers.insert(r, ValueType::Undefined);
+                }
+                &Instruction::Negate(r, i) => {
+                    let typ = registers.get(i);
+
+                    match typ {
+                        ValueType::Boolean => registers.insert(r, ValueType::Boolean),
+                        &ValueType::Bool(value) => registers.insert(r, ValueType::Bool(!value)),
+                        ValueType::Any
+                        | ValueType::Runtime
+                        | ValueType::String
+                        | ValueType::ExactString(_)
+                        | ValueType::Pointer(_)
+                        | ValueType::Number
+                        | ValueType::ExactInteger(_)
+                        | ValueType::Word
+                        | ValueType::Record(_)
+                        | ValueType::FnPtr(_)
+                        | ValueType::Null
+                        | ValueType::Undefined => unimplemented!("cannot negate {:?}", typ),
+                    };
+                }
+                &Instruction::CompareEqual(res, l, r) => {
+                    let l = registers.get(l);
+                    let r = registers.get(r);
+
+                    let res_typ = match (l, r) {
+                        (ValueType::String, ValueType::String)
+                        | (ValueType::ExactString(_), ValueType::String)
+                        | (ValueType::String, ValueType::ExactString(_)) => ValueType::Boolean,
+                        (ValueType::ExactString(a), ValueType::ExactString(b)) => {
+                            ValueType::Bool(a == b)
+                        }
+                        (ValueType::Number, ValueType::Number)
+                        | (ValueType::Number, ValueType::ExactInteger(_))
+                        | (ValueType::ExactInteger(_), ValueType::Number) => ValueType::Boolean,
+                        (&ValueType::ExactInteger(l), &ValueType::ExactInteger(r)) => {
+                            ValueType::Bool(l == r)
+                        }
+                        (l, r) => panic!("unsupported `==` of types {:?} and {:?}", l, r),
+                    };
+
+                    registers.insert(res, res_typ);
                 }
             };
         }
@@ -651,6 +703,8 @@ pub enum ValueType {
     /// allocation id is then linked to a table of allocation IDs to the
     Record(AllocationId<NoContext>),
     FnPtr(BlockId<PureBbCtx>),
+    Null,
+    Undefined,
 }
 
 /// A snapshot of a [`ValueType`].

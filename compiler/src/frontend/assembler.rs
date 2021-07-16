@@ -85,6 +85,8 @@ pub enum Instruction {
     MakeString(RegisterId<AssemblerCtx>, ConstantId<AssemblerCtx>),
     MakeNumber(RegisterId<AssemblerCtx>, i64),
     MakeBoolean(RegisterId<AssemblerCtx>, bool),
+    MakeNull(RegisterId<AssemblerCtx>),
+    MakeUndefined(RegisterId<AssemblerCtx>),
     /// "Widens" a given register to a type. The type must wider/bigger than the
     /// input register.
     Widen {
@@ -845,6 +847,8 @@ impl<'d> InstWriter<'d> {
                         | ValueType::ExactInteger(_)
                         | ValueType::Boolean
                         | ValueType::Bool(_)
+                        | ValueType::Null
+                        | ValueType::Undefined
                         | ValueType::Word => {
                             todo!("may be implemented at a later date, but dunno")
                         }
@@ -879,6 +883,8 @@ impl<'d> InstWriter<'d> {
                         | ValueType::ExactInteger(_)
                         | ValueType::Boolean
                         | ValueType::Bool(_)
+                        | ValueType::Null
+                        | ValueType::Undefined
                         | ValueType::Word => {
                             todo!("may be implemented at a later date, but dunno")
                         }
@@ -900,6 +906,43 @@ impl<'d> InstWriter<'d> {
                     self.register_types.assign_new_shape(alloc, shape_id);
                 } else {
                     panic!("cannot call RecordSet on non record");
+                }
+            }
+            &ir::Instruction::MakeNull(r) => {
+                self.instructions
+                    .push(Instruction::MakeNull(self.reg_map.map(r)));
+            }
+            &ir::Instruction::MakeUndefined(r) => {
+                self.instructions
+                    .push(Instruction::MakeUndefined(self.reg_map.map(r)));
+            }
+            &ir::Instruction::CompareEqual(res, l, r) => {
+                let res_typ = self.type_info.get_type(res);
+
+                let res = self.reg_map.map(res);
+                let l = self.reg_map.map(l);
+                let r = self.reg_map.map(r);
+
+                // TODO: emit a `CompareEqual` instruction properly
+                // same case with above (i.e. Add)
+                if let ValueType::Bool(b) = *res_typ {
+                    self.instructions.push(Instruction::MakeBoolean(res, b));
+                } else {
+                    todo!("suport non const comparison via {:?} {:?}", l, r);
+                }
+            }
+            &ir::Instruction::Negate(res, v) => {
+                let res_typ = self.type_info.get_type(res);
+
+                let res = self.reg_map.map(res);
+                let r = self.reg_map.map(v);
+
+                // TODO: emit a `Negate` instruction properly
+                // same case with above
+                if let ValueType::Bool(b) = *res_typ {
+                    self.instructions.push(Instruction::MakeBoolean(res, b));
+                } else {
+                    todo!("suport non const comparison via {:?} {:?}", r, v);
                 }
             }
         };
@@ -983,6 +1026,8 @@ impl Instruction {
             | Instruction::MakeString(result, _)
             | Instruction::MakeNumber(result, _)
             | Instruction::MakeBoolean(result, _)
+            | Instruction::MakeNull(result)
+            | Instruction::MakeUndefined(result)
             | Instruction::Widen { result, .. }
             | Instruction::RecordNew(result)
             | Instruction::RecordGet { result, .. }
@@ -1023,7 +1068,11 @@ impl Instruction {
                 key: RecordKey::InternalSlot(_),
                 value,
             } => vec![*record, *value],
-            Instruction::Unreachable | Instruction::Noop | Instruction::RecordNew(_) => vec![],
+            Instruction::Unreachable
+            | Instruction::Noop
+            | Instruction::RecordNew(_)
+            | Instruction::MakeNull(_)
+            | Instruction::MakeUndefined(_) => vec![],
         }
     }
 
@@ -1059,7 +1108,11 @@ impl Instruction {
                 key: RecordKey::InternalSlot(_),
                 value,
             } => vec![record, value],
-            Instruction::Unreachable | Instruction::Noop | Instruction::RecordNew(_) => vec![],
+            Instruction::Unreachable
+            | Instruction::Noop
+            | Instruction::RecordNew(_)
+            | Instruction::MakeNull(_)
+            | Instruction::MakeUndefined(_) => vec![],
         }
     }
 }
