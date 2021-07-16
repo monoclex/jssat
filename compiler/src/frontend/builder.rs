@@ -1,3 +1,5 @@
+use std::mem::ManuallyDrop;
+use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
 use rustc_hash::FxHashMap;
@@ -7,11 +9,11 @@ use crate::id::{Counter, IdCompat};
 use crate::name::DebugName;
 use crate::UnwrapNone;
 
-type BlockId = crate::id::BlockId<crate::id::IrCtx>;
-type FunctionId = crate::id::FunctionId<crate::id::IrCtx>;
-type ConstantId = crate::id::ConstantId<crate::id::IrCtx>;
-type RegisterId = crate::id::RegisterId<crate::id::IrCtx>;
-type ExternalFunctionId = crate::id::ExternalFunctionId<crate::id::IrCtx>;
+pub type BlockId = crate::id::BlockId<crate::id::IrCtx>;
+pub type FunctionId = crate::id::FunctionId<crate::id::IrCtx>;
+pub type ConstantId = crate::id::ConstantId<crate::id::IrCtx>;
+pub type RegisterId = crate::id::RegisterId<crate::id::IrCtx>;
+pub type ExternalFunctionId = crate::id::ExternalFunctionId<crate::id::IrCtx>;
 
 // TODO: these should be doctests probably, but those don't run in a binary crate
 #[test]
@@ -73,6 +75,10 @@ impl ProgramBuilder {
 
         let id = self.constants.len() - 1;
         ConstantId::new_with_value(id)
+    }
+
+    pub fn constant_str(&mut self, name: &str, message: String) -> ConstantId {
+        self.constant(name, message.into_bytes())
     }
 
     pub fn constant_str_utf16(&mut self, name: &str, message: String) -> ConstantId {
@@ -267,6 +273,10 @@ impl<'n, const P: usize> FunctionBuilder<'n, P> {
         &mut self,
         mut builder: FinalizedBlockBuilder<PARAMETERS>,
     ) -> BlkSignature<PARAMETERS> {
+        BlkSignature(self.end_block_dyn(builder.0))
+    }
+
+    pub fn end_block_dyn(&mut self, mut builder: DynFinalizedBlockBuilder) -> DynBlkSignature {
         let signature = builder.builder.signature();
 
         builder.is_ok_to_drop = true;
@@ -292,17 +302,36 @@ pub struct FnSignature<const PARAMETERS: usize> {
 }
 
 #[derive(Clone, Copy)]
-pub struct BlkSignature<const PARAMETERS: usize> {
+pub struct DynBlkSignature {
     pub id: BlockId,
 }
 
+#[derive(Clone, Copy)]
+pub struct BlkSignature<const PARAMETERS: usize>(DynBlkSignature);
+
+impl<const P: usize> Deref for BlkSignature<P> {
+    type Target = DynBlkSignature;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 #[derive(Clone)]
-pub struct BlockBuilder<const PARAMETERS: usize> {
-    pub id: BlockId,
-    gen_register_id: Arc<Counter<RegisterId>>,
-    parameters: [RegisterId; PARAMETERS],
-    instructions: Vec<Instruction>,
-    is_ok_to_drop: bool,
+pub struct BlockBuilder<const PARAMETERS: usize>(DynBlockBuilder);
+
+impl<const P: usize> Deref for BlockBuilder<P> {
+    type Target = DynBlockBuilder;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<const P: usize> DerefMut for BlockBuilder<P> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
 }
 
 impl<const P: usize> BlockBuilder<P> {
@@ -311,10 +340,95 @@ impl<const P: usize> BlockBuilder<P> {
         gen_register_id: Arc<Counter<RegisterId>>,
         parameters: [RegisterId; P],
     ) -> Self {
+        Self(DynBlockBuilder::new(
+            id,
+            gen_register_id,
+            parameters.to_vec(),
+        ))
+    }
+
+    pub fn into_dynamic(self) -> DynBlockBuilder {
+        self.0
+    }
+
+    pub fn jmp<const PARAMETERS: usize>(
+        self,
+        block: BlkSignature<PARAMETERS>,
+        values: [RegisterId; PARAMETERS],
+    ) -> FinalizedBlockBuilder<P> {
+        self.jmp_dynargs(block.id, values.to_vec())
+    }
+
+    pub fn jmp_dynargs(
+        mut self,
+        block: BlockId,
+        values: Vec<RegisterId>,
+    ) -> FinalizedBlockBuilder<P> {
+        FinalizedBlockBuilder(self.0.jmp_dynargs(block, values))
+    }
+
+    pub fn ret(mut self, value: Option<RegisterId>) -> FinalizedBlockBuilder<P> {
+        FinalizedBlockBuilder(self.0.ret(value))
+    }
+
+    pub fn jmpif<const PARAMS_TRUE: usize, const PARAMS_FALSE: usize>(
+        self,
+        condition: RegisterId,
+        block_true: BlkSignature<PARAMS_TRUE>,
+        values_true: [RegisterId; PARAMS_TRUE],
+        block_false: BlkSignature<PARAMS_FALSE>,
+        values_false: [RegisterId; PARAMS_FALSE],
+    ) -> FinalizedBlockBuilder<P> {
+        self.jmpif_dynargs(
+            condition,
+            block_true.id,
+            values_true.to_vec(),
+            block_false.id,
+            values_false.to_vec(),
+        )
+    }
+
+    pub fn jmpif_dynargs(
+        mut self,
+        condition: RegisterId,
+        block_true: BlockId,
+        values_true: Vec<RegisterId>,
+        block_false: BlockId,
+        values_false: Vec<RegisterId>,
+    ) -> FinalizedBlockBuilder<P> {
+        FinalizedBlockBuilder(self.0.jmpif_dynargs(
+            condition,
+            block_true,
+            values_true,
+            block_false,
+            values_false,
+        ))
+    }
+
+    pub fn signature(&self) -> BlkSignature<P> {
+        BlkSignature(self.0.signature())
+    }
+}
+
+#[derive(Clone)]
+pub struct DynBlockBuilder {
+    pub id: BlockId,
+    gen_register_id: Arc<Counter<RegisterId>>,
+    parameters: Vec<RegisterId>,
+    instructions: Vec<Instruction>,
+    is_ok_to_drop: bool,
+}
+
+impl DynBlockBuilder {
+    fn new(
+        id: BlockId,
+        gen_register_id: Arc<Counter<RegisterId>>,
+        parameters: Vec<RegisterId>,
+    ) -> Self {
         Self {
             id,
             gen_register_id,
-            parameters,
+            parameters: parameters.to_vec(),
             instructions: vec![],
             is_ok_to_drop: false,
         }
@@ -340,6 +454,14 @@ impl<const P: usize> BlockBuilder<P> {
         self.instructions
             .push(Instruction::MakeInteger(result, value));
         result
+    }
+
+    pub fn make_null(&mut self) -> RegisterId {
+        todo!()
+    }
+
+    pub fn make_undefined(&mut self) -> RegisterId {
+        todo!()
     }
 
     pub fn make_fnptr(&mut self, function_id: FunctionId) -> RegisterId {
@@ -397,11 +519,19 @@ impl<const P: usize> BlockBuilder<P> {
         result
     }
 
+    pub fn compare_equal(&mut self, lhs: RegisterId, rhs: RegisterId) -> RegisterId {
+        todo!("impl compare eq")
+    }
+
     pub fn compare_less_than(&mut self, lhs: RegisterId, rhs: RegisterId) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions
             .push(Instruction::CompareLessThan(result, lhs, rhs));
         result
+    }
+
+    pub fn negate(&mut self, value: RegisterId) -> RegisterId {
+        todo!("impl negati9n")
     }
 
     pub fn call<const PARAMETERS: usize>(
@@ -523,51 +653,26 @@ impl<const P: usize> BlockBuilder<P> {
         result
     }
 
-    pub fn jmp<const PARAMETERS: usize>(
-        self,
-        block: BlkSignature<PARAMETERS>,
-        values: [RegisterId; PARAMETERS],
-    ) -> FinalizedBlockBuilder<P> {
-        self.jmp_dynargs(block.id, values.to_vec())
-    }
-
     pub fn jmp_dynargs(
         mut self,
         block: BlockId,
         values: Vec<RegisterId>,
-    ) -> FinalizedBlockBuilder<P> {
+    ) -> DynFinalizedBlockBuilder {
         self.is_ok_to_drop = true;
-        FinalizedBlockBuilder {
+        DynFinalizedBlockBuilder {
             builder: self,
             is_ok_to_drop: false,
             end_control_flow: ControlFlowInstruction::Jmp(BasicBlockJump(block, values)),
         }
     }
 
-    pub fn ret(mut self, value: Option<RegisterId>) -> FinalizedBlockBuilder<P> {
+    pub fn ret(mut self, value: Option<RegisterId>) -> DynFinalizedBlockBuilder {
         self.is_ok_to_drop = true;
-        FinalizedBlockBuilder {
+        DynFinalizedBlockBuilder {
             builder: self,
             is_ok_to_drop: false,
             end_control_flow: ControlFlowInstruction::Ret(value),
         }
-    }
-
-    pub fn jmpif<const PARAMS_TRUE: usize, const PARAMS_FALSE: usize>(
-        self,
-        condition: RegisterId,
-        block_true: BlkSignature<PARAMS_TRUE>,
-        values_true: [RegisterId; PARAMS_TRUE],
-        block_false: BlkSignature<PARAMS_FALSE>,
-        values_false: [RegisterId; PARAMS_FALSE],
-    ) -> FinalizedBlockBuilder<P> {
-        self.jmpif_dynargs(
-            condition,
-            block_true.id,
-            values_true.to_vec(),
-            block_false.id,
-            values_false.to_vec(),
-        )
     }
 
     pub fn jmpif_dynargs(
@@ -577,9 +682,9 @@ impl<const P: usize> BlockBuilder<P> {
         values_true: Vec<RegisterId>,
         block_false: BlockId,
         values_false: Vec<RegisterId>,
-    ) -> FinalizedBlockBuilder<P> {
+    ) -> DynFinalizedBlockBuilder {
         self.is_ok_to_drop = true;
-        FinalizedBlockBuilder {
+        DynFinalizedBlockBuilder {
             builder: self,
             is_ok_to_drop: false,
             end_control_flow: ControlFlowInstruction::JmpIf {
@@ -590,31 +695,39 @@ impl<const P: usize> BlockBuilder<P> {
         }
     }
 
-    pub fn signature(&self) -> BlkSignature<P> {
-        BlkSignature { id: self.id }
+    pub fn signature(&self) -> DynBlkSignature {
+        DynBlkSignature { id: self.id }
     }
 }
 
-impl<const P: usize> Drop for BlockBuilder<P> {
-    fn drop(&mut self) {
-        if !self.is_ok_to_drop {
-            panic!("A `BlockBuilder` (created with `start_block`) was dropped without a finalizing method (e.g. `ret`) being called.");
-        }
+pub struct FinalizedBlockBuilder<const PARAMETERS: usize>(DynFinalizedBlockBuilder);
+
+impl<const P: usize> Deref for FinalizedBlockBuilder<P> {
+    type Target = DynFinalizedBlockBuilder;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
-pub struct FinalizedBlockBuilder<const PARAMETERS: usize> {
-    builder: BlockBuilder<PARAMETERS>,
+impl<const P: usize> DerefMut for FinalizedBlockBuilder<P> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+pub struct DynFinalizedBlockBuilder {
+    builder: DynBlockBuilder,
     end_control_flow: ControlFlowInstruction,
     is_ok_to_drop: bool,
 }
 
-impl<const P: usize> FinalizedBlockBuilder<P> {
+impl DynFinalizedBlockBuilder {
     fn finish(mut self) -> FunctionBlock {
         self.is_ok_to_drop = true;
 
         // TODO: find a faster way to do this (but needs to still be safe)
-        let parameters = self.builder.parameters;
+        let parameters = &self.builder.parameters;
         let instructions = self.builder.instructions.clone();
         let end = self.end_control_flow.clone();
         FunctionBlock {
@@ -625,10 +738,10 @@ impl<const P: usize> FinalizedBlockBuilder<P> {
     }
 }
 
-impl<const P: usize> Drop for FinalizedBlockBuilder<P> {
+impl Drop for DynFinalizedBlockBuilder {
     fn drop(&mut self) {
         if !self.is_ok_to_drop {
-            panic!("A `FinalizedBlockBuilder` (created with a finalizing method) was dropped without `end_block` being called.");
+            panic!("A `DynFinalizedBlockBuilder` (created with a finalizing method) was dropped without `end_block` being called.");
         }
     }
 }
