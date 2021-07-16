@@ -194,8 +194,9 @@ impl<C: ContextTag> RegMap<C> {
             | ValueType::Bool(_)
             | ValueType::ExactString(_) => true,
             ValueType::Record(alloc) => {
-                let shape = self.get_shape(*alloc);
-                self.is_simple_shape(shape)
+                // let shape = self.get_shape(*alloc);
+                // self.is_simple_shape(shape)
+                false
             }
             _ => false,
         }

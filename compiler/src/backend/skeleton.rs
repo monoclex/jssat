@@ -217,12 +217,12 @@ impl<'r> ExternalFunctionMapper<'r> {
     ) {
         for (key, value) in assembler_ext_fns.into_iter() {
             let parameters = (value.parameters.into_iter())
-                .map(|p| p.into_llvm(self.rt_types))
+                .map(|p| p.into_llvm_notrecord(self.rt_types, None))
                 .collect();
 
             let llvm_id = self.insert(
                 value.name,
-                value.returns.into_llvm(self.rt_types),
+                value.returns.into_llvm_notrecord(self.rt_types, None),
                 parameters,
             );
 
@@ -238,16 +238,37 @@ impl<'r> ExternalFunctionMapper<'r> {
 }
 
 impl assembler::ReturnType {
-    fn into_llvm(self, rt_types: &RuntimeTypes) -> llvm::ReturnType {
+    fn into_llvm(
+        self,
+        rt_types: &RuntimeTypes,
+        struct_resolver: &RecordStructBuilder,
+    ) -> llvm::ReturnType {
         match self {
             ReturnType::Void => llvm::ReturnType::Void,
-            ReturnType::Value(v) => llvm::ReturnType::Value(v.into_llvm(rt_types)),
+            ReturnType::Value(v) => llvm::ReturnType::Value(v.into_llvm(rt_types, struct_resolver)),
+        }
+    }
+
+    fn into_llvm_notrecord(
+        self,
+        rt_types: &RuntimeTypes,
+        struct_resolver: Option<&RecordStructBuilder>,
+    ) -> llvm::ReturnType {
+        match self {
+            ReturnType::Void => llvm::ReturnType::Void,
+            ReturnType::Value(v) => {
+                llvm::ReturnType::Value(v.into_llvm_notrecord(rt_types, struct_resolver))
+            }
         }
     }
 }
 
 impl type_annotater::ValueType {
-    fn into_llvm(self, rt_types: &RuntimeTypes) -> llvm::ValueType {
+    fn into_llvm(
+        self,
+        rt_types: &RuntimeTypes,
+        struct_resolver: &RecordStructBuilder,
+    ) -> llvm::ValueType {
         match self {
             type_annotater::ValueType::Any => llvm::ValueType::Opaque(rt_types.value).into_ptr(),
             type_annotater::ValueType::Runtime => {
@@ -255,6 +276,29 @@ impl type_annotater::ValueType {
             }
             type_annotater::ValueType::Number | type_annotater::ValueType::ExactInteger(_) => {
                 llvm::ValueType::BitType(64)
+            }
+            type_annotater::ValueType::Record(r) => {
+                llvm::ValueType::Defined(struct_resolver.get_type(r).id).into_ptr()
+            }
+            t => unimplemented!("for {:?}", t),
+        }
+    }
+
+    fn into_llvm_notrecord(
+        self,
+        rt_types: &RuntimeTypes,
+        struct_resolver: Option<&RecordStructBuilder>,
+    ) -> llvm::ValueType {
+        match self {
+            type_annotater::ValueType::Any => llvm::ValueType::Opaque(rt_types.value).into_ptr(),
+            type_annotater::ValueType::Runtime => {
+                llvm::ValueType::Opaque(rt_types.runtime).into_ptr()
+            }
+            type_annotater::ValueType::Number | type_annotater::ValueType::ExactInteger(_) => {
+                llvm::ValueType::BitType(64)
+            }
+            type_annotater::ValueType::Record(r) => {
+                llvm::ValueType::Defined(struct_resolver.unwrap().get_type(r).id)
             }
             t => unimplemented!("for {:?}", t),
         }
@@ -364,7 +408,7 @@ impl<'rt, 'r, 'c> RecordStructBuilder<'rt, 'r, 'c> {
 
         for (idx, (k, v)) in shape.fields().enumerate() {
             field_idx.insert(k.clone(), idx);
-            fields.push(v.clone().into_llvm(self.rt_types));
+            fields.push(v.clone().into_llvm(self.rt_types, &self));
         }
 
         self.structs
@@ -413,6 +457,7 @@ pub fn translate(program: Program) -> BackendIR<'static> {
 
     let mut functions = FxHashMap::default();
     for (fn_id, function) in program.functions.iter() {
+        let struct_defs = global_structs.builders.get(fn_id).unwrap();
         let id = fn_id.map_context();
 
         let is_entrypoint = id == program.entrypoint.map_context();
@@ -422,7 +467,10 @@ pub fn translate(program: Program) -> BackendIR<'static> {
             .then_some(Some(LLVMLinkage::External))
             .unwrap_or(None);
 
-        let return_type = function.return_type.clone().into_llvm(&rt_types);
+        let return_type = function
+            .return_type
+            .clone()
+            .into_llvm(&rt_types, struct_defs);
 
         let mut reg_map = RegisterMapper::new();
         let mut runtime = None;
@@ -441,7 +489,7 @@ pub fn translate(program: Program) -> BackendIR<'static> {
 
             params.extend(
                 (function.entry_block().parameters.iter()).map(|p| Parameter {
-                    r#type: p.typ.clone().into_llvm(&rt_types),
+                    r#type: p.typ.clone().into_llvm(&rt_types, struct_defs),
                     register: reg_map.map(p.register),
                 }),
             );
