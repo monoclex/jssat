@@ -33,7 +33,13 @@ pub fn display(program: &IR) -> String {
     }
 
     for (id, f) in program.functions.iter() {
-        iw!(text, "fn @{}() {{\n", id);
+        iw!(text, "fn @{}(", id);
+
+        for p in f.parameters.iter() {
+            iw!(text, "%{}, ", p.register);
+        }
+
+        iw!(text, ") {{\n");
 
         let blocks = std::iter::once((&f.entry_block, f.blocks.get(&f.entry_block).unwrap()))
             .chain(f.blocks.iter().filter(|(id, _)| **id != f.entry_block));
@@ -60,8 +66,13 @@ pub fn display(program: &IR) -> String {
                     Instruction::RecordSet { record, key, value } => {
                         iwl!(text, "    RecordSet %{}, {}, %{}", record, key, value,)
                     }
-                    Instruction::Call(_, _, _) => todo!(),
-                    Instruction::GetRuntime(_) => todo!(),
+                    Instruction::Call(None, c, a) => {
+                        iwl!(text, "    Call {:?}({:?})", c, a)
+                    }
+                    Instruction::Call(Some(r), c, a) => {
+                        iwl!(text, "    %{} = Call {:?}({:?})", r, c, a)
+                    }
+                    Instruction::GetRuntime(rt) => iwl!(text, "    %{} = GetRuntime", rt),
                     Instruction::MakeString(r, s) => {
                         iwl!(
                             text,
@@ -82,7 +93,9 @@ pub fn display(program: &IR) -> String {
                     // ),
                     Instruction::MakeNull(r) => iwl!(text, "    %{} = MakeNull", r),
                     Instruction::MakeUndefined(r) => iwl!(text, "    %{} = MakeUndefined", r),
-                    Instruction::ReferenceOfFunction(_, _) => todo!(),
+                    Instruction::ReferenceOfFunction(r, f) => {
+                        iwl!(text, "    %{} = MakeFnPtr @{}", r, f)
+                    }
                     Instruction::CompareLessThan(r, l, rr) => {
                         iwl!(text, "    %{} = CompareLessThan %{}, %{}", r, l, rr)
                     }

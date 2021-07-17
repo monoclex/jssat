@@ -14,12 +14,13 @@
 
 use std::{io::Write, process::Command};
 
-use crate::frontend::{display::display, display_jssatir};
+use crate::frontend::{display::display, display_bb, display_jssatir};
 
 pub mod backend;
 pub mod frontend;
 pub mod id;
 pub mod interner;
+pub mod my_tests;
 pub mod name;
 pub mod poor_hashmap;
 
@@ -155,6 +156,7 @@ fn main() {
 
     let as_only_blocks = frontend::conv_only_bb::translate(&ir);
     eprintln!("{:#?}", as_only_blocks);
+    println!("{}", display_bb::display(&as_only_blocks));
 
     let annotations = frontend::type_annotater::annotate(&ir, &as_only_blocks);
     eprintln!("{:#?}", annotations);

@@ -34,7 +34,7 @@ pub struct Block {
 #[derive(Debug, Clone)]
 pub struct PureBlocks {
     map_to_host: BiFxHashMap<HostBlock, BlockId<PureBbCtx>>,
-    blocks: FxHashMap<BlockId<PureBbCtx>, Block>,
+    pub(crate) blocks: FxHashMap<BlockId<PureBbCtx>, Block>,
 }
 
 impl PureBlocks {

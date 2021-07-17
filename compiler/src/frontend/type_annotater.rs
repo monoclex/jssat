@@ -234,7 +234,7 @@ impl<'d> SymbolicExecutionEngine<'d> {
                     let blk_id = self.blocks.get_block_id_by_host(*fn_id, func.entry_block);
 
                     // TODO: use zip_eq
-                    println!("!!!! preparing call");
+                    println!("!!!! preparing call3");
                     let src_regs = args.iter().copied().collect::<Vec<_>>();
                     let dest_regs = self
                         .blocks
@@ -285,7 +285,7 @@ impl<'d> SymbolicExecutionEngine<'d> {
 
                     // TODO: don't blatantly copy Call(_, Callable::Static(_), _)
                     // TODO: use zip_eq
-                    println!("!!!! preparing call");
+                    println!("!!!! preparing call4");
                     let src_regs = args.iter().copied().collect::<Vec<_>>();
                     let dest_regs = self
                         .blocks
@@ -508,7 +508,7 @@ impl<'d> SymbolicExecutionEngine<'d> {
         let BasicBlockJump(blk_id, args) = jump;
 
         // TODO: use zip_eq
-        println!("!!!! preparing call");
+        println!("!!!! preparing call5: {:?} ({:?})", jump, registers);
         let src_regs = args.iter().copied().collect::<Vec<_>>();
         let dest_regs = self
             .blocks

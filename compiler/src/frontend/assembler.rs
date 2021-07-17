@@ -768,7 +768,7 @@ impl<'d> InstWriter<'d> {
                 let res = res.map(|r| self.reg_map.map(r));
 
                 // TODO: use `zip_eq`
-                println!("!!!! preparing call!!!!!!1!!!!!!");
+                println!("!!!! preparing call!!!!!!2!!!!!!");
                 let src_regs = args
                     .iter()
                     .map(|r| self.reg_map.map(*r))
