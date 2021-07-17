@@ -18,6 +18,10 @@ impl RecordShape {
         RecordShape { map: key_value_map }
     }
 
+    pub fn wipe(&mut self) {
+        self.map.clear();
+    }
+
     pub fn remove_prop(&mut self, key: &ShapeKey) {
         self.map.remove(key);
     }
@@ -141,6 +145,14 @@ impl<C: ContextTag> RegMap<C> {
         self.shapes.extend(other.shapes);
     }
 
+    pub fn remove_alloc(&mut self, id: AllocationId<NoContext>) {
+        self.allocations.remove(&id);
+        // not having an allocation is really bad
+        // an empty reord is better
+        let empty_rec_shape = self.insert_shape(RecordShape::default());
+        self.allocations.insert(id, vec![empty_rec_shape]);
+    }
+
     pub fn get(&self, register: RegisterId<C>) -> &ValueType {
         self.registers.get(&register).unwrap()
     }
@@ -149,13 +161,25 @@ impl<C: ContextTag> RegMap<C> {
         self.get_shape_by_id(self.get_shape_id_of_alloc(allocation))
     }
 
+    pub fn try_get_shape(&self, allocation: AllocationId<NoContext>) -> Option<&RecordShape> {
+        self.try_get_shape_by_id(self.get_shape_id_of_alloc(allocation))
+    }
+
+    pub fn get_shapes(&self, allocation: AllocationId<NoContext>) -> &Vec<ShapeId<C>> {
+        self.allocations.get(&allocation).unwrap()
+    }
+
     pub fn get_shape_id_of_alloc(&self, allocation: AllocationId<NoContext>) -> &ShapeId<C> {
         let shapes = self.allocations.get(&allocation).unwrap();
         shapes.last().unwrap()
     }
 
     pub fn get_shape_by_id(&self, shape_id: &ShapeId<C>) -> &RecordShape {
-        self.shapes.get(shape_id).unwrap()
+        self.try_get_shape_by_id(shape_id).unwrap()
+    }
+
+    pub fn try_get_shape_by_id(&self, shape_id: &ShapeId<C>) -> Option<&RecordShape> {
+        self.shapes.get(shape_id)
     }
 
     pub fn get_shape_by_id_mut(&mut self, shape_id: &ShapeId<C>) -> &mut RecordShape {

@@ -165,11 +165,20 @@ fn main() {
     println!("=== PRE OPT ===");
     println!("{}", display(&program));
 
-    let program = frontend::asm_opt_const_elim::opt_constant_elimination(program);
-    // eprintln!("{:#?}", program);
+    let mut program = program;
 
-    let program = frontend::asm_opt_dead_register_elim::opt_dead_register_elimination(program);
-    // eprintln!("{:#?}", program);
+    // this will probably run our opts enough
+    for i in 0..2 {
+        program = frontend::asm_opt_const_elim::opt_constant_elimination(program);
+        // eprintln!("{:#?}", program);
+        println!("=== MID OPT1 ===");
+        println!("{}", display(&program));
+
+        program = frontend::asm_opt_dead_register_elim::opt_dead_register_elimination(program);
+        // eprintln!("{:#?}", program);
+        println!("=== MID OPT2 ===");
+        println!("{}", display(&program));
+    }
 
     println!("=== POST OPT ===");
     println!("{}", display(&program));

@@ -423,6 +423,12 @@ impl<'rt, 'r, 'c> RecordStructBuilder<'rt, 'r, 'c> {
         let mut fields = vec![];
 
         for (idx, (k, v)) in shape.fields().enumerate() {
+            // don't bother making structurs for constant fields, since we can always assume the values there
+            // TODO: can we somehow have the prior phases of the compielr handle this?
+            if self.reg_map.is_const_typ(v) {
+                continue;
+            }
+
             field_idx.insert(k.clone(), idx);
             fields.push(v.clone().into_llvm(self.rt_types, &self));
         }

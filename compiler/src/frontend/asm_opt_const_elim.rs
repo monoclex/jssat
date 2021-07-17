@@ -3,7 +3,7 @@ use rustc_hash::FxHashMap;
 use super::{
     assembler::{Block, Function, Program},
     type_annotater::ValueType,
-    types::RegMap,
+    types::{RegMap, ShapeKey},
 };
 use crate::{
     frontend::{
@@ -102,6 +102,67 @@ fn opt_blk(regs: &mut RegMap<AssemblerCtx>, cnsts: &Cnsts, b: &mut Block) {
                     }
                 }
                 *args = new_args;
+            }
+            // TODO: is this the right place to put this opt?
+            Instruction::RecordSet {
+                shape_id,
+                record,
+                key,
+                value,
+            } => {
+                // if we're setting a constant value
+                // into a shape with a slot for only 1 constant value
+                // we can just noop this
+
+                if let ValueType::Record(alloc) = *regs.get(*record) {
+                    let total_shape = regs.get_shape(alloc);
+                    let key = match key {
+                        RecordKey::Value(v) => match regs.get(*v) {
+                            ValueType::ExactString(s) => ShapeKey::Str(s.clone()),
+                            ValueType::Any
+                            | ValueType::Runtime
+                            | ValueType::String
+                            | ValueType::Number
+                            | ValueType::ExactInteger(_)
+                            | ValueType::Boolean
+                            | ValueType::Bool(_)
+                            | ValueType::Pointer(_)
+                            | ValueType::Word
+                            | ValueType::Record(_)
+                            | ValueType::FnPtr(_)
+                            | ValueType::Null
+                            | ValueType::Undefined => todo!(),
+                        },
+                        RecordKey::InternalSlot(s) => ShapeKey::InternalSlot(s),
+                    };
+                    let k = total_shape.type_at_key(&key);
+
+                    if regs.is_const_typ(k) && regs.is_const(*value) {
+                        // TODO: is this sound?
+                        // because we have a list of shapes
+                        // [A -> B -> C]
+                        // each shape only has *one* change from the previous shape
+                        // [{} -> { a: 1 } -> { a: 1, b: 2 }]
+                        // thus, wiping a shape will remove that transition
+                        // [{} -> {} -> { a: 1, b: 2 }]
+                        // which will let our lack of uninfication work
+                        // no idea if this is sound tho
+
+                        // we don't want to remove the last shape in the transition tree, because the
+                        // last transition gives this record its final shape
+                        let last_shape = regs.get_shapes(alloc).last().copied();
+                        let my_shape = Some(*shape_id);
+                        let is_last_shape = last_shape == my_shape;
+                        println!("-----------> {:?} == {:?}", last_shape, my_shape);
+                        if !is_last_shape {
+                            regs.get_shape_by_id_mut(shape_id).wipe();
+                        }
+                        // this should be fine
+                        *i = Instruction::Noop;
+                    }
+                } else {
+                    unreachable!("how?????");
+                }
             }
             _ => continue,
         }

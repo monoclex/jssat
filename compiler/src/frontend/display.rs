@@ -181,8 +181,11 @@ fn display_vt(t: &ValueType, f: &Function) -> String {
         ValueType::ExactInteger(i) => format!("{}", i),
         ValueType::ExactString(payload) => display_str(payload),
         ValueType::Record(a) => {
-            let shape = f.register_types.get_shape(*a);
-            display_rs(shape, f)
+            if let Some(shape) = f.register_types.try_get_shape(*a) {
+                display_rs(shape, f)
+            } else {
+                format!("?(deleted)?")
+            }
         }
         ValueType::FnPtr(_) => "todo::FnPtr".into(),
         _ => format!("{:?}", t),

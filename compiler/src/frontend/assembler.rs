@@ -839,6 +839,12 @@ impl<'d> InstWriter<'d> {
             } => {
                 let result = &self.reg_map.map(*result);
                 let record = &self.reg_map.map(*record);
+
+                let rec_key = match *key {
+                    RecordKey::Value(v) => RecordKey::Value(self.reg_map.map(v)),
+                    RecordKey::InternalSlot(s) => RecordKey::InternalSlot(s),
+                };
+
                 let key = match key {
                     &RecordKey::Value(r) => match self.register_types.get(self.reg_map.map(r)) {
                         ValueType::String => ShapeKey::String,
@@ -867,6 +873,12 @@ impl<'d> InstWriter<'d> {
                     let shape = self.register_types.get_shape(alloc);
                     let prop_value_typ = shape.type_at_key(&key).clone();
                     self.register_types.insert(*result, prop_value_typ);
+
+                    self.instructions.push(Instruction::RecordGet {
+                        result: *result,
+                        record: *record,
+                        key: rec_key,
+                    });
                 } else {
                     panic!("cannot call RecordGet on non record");
                 }
