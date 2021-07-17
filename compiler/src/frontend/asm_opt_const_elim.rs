@@ -159,7 +159,9 @@ fn stack_alloc_valule(
                 let value = regs.gen_id();
                 stack_alloc_valule(v, prepend, value, cnsts, regs);
 
+                let id = regs.get_shape_id_of_alloc(alloc);
                 prepend.push(Instruction::RecordSet {
+                    shape_id: *id,
                     record: r,
                     key,
                     value,

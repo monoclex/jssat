@@ -412,7 +412,12 @@ impl<'rt, 'r, 'c> RecordStructBuilder<'rt, 'r, 'c> {
     ) {
         let mut field_idx = FxHashMap::default();
 
-        let shape = history.fold(RecordShape::default(), |a, b| a.union(b, self.reg_map));
+        let history = history.collect::<Vec<_>>();
+        println!("cleaning a llocation {:?}", id);
+        println!("history: {:#?}", history);
+        let shape = history
+            .into_iter()
+            .fold(RecordShape::default(), |a, b| a.union(b, self.reg_map));
 
         let struct_id = self.counter.next();
         let mut fields = vec![];
@@ -454,7 +459,7 @@ pub fn translate(program: Program) -> BackendIR<'static> {
             RecordStructBuilder::new(&rt_types, &f.register_types, &global_structs.counter);
         for (id, history) in f.register_types.allocations() {
             record_struct_builder.build_type(
-                *id,
+                id,
                 history
                     .iter()
                     .map(|id| f.register_types.get_shape_by_id(id)),
@@ -758,7 +763,12 @@ pub fn translate(program: Program) -> BackendIR<'static> {
                             panic!("cannot get non-record")
                         }
                     }
-                    assembler::Instruction::RecordSet { record, key, value } => {
+                    assembler::Instruction::RecordSet {
+                        shape_id,
+                        record,
+                        key,
+                        value,
+                    } => {
                         if let type_annotater::ValueType::Record(r) = reg_types.get(*record) {
                             let s = defined_structs.get_type(*r);
 

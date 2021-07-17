@@ -6,7 +6,10 @@ use super::{
     types::RegMap,
 };
 use crate::{
-    frontend::assembler::{BlockJump, Callable, EndInstruction, Instruction},
+    frontend::{
+        assembler::{BlockJump, Callable, EndInstruction, Instruction},
+        types::ShapeKey,
+    },
     id::*,
 };
 
@@ -75,7 +78,39 @@ fn opt_fn(f: &mut Function) {
     {
         if let Some(declared) = inst.assigned_to() {
             if declared_but_not_used.contains(&declared) {
-                // useless instruction
+                // this is a useless instruction
+
+                // fix the object type
+                if let Instruction::RecordSet {
+                    shape_id,
+                    record,
+                    key,
+                    value,
+                } = inst
+                {
+                    let k = match key {
+                        super::ir::RecordKey::Value(v) => match f.register_types.get(*v) {
+                            ValueType::ExactString(s) => ShapeKey::Str(s.clone()),
+                            ValueType::Any
+                            | ValueType::Runtime
+                            | ValueType::String
+                            | ValueType::Number
+                            | ValueType::ExactInteger(_)
+                            | ValueType::Boolean
+                            | ValueType::Bool(_)
+                            | ValueType::Pointer(_)
+                            | ValueType::Word
+                            | ValueType::Record(_)
+                            | ValueType::FnPtr(_)
+                            | ValueType::Null
+                            | ValueType::Undefined => todo!(),
+                        },
+                        super::ir::RecordKey::InternalSlot(s) => ShapeKey::InternalSlot(s),
+                    };
+                    let shape = f.register_types.get_shape_by_id_mut(shape_id);
+                    shape.remove_prop(&k);
+                }
+
                 *inst = Instruction::Noop;
             }
         }

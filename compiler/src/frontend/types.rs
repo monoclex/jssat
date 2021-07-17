@@ -1,5 +1,8 @@
+use std::{collections::VecDeque, iter::FromIterator};
+
 use crate::{id::*, poor_hashmap::PoorMap};
-use rustc_hash::FxHashMap;
+use petgraph::{visit::EdgeRef, Directed, EdgeDirection};
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::type_annotater::{InvocationArgs, ValueType};
 
@@ -13,6 +16,10 @@ impl RecordShape {
         let mut key_value_map = self.map.clone();
         key_value_map.insert(key, value);
         RecordShape { map: key_value_map }
+    }
+
+    pub fn remove_prop(&mut self, key: &ShapeKey) {
+        self.map.remove(key);
     }
 
     pub fn type_at_key<'me>(&'me self, key: &ShapeKey) -> &'me ValueType {
@@ -42,7 +49,7 @@ impl RecordShape {
             if v == v_dest {
                 // there is no conflict, we're good
             } else {
-                todo!("cannot unify different props yet")
+                todo!("cannot unify different props yet: {:?}, {:?}", v, v_dest)
             }
         }
 
@@ -139,22 +146,111 @@ impl<C: ContextTag> RegMap<C> {
     }
 
     pub fn get_shape(&self, allocation: AllocationId<NoContext>) -> &RecordShape {
+        self.get_shape_by_id(self.get_shape_id_of_alloc(allocation))
+    }
+
+    pub fn get_shape_id_of_alloc(&self, allocation: AllocationId<NoContext>) -> &ShapeId<C> {
         let shapes = self.allocations.get(&allocation).unwrap();
-        self.get_shape_by_id(shapes.last().unwrap())
+        shapes.last().unwrap()
     }
 
     pub fn get_shape_by_id(&self, shape_id: &ShapeId<C>) -> &RecordShape {
         self.shapes.get(shape_id).unwrap()
     }
 
+    pub fn get_shape_by_id_mut(&mut self, shape_id: &ShapeId<C>) -> &mut RecordShape {
+        self.shapes.get_mut(shape_id).unwrap()
+    }
+
     pub fn registers<'me>(&'me self) -> impl Iterator<Item = RegisterId<C>> + 'me {
         self.registers.keys().copied()
     }
 
-    pub fn allocations(
-        &self,
-    ) -> impl Iterator<Item = (&AllocationId<NoContext>, &Vec<ShapeId<C>>)> {
-        self.allocations.iter()
+    pub fn allocations(&self) -> Vec<(AllocationId<NoContext>, &Vec<ShapeId<C>>)> {
+        // TODO: this is a hack that iterates over the structs in order of least dependencies to most dependencies
+        // this combats structs that have an inner struct but are defined first, although it doesn't combat
+        // cyclic structs. cyclicity is to-be-handled: soon:tm: :)
+        type Graph = petgraph::graph::DiGraph<AllocationId<NoContext>, ()>;
+        let mut g = Graph::new();
+
+        let mut map = FxHashMap::default();
+        let mut map2 = FxHashMap::default();
+
+        // make allocations into nodes
+        for (k, v) in self.allocations.iter() {
+            let node = g.add_node(*k);
+            map.insert(*k, node);
+            map2.insert(node, *k);
+        }
+
+        // edge from every allocation to the allocations it uses
+        for (k, v) in self.allocations.iter() {
+            let src_node = map.get(k).unwrap();
+            for s in v.iter() {
+                for (rk, rv) in self.get_shape(*k).fields() {
+                    if let ValueType::Record(a) = rv {
+                        let target_node = map.get(a).unwrap();
+                        g.add_edge(*src_node, *target_node, ());
+                    }
+                }
+            }
+        }
+
+        // now we need to iterate through this and get the least dependency structs to
+        // the ones with most deps
+        // someone called this a "post-order depth first search"
+
+        // now there is no root node so we start everywhere, climb up, and add that to a list of root nodes
+        let mut roots = FxHashSet::default();
+
+        // start everywhere on the graph
+        for (_, n) in map.iter() {
+            let mut n = *n;
+            // while there is a parent edge
+            while let Some(edge) = g.edges_directed(n, EdgeDirection::Incoming).next() {
+                // climb up it
+                n = edge.source();
+            }
+            // note: we throw away some of the edges when climbing up
+            // that's because since we start everywhere, we're going to start at that parent edge too
+            // so it doesn't matter
+
+            // anyways once we're here, we now have the root node
+            roots.insert(n);
+        }
+
+        // now we have all roots
+        // treat this as a series of nodes we need to find the children to
+        // we'll go through every node, find the children, and try to find more children
+        // then we'll insert the node back into the queue
+        let mut search = VecDeque::from_iter(roots);
+        let mut searched = Vec::new();
+
+        while let Some(n) = search.pop_front() {
+            for edge in g.edges_directed(n, EdgeDirection::Outgoing) {
+                search.push_back(edge.target());
+            }
+            searched.push(n);
+        }
+
+        // remove dup nodes
+        let mut remove_dups = FxHashSet::default();
+        let mut srechd = Vec::new();
+        for i in searched {
+            if remove_dups.insert(i) {
+                srechd.push(i);
+            }
+        }
+
+        srechd
+            .iter()
+            .rev()
+            .map(|n| {
+                let alloc = *map2.get(n).unwrap();
+                let shapes = self.allocations.get(&alloc).unwrap();
+                (alloc, shapes)
+            })
+            .collect()
     }
 
     pub fn is_const(&self, register: RegisterId<C>) -> bool {

@@ -71,6 +71,7 @@ pub enum Instruction {
         key: RecordKey<AssemblerCtx>,
     },
     RecordSet {
+        shape_id: ShapeId<AssemblerCtx>,
         record: RegisterId<AssemblerCtx>,
         key: RecordKey<AssemblerCtx>,
         value: RegisterId<AssemblerCtx>,
@@ -874,6 +875,11 @@ impl<'d> InstWriter<'d> {
                 let record = &self.reg_map.map(*record);
                 let value = &self.reg_map.map(*value);
 
+                let rec_key = match *key {
+                    RecordKey::Value(v) => RecordKey::Value(self.reg_map.map(v)),
+                    RecordKey::InternalSlot(s) => RecordKey::InternalSlot(s),
+                };
+
                 let key = match *key {
                     RecordKey::Value(v) => match self.register_types.get(self.reg_map.map(v)) {
                         ValueType::String => ShapeKey::String,
@@ -904,6 +910,13 @@ impl<'d> InstWriter<'d> {
                     let shape = shape.add_prop(key, value_typ);
                     let shape_id = self.register_types.insert_shape(shape);
                     self.register_types.assign_new_shape(alloc, shape_id);
+
+                    self.instructions.push(Instruction::RecordSet {
+                        shape_id,
+                        record: *record,
+                        key: rec_key,
+                        value: *value,
+                    });
                 } else {
                     panic!("cannot call RecordSet on non record");
                 }
@@ -1059,11 +1072,13 @@ impl Instruction {
                 ..
             } => vec![*record],
             Instruction::RecordSet {
+                shape_id: _,
                 record,
                 key: RecordKey::Value(v),
                 value,
             } => vec![*record, *v, *value],
             Instruction::RecordSet {
+                shape_id: _,
                 record,
                 key: RecordKey::InternalSlot(_),
                 value,
@@ -1099,11 +1114,13 @@ impl Instruction {
                 ..
             } => vec![record],
             Instruction::RecordSet {
+                shape_id: _,
                 record,
                 key: RecordKey::Value(v),
                 value,
             } => vec![record, v, value],
             Instruction::RecordSet {
+                shape_id: _,
                 record,
                 key: RecordKey::InternalSlot(_),
                 value,

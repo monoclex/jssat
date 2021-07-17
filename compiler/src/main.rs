@@ -14,7 +14,7 @@
 
 use std::{io::Write, process::Command};
 
-use crate::frontend::display::display;
+use crate::frontend::{display::display, display_jssatir};
 
 pub mod backend;
 pub mod frontend;
@@ -150,6 +150,8 @@ fn main() {
 
     let ir = frontend::js::traverse(content);
     eprintln!("{:#?}", ir);
+
+    println!("{}", display_jssatir::display(&ir));
 
     let as_only_blocks = frontend::conv_only_bb::translate(&ir);
     eprintln!("{:#?}", as_only_blocks);

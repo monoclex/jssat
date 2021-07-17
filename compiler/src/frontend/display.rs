@@ -3,6 +3,7 @@ use crate::frontend::assembler::BlockJump;
 use super::{
     assembler::{Function, Program},
     type_annotater::ValueType,
+    types::RecordShape,
 };
 use std::fmt::Write;
 
@@ -50,9 +51,13 @@ pub fn display(program: &Program) -> String {
                     crate::frontend::assembler::Instruction::RecordNew(r) => {
                         iwl!(
                             text,
-                            "    %{}: {} = RecordNew",
+                            "    %{}: {} = RecordNew({})",
                             *r,
-                            display_vt(f.register_types.get(*r), f)
+                            display_vt(f.register_types.get(*r), f),
+                            match f.register_types.get(*r) {
+                                ValueType::Record(a) => a,
+                                _ => unreachable!(),
+                            }
                         )
                     }
                     crate::frontend::assembler::Instruction::RecordGet {
@@ -69,8 +74,21 @@ pub fn display(program: &Program) -> String {
                             key,
                         )
                     }
-                    crate::frontend::assembler::Instruction::RecordSet { record, key, value } => {
-                        iwl!(text, "    RecordSet %{}, {}, %{}", record, key, value,)
+                    crate::frontend::assembler::Instruction::RecordSet {
+                        shape_id: shape,
+                        record,
+                        key,
+                        value,
+                    } => {
+                        let rec_shp = f.register_types.get_shape_by_id(shape);
+                        iwl!(
+                            text,
+                            "    RecordSet (%{}: {}), {}, %{}",
+                            record,
+                            display_rs(f.register_types.get_shape_by_id(shape), f),
+                            key,
+                            value,
+                        )
                     }
                     crate::frontend::assembler::Instruction::Call(_, _, _) => todo!(),
                     crate::frontend::assembler::Instruction::GetRuntime(_) => todo!(),
@@ -163,25 +181,29 @@ fn display_vt(t: &ValueType, f: &Function) -> String {
         ValueType::ExactInteger(i) => format!("{}", i),
         ValueType::ExactString(payload) => display_str(payload),
         ValueType::Record(a) => {
-            let mut s = String::new();
-            iw!(s, "{{ ");
             let shape = f.register_types.get_shape(*a);
-            for (k, v) in shape.fields() {
-                match k {
-                    crate::frontend::types::ShapeKey::String => iw!(s, "*: "),
-                    crate::frontend::types::ShapeKey::Str(cs) => iw!(s, "{}: ", display_str(cs)),
-                    crate::frontend::types::ShapeKey::InternalSlot(str) => iw!(s, "[[{}]]: ", str),
-                };
-
-                iw!(s, "{}, ", display_vt(v, f));
-            }
-
-            iw!(s, "}}");
-            s
+            display_rs(shape, f)
         }
         ValueType::FnPtr(_) => "todo::FnPtr".into(),
         _ => format!("{:?}", t),
     }
+}
+
+fn display_rs(shape: &RecordShape, f: &Function) -> String {
+    let mut s = String::new();
+    iw!(s, "{{ ");
+    for (k, v) in shape.fields() {
+        match k {
+            crate::frontend::types::ShapeKey::String => iw!(s, "*: "),
+            crate::frontend::types::ShapeKey::Str(cs) => iw!(s, "{}: ", display_str(cs)),
+            crate::frontend::types::ShapeKey::InternalSlot(str) => iw!(s, "[[{}]]: ", str),
+        };
+
+        iw!(s, "{}, ", display_vt(v, f));
+    }
+
+    iw!(s, "}}");
+    s
 }
 
 fn display_norecord(t: &ValueType) -> String {
