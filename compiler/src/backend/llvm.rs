@@ -201,6 +201,7 @@ pub enum ValueType {
     Pointer(Box<ValueType>),
 }
 
+#[cfg(feature = "link-llvm")]
 enum SizeLevel {
     NoSizeOptimization = 0,
     // Os = 1,

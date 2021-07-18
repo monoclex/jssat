@@ -350,14 +350,6 @@ struct GlobalRecordStructBuilder<'rt_types, 'duration, 'counter> {
 }
 
 impl<'rt, 'd, 'c> GlobalRecordStructBuilder<'rt, 'd, 'c> {
-    pub fn insert(
-        &mut self,
-        fn_id: FunctionId<AssemblerCtx>,
-        builder: RecordStructBuilder<'rt, 'd, 'c>,
-    ) {
-        self.builders.insert(fn_id, builder);
-    }
-
     pub fn get(&self, fn_id: FunctionId<AssemblerCtx>) -> &RecordStructBuilder<'rt, 'd, 'c> {
         self.builders.get(&fn_id).unwrap()
     }
@@ -366,7 +358,7 @@ impl<'rt, 'd, 'c> GlobalRecordStructBuilder<'rt, 'd, 'c> {
     pub fn into_structs(&self) -> FxHashMap<StructId<LlvmCtx>, Struct> {
         let mut structs = FxHashMap::default();
 
-        for (f, s) in self.builders.iter() {
+        for (_, s) in self.builders.iter() {
             for (k, ss) in s.structs.iter() {
                 structs.insert(*k, ss.llvm.clone());
             }
@@ -417,7 +409,7 @@ impl<'rt, 'r, 'c> RecordStructBuilder<'rt, 'r, 'c> {
         println!("history: {:#?}", history);
         let shape = history
             .into_iter()
-            .fold(RecordShape::default(), |a, b| a.union(b, self.reg_map));
+            .fold(RecordShape::default(), |a, b| a.union(b));
 
         let struct_id = self.counter.next();
         let mut fields = vec![];
@@ -740,8 +732,6 @@ pub fn translate(program: Program) -> BackendIR<'static> {
                                     | type_annotater::ValueType::ExactInteger(_)
                                     | type_annotater::ValueType::Boolean
                                     | type_annotater::ValueType::Bool(_)
-                                    | type_annotater::ValueType::Pointer(_)
-                                    | type_annotater::ValueType::Word
                                     | type_annotater::ValueType::Undefined
                                     | type_annotater::ValueType::Null
                                     | type_annotater::ValueType::Record(_)
@@ -770,10 +760,7 @@ pub fn translate(program: Program) -> BackendIR<'static> {
                         }
                     }
                     assembler::Instruction::RecordSet {
-                        shape_id,
-                        record,
-                        key,
-                        value,
+                        record, key, value, ..
                     } => {
                         if let type_annotater::ValueType::Record(r) = reg_types.get(*record) {
                             let s = defined_structs.get_type(*r);
@@ -792,8 +779,6 @@ pub fn translate(program: Program) -> BackendIR<'static> {
                                     | type_annotater::ValueType::ExactInteger(_)
                                     | type_annotater::ValueType::Boolean
                                     | type_annotater::ValueType::Bool(_)
-                                    | type_annotater::ValueType::Pointer(_)
-                                    | type_annotater::ValueType::Word
                                     | type_annotater::ValueType::Undefined
                                     | type_annotater::ValueType::Null
                                     | type_annotater::ValueType::Record(_)
@@ -916,8 +901,8 @@ pub fn translate(program: Program) -> BackendIR<'static> {
     BackendIR {
         constants,
         opaque_structs,
+        structs,
         external_functions,
         functions,
-        structs,
     }
 }

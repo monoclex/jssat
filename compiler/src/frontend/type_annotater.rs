@@ -7,8 +7,7 @@ use crate::frontend::old_types::ShapeKey;
 use crate::id::*;
 use crate::poor_hashmap::PoorMap;
 
-use super::conv_only_bb::{Block, PureBlocks};
-use super::old_types::RecordShape;
+use super::conv_only_bb::PureBlocks;
 use super::old_types::RegMap;
 
 /// Type annotation mechanism in JSSAT.
@@ -262,7 +261,7 @@ impl<'d> SymbolicExecutionEngine<'d> {
                         }
                     };
                 }
-                Instruction::Call(res, Callable::External(fn_id), args) => {
+                Instruction::Call(res, Callable::External(fn_id), _) => {
                     // TODO: ensure/make args are coercible into `fn_id`,
                     // although the `assembler` phase does this for us as of the time of writing
                     let ext_fn = self.ir.external_functions.get(fn_id).unwrap();
@@ -332,14 +331,10 @@ impl<'d> SymbolicExecutionEngine<'d> {
                             | ValueType::Boolean
                             | ValueType::Bool(_)
                             | ValueType::Null
-                            | ValueType::Undefined
-                            | ValueType::Word => {
+                            | ValueType::Undefined => {
                                 todo!("may be implemented at a later date, but dunno")
                             }
-                            ValueType::Runtime
-                            | ValueType::Pointer(_)
-                            | ValueType::Record(_)
-                            | ValueType::FnPtr(_) => {
+                            ValueType::Runtime | ValueType::Record(_) | ValueType::FnPtr(_) => {
                                 unimplemented!("unsupported record key type")
                             }
                         },
@@ -366,14 +361,10 @@ impl<'d> SymbolicExecutionEngine<'d> {
                             | ValueType::Boolean
                             | ValueType::Bool(_)
                             | ValueType::Null
-                            | ValueType::Undefined
-                            | ValueType::Word => {
+                            | ValueType::Undefined => {
                                 todo!("may be implemented at a later date, but dunno")
                             }
-                            ValueType::Runtime
-                            | ValueType::Pointer(_)
-                            | ValueType::Record(_)
-                            | ValueType::FnPtr(_) => {
+                            ValueType::Runtime | ValueType::Record(_) | ValueType::FnPtr(_) => {
                                 unimplemented!("unsupported record key type")
                             }
                         },
@@ -406,10 +397,8 @@ impl<'d> SymbolicExecutionEngine<'d> {
                         | ValueType::Runtime
                         | ValueType::String
                         | ValueType::ExactString(_)
-                        | ValueType::Pointer(_)
                         | ValueType::Number
                         | ValueType::ExactInteger(_)
-                        | ValueType::Word
                         | ValueType::Record(_)
                         | ValueType::FnPtr(_)
                         | ValueType::Null
@@ -696,9 +685,6 @@ pub enum ValueType {
     ExactInteger(i64),
     Boolean,
     Bool(bool),
-    /// Pointer to data of the specified size. Pointer(16) -> `i16*`.
-    Pointer(u16),
-    Word,
     /// A record. The ID present inside of the object is the allocation id. The
     /// allocation id is then linked to a table of allocation IDs to the
     Record(AllocationId<NoContext>),

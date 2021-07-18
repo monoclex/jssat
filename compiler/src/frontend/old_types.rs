@@ -1,7 +1,7 @@
 use std::{collections::VecDeque, iter::FromIterator};
 
-use crate::{id::*, poor_hashmap::PoorMap};
-use petgraph::{visit::EdgeRef, Directed, EdgeDirection};
+use crate::id::*;
+use petgraph::{visit::EdgeRef, EdgeDirection};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::type_annotater::{InvocationArgs, ValueType};
@@ -30,7 +30,8 @@ impl RecordShape {
         self.map.get(key).unwrap()
     }
 
-    pub fn union<C: ContextTag>(&self, other: &RecordShape, reg_map: &RegMap<C>) -> RecordShape {
+    // TODO: does this need a RegMap?
+    pub fn union(&self, other: &RecordShape) -> RecordShape {
         let mut map = self.map.clone();
         let mut unmerged = vec![];
 
@@ -186,7 +187,7 @@ impl<C: ContextTag> RegMap<C> {
         self.shapes.get_mut(shape_id).unwrap()
     }
 
-    pub fn registers<'me>(&'me self) -> impl Iterator<Item = RegisterId<C>> + 'me {
+    pub fn registers(&self) -> impl Iterator<Item = RegisterId<C>> + '_ {
         self.registers.keys().copied()
     }
 
@@ -201,7 +202,7 @@ impl<C: ContextTag> RegMap<C> {
         let mut map2 = FxHashMap::default();
 
         // make allocations into nodes
-        for (k, v) in self.allocations.iter() {
+        for (k, _) in self.allocations.iter() {
             let node = g.add_node(*k);
             map.insert(*k, node);
             map2.insert(node, *k);
@@ -210,8 +211,8 @@ impl<C: ContextTag> RegMap<C> {
         // edge from every allocation to the allocations it uses
         for (k, v) in self.allocations.iter() {
             let src_node = map.get(k).unwrap();
-            for s in v.iter() {
-                for (rk, rv) in self.get_shape(*k).fields() {
+            for _ in v.iter() {
+                for (_, rv) in self.get_shape(*k).fields() {
                     if let ValueType::Record(a) = rv {
                         let target_node = map.get(a).unwrap();
                         g.add_edge(*src_node, *target_node, ());
@@ -287,8 +288,6 @@ impl<C: ContextTag> RegMap<C> {
             | ValueType::Runtime
             | ValueType::String
             | ValueType::Number
-            | ValueType::Pointer(_)
-            | ValueType::Word
             | ValueType::Boolean => false,
             ValueType::ExactInteger(_)
             | ValueType::ExactString(_)
@@ -374,8 +373,6 @@ impl<C: ContextTag> RegMap<C> {
             | ValueType::ExactInteger(_)
             | ValueType::Boolean
             | ValueType::Bool(_)
-            | ValueType::Pointer(_)
-            | ValueType::Word
             | ValueType::Undefined
             | ValueType::Null
             | ValueType::FnPtr(_) => typ,
@@ -404,29 +401,28 @@ impl<C: ContextTag> RegMap<C> {
     }
 
     pub fn duplicate_with_allocations<C2: ContextTag>(&self) -> RegMap<C2> {
-        let mut target = RegMap::default();
-
-        target.allocation_id_gen = self.allocation_id_gen.clone();
-        target.allocations = self
-            .allocations
-            .clone()
-            .into_iter()
-            .map(|(k, v)| {
-                (
-                    k,
-                    v.into_iter().map(|s| s.map_context()).collect::<Vec<_>>(),
-                )
-            })
-            .collect();
-        target.shape_id_gen = self.shape_id_gen.map_context().clone();
-        target.shapes = self
-            .shapes
-            .clone()
-            .into_iter()
-            .map(|(k, v)| (k.map_context(), v))
-            .collect();
-
-        target
+        RegMap::<C2> {
+            allocation_id_gen: self.allocation_id_gen,
+            allocations: self
+                .allocations
+                .clone()
+                .into_iter()
+                .map(|(k, v)| {
+                    (
+                        k,
+                        v.into_iter().map(|s| s.map_context()).collect::<Vec<_>>(),
+                    )
+                })
+                .collect(),
+            shape_id_gen: self.shape_id_gen.map_context(),
+            shapes: self
+                .shapes
+                .clone()
+                .into_iter()
+                .map(|(k, v)| (k.map_context(), v))
+                .collect(),
+            ..Default::default()
+        }
     }
 }
 

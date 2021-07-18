@@ -1,17 +1,10 @@
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashSet;
 
 use super::{
-    assembler::{Block, Function, Program},
-    old_types::RegMap,
+    assembler::{Function, Program},
     type_annotater::ValueType,
 };
-use crate::{
-    frontend::{
-        assembler::{BlockJump, Callable, EndInstruction, Instruction},
-        old_types::ShapeKey,
-    },
-    id::*,
-};
+use crate::frontend::{assembler::Instruction, old_types::ShapeKey};
 
 /// This optimization pass is necessary to eliminate instructions that generate LLVM IR
 /// that uses runtime machinery - meaning LLVM cannot optimize it away.
@@ -64,12 +57,7 @@ fn opt_fn(f: &mut Function) {
 
                 match inst {
                     // fix the object type
-                    Instruction::RecordSet {
-                        shape_id,
-                        record,
-                        key,
-                        value,
-                    } => {
+                    Instruction::RecordSet { shape_id, key, .. } => {
                         let k = match key {
                             super::ir::RecordKey::Value(v) => match f.register_types.get(*v) {
                                 ValueType::ExactString(s) => ShapeKey::Str(s.clone()),
@@ -80,8 +68,6 @@ fn opt_fn(f: &mut Function) {
                                 | ValueType::ExactInteger(_)
                                 | ValueType::Boolean
                                 | ValueType::Bool(_)
-                                | ValueType::Pointer(_)
-                                | ValueType::Word
                                 | ValueType::Record(_)
                                 | ValueType::FnPtr(_)
                                 | ValueType::Null
@@ -95,8 +81,8 @@ fn opt_fn(f: &mut Function) {
                     // if we're completely deleting an allocation,
                     // remove its existence from the list of allocations while we're at it
                     Instruction::RecordNew(r) => {
-                        if let ValueType::Record(alloc) = f.register_types.get(*r) {
-                            f.register_types.remove_alloc(*alloc);
+                        if let ValueType::Record(alloc) = *f.register_types.get(*r) {
+                            f.register_types.remove_alloc(alloc);
                             *inst = Instruction::Noop;
                         }
                     }

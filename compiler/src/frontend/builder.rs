@@ -1,4 +1,3 @@
-use std::mem::ManuallyDrop;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
@@ -271,7 +270,7 @@ impl<'n, const P: usize> FunctionBuilder<'n, P> {
 
     pub fn end_block<const PARAMETERS: usize>(
         &mut self,
-        mut builder: FinalizedBlockBuilder<PARAMETERS>,
+        builder: FinalizedBlockBuilder<PARAMETERS>,
     ) -> BlkSignature<PARAMETERS> {
         BlkSignature(self.end_block_dyn(builder.0))
     }
@@ -359,15 +358,11 @@ impl<const P: usize> BlockBuilder<P> {
         self.jmp_dynargs(block.id, values.to_vec())
     }
 
-    pub fn jmp_dynargs(
-        mut self,
-        block: BlockId,
-        values: Vec<RegisterId>,
-    ) -> FinalizedBlockBuilder<P> {
+    pub fn jmp_dynargs(self, block: BlockId, values: Vec<RegisterId>) -> FinalizedBlockBuilder<P> {
         FinalizedBlockBuilder(self.0.jmp_dynargs(block, values))
     }
 
-    pub fn ret(mut self, value: Option<RegisterId>) -> FinalizedBlockBuilder<P> {
+    pub fn ret(self, value: Option<RegisterId>) -> FinalizedBlockBuilder<P> {
         FinalizedBlockBuilder(self.0.ret(value))
     }
 
@@ -389,7 +384,7 @@ impl<const P: usize> BlockBuilder<P> {
     }
 
     pub fn jmpif_dynargs(
-        mut self,
+        self,
         condition: RegisterId,
         block_true: BlockId,
         values_true: Vec<RegisterId>,

@@ -1,10 +1,6 @@
 use crate::frontend::ir::{BasicBlockJump, ControlFlowInstruction, Instruction};
 
-use super::{
-    conv_only_bb::PureBlocks,
-    ir::{FFIValueType, Function, IR},
-    type_annotater::ValueType,
-};
+use super::conv_only_bb::PureBlocks;
 use std::fmt::Write;
 
 /// Infallible write
@@ -109,33 +105,4 @@ pub fn display(program: &PureBlocks) -> String {
     }
 
     text
-}
-
-fn display_norecord(t: &FFIValueType) -> String {
-    match t {
-        // ValueType::Bool(b) => format!("{}", b),
-        // ValueType::ExactInteger(i) => format!("{}", i),
-        // ValueType::ExactString(payload) => display_str(payload),
-        // ValueType::Record(_) => unreachable!(),
-        // ValueType::FnPtr(_) => "todo::FnPtr".into(),
-        _ => format!("{:?}", t),
-    }
-}
-
-fn display_str(payload: &[u8]) -> String {
-    if let Ok(s) = String::from_utf8(payload.to_vec()) {
-        return format!("{:?}", s);
-    };
-
-    let (pre, bytes, post) = unsafe { payload.align_to() };
-
-    if !pre.is_empty() && !post.is_empty() {
-        return format!("{:?}", payload);
-    }
-
-    if let Ok(s) = String::from_utf16(bytes) {
-        return s;
-    };
-
-    return format!("{:?}", payload);
 }

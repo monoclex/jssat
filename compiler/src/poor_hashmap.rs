@@ -22,8 +22,14 @@ impl<K, V> PoorMap<K, V> {
     pub fn iter(&self) -> impl Iterator<Item = &(K, V)> {
         self.items.iter()
     }
+}
 
-    pub fn into_iter(self) -> impl Iterator<Item = (K, V)> {
+impl<K, V> IntoIterator for PoorMap<K, V> {
+    type Item = (K, V);
+
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
         self.items.into_iter()
     }
 }

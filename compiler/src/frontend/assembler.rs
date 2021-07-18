@@ -158,8 +158,6 @@ impl ir::FFIValueType {
             FFIValueType::Any => ValueType::Any,
             FFIValueType::Runtime => ValueType::Runtime,
             FFIValueType::String => ValueType::String,
-            FFIValueType::Pointer(p) => ValueType::Pointer(p),
-            FFIValueType::Word => ValueType::Word,
         }
     }
 }
@@ -855,14 +853,10 @@ impl<'d> InstWriter<'d> {
                         | ValueType::Boolean
                         | ValueType::Bool(_)
                         | ValueType::Null
-                        | ValueType::Undefined
-                        | ValueType::Word => {
+                        | ValueType::Undefined => {
                             todo!("may be implemented at a later date, but dunno")
                         }
-                        ValueType::Runtime
-                        | ValueType::Pointer(_)
-                        | ValueType::Record(_)
-                        | ValueType::FnPtr(_) => {
+                        ValueType::Runtime | ValueType::Record(_) | ValueType::FnPtr(_) => {
                             unimplemented!("unsupported record key type")
                         }
                     },
@@ -902,14 +896,10 @@ impl<'d> InstWriter<'d> {
                         | ValueType::Boolean
                         | ValueType::Bool(_)
                         | ValueType::Null
-                        | ValueType::Undefined
-                        | ValueType::Word => {
+                        | ValueType::Undefined => {
                             todo!("may be implemented at a later date, but dunno")
                         }
-                        ValueType::Runtime
-                        | ValueType::Pointer(_)
-                        | ValueType::Record(_)
-                        | ValueType::FnPtr(_) => {
+                        ValueType::Runtime | ValueType::Record(_) | ValueType::FnPtr(_) => {
                             unimplemented!("unsupported record key type")
                         }
                     },
@@ -1013,12 +1003,6 @@ impl<'d> InstWriter<'d> {
             .collect::<Vec<_>>();
 
         BlockJump(id, args)
-    }
-
-    fn regs_to_typs(&self, args: &[RegisterId<PureBbCtx>]) -> Vec<ValueType> {
-        args.iter()
-            .map(|r| self.type_info.get_type(*r).clone())
-            .collect()
     }
 
     fn coerce(

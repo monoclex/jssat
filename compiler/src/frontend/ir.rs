@@ -51,12 +51,6 @@ pub enum FFIValueType {
     Runtime,
     /// A parameter of the [`jssatrt::string::String`] type.
     String,
-    /// Pointer to bits of some size.
-    /// Pointer(2) would be `i2*`, Pointer(16) would be `i16*`.
-    Pointer(u16),
-    /// A value dependent on the machine's size - akin to `usize`, or `size_t`.
-    /// Either 32 bits or 64 bits.
-    Word,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

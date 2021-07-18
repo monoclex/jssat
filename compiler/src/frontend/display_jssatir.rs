@@ -1,9 +1,6 @@
 use crate::frontend::ir::{BasicBlockJump, ControlFlowInstruction, Instruction};
 
-use super::{
-    ir::{FFIValueType, Function, IR},
-    type_annotater::ValueType,
-};
+use super::ir::{FFIValueType, IR};
 use std::fmt::Write;
 
 /// Infallible write

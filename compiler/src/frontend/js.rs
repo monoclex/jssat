@@ -403,14 +403,17 @@ impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
     }
 
     pub fn ResolveBinding(&mut self, name: RegisterId, env: Option<RegisterId>) -> RegisterId {
-        let mut env_value;
+        let env_value;
         // 1. If env is not present or if env is undefined, then
-        if let None = env {
+        if env.is_none() {
             // a. Set env to the running execution context's LexicalEnvironment.
             env_value = self.running_execution_context_lexical_environment;
         } else {
             // unidiomatic, idc
-            env_value = env.unwrap();
+            env_value = match env {
+                Some(it) => it,
+                _ => unreachable!(),
+            };
         }
         let env = env_value;
 

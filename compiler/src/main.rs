@@ -170,7 +170,7 @@ fn main() {
     let mut program = program;
 
     // this will probably run our opts enough
-    for i in 0..2 {
+    for _ in 0..2 {
         program = frontend::asm_opt_const_elim::opt_constant_elimination(program);
         // eprintln!("{:#?}", program);
         println!("=== MID OPT1 ===");

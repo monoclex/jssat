@@ -126,8 +126,6 @@ fn opt_blk(regs: &mut RegMap<AssemblerCtx>, cnsts: &Cnsts, b: &mut Block) {
                             | ValueType::ExactInteger(_)
                             | ValueType::Boolean
                             | ValueType::Bool(_)
-                            | ValueType::Pointer(_)
-                            | ValueType::Word
                             | ValueType::Record(_)
                             | ValueType::FnPtr(_)
                             | ValueType::Null
@@ -239,9 +237,7 @@ fn stack_alloc_valule(
         | ValueType::Runtime
         | ValueType::String
         | ValueType::Number
-        | ValueType::Boolean
-        | ValueType::Pointer(_)
-        | ValueType::Word => unreachable!("not simple type"),
+        | ValueType::Boolean => unreachable!("not simple type"),
     };
     regs.insert(r, p.clone());
 }

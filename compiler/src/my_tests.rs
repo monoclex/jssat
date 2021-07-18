@@ -1,8 +1,9 @@
 //! Because this is all in one binary, i can't use a `tests` folder
 
+#[cfg(test)]
 use crate::frontend::{
     builder::ProgramBuilder,
-    conv_only_bb, display_bb,
+    conv_only_bb,
     ir::{BasicBlockJump, ControlFlowInstruction},
 };
 

@@ -80,7 +80,6 @@ pub fn display(program: &Program) -> String {
                         key,
                         value,
                     } => {
-                        let rec_shp = f.register_types.get_shape_by_id(shape);
                         iwl!(
                             text,
                             "    RecordSet (%{}: {}), {}, %{}",
@@ -130,12 +129,7 @@ pub fn display(program: &Program) -> String {
                         r,
                         display_vt(f.register_types.get(*r), f)
                     ),
-                    crate::frontend::assembler::Instruction::Widen {
-                        result,
-                        input,
-                        from,
-                        to,
-                    } => todo!(),
+                    crate::frontend::assembler::Instruction::Widen { .. } => todo!(),
                     crate::frontend::assembler::Instruction::Unreachable => {
                         iwl!(text, "    Unreachable")
                     }
@@ -184,7 +178,7 @@ fn display_vt(t: &ValueType, f: &Function) -> String {
             if let Some(shape) = f.register_types.try_get_shape(*a) {
                 display_rs(shape, f)
             } else {
-                format!("?(deleted)?")
+                "?(deleted)?".to_string()
             }
         }
         ValueType::FnPtr(_) => "todo::FnPtr".into(),
