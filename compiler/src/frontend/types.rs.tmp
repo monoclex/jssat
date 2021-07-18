@@ -1,0 +1,182 @@
+//! Maintains definitions for type related things
+// (?) "type related things"? really?
+
+/*
+- conversion of register to
+type to record key
+=> types need to be possibly
+convertible to record key, but
+does not have to be infallible
+
+- if const bool, take one jump
+path. otherwise, take both
+(opt in assembler)
+
+- pushing instruction, and
+assigning type (with bug for
+non-sync)
+=> ISA <=> reg typ
+
+control flow insts:
+- opt for jmpif
+
+- assertibly a record
+
+type enums:
+- convertability
+- possibility for <trait>
+
+trait:
+- can turn into a record key
+- can be stack allocated "simple"
+- is simple/reconstructible
+- stateful <=> stateless
+- shadow moving state
+
+implemtning SEE:
+- ir
+- blocks
+- registers => typs
+- self execute
+- stateful types*
+
+^ need type version of inst
+- inst
+  => get typs
+  => perform op
+  => store typ
+
+
+*/
+
+use std::marker::PhantomData;
+
+use rustc_hash::FxHashMap;
+
+use crate::frontend::isa::TrivialItem;
+
+type ConstantId = crate::id::ConstantId<crate::id::NoContext>;
+type FunctionId = crate::id::FunctionId<crate::id::NoContext>;
+type RecordId = crate::id::AllocationId<crate::id::NoContext>;
+type TypeId = crate::id::TypeId<crate::id::NoContext>;
+
+/// Represents a type. This kind of type is completely stateless, and its
+/// advantegous for scenarios where you would not wish to carry state to
+/// represent a type.
+///
+/// Primary used to compute operations on types.
+// #[derive(Clone, Debug, PartialEq)]
+// pub enum Type {
+//     Any,
+//     Trivial(TrivialItem),
+//     Bytes,
+//     Bs(Vec<u8>),
+//     Number,
+//     Float(f64),
+//     Boolean,
+//     Bool(bool),
+//     Record(FxHashMap<RecordKey, Type>),
+//     FnPtr {
+//         returns_a_value: bool,
+//         // is there ever gonna be a function with > 255 args lmfao
+//         // ^ watch me have to increase this because of extracting record fields
+//         //   as function params
+//         arguments: u8,
+//     },
+//     Reference(Box<Type>),
+// }
+
+pub struct FnPtrInfo {
+    returns_a_value: bool,
+    //         // is there ever gonna be a function with > 255 args lmfao
+    //         // ^ watch me have to increase this because of extracting record fields
+    //         //   as function params
+    arguments: u8,
+}
+
+pub enum PrimtiveType {
+    Any,
+    Trivial(TrivialItem),
+    Bytes,
+    Bs(Vec<u8>),
+    Number,
+    Float(f64),
+    Boolean,
+    Bool(bool),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum RecordKey {
+    Bytes,
+    Bs(Vec<u8>),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum StatefulType {
+    Any,
+    Trivial(TrivialItem),
+    Bytes,
+    Bs(ConstantId),
+    Number,
+    Float(ConstantId),
+    Boolean,
+    Bool(bool),
+    Record(RecordId),
+    FnPtr(FunctionId),
+    Reference(TypeId),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum StatefulRecordKey {
+    Bytes,
+    Bs(ConstantId),
+}
+
+type StatefulRecord = FxHashMap<StatefulRecordKey, StatefulType>;
+
+pub trait Type {}
+
+pub trait InstWriter {
+    type Inst: ISAInstruction;
+}
+
+/// Asserts that a type is "simple". A simple type is one that can be
+/// reconstructed, simply by knowing what type the value is. This often implies
+/// that the type is cheap to reconstruct.
+pub trait SimpleType {
+    fn reconstruct(&self, insts: &mut impl InstWriter);
+}
+
+pub trait LazyValue<V> {
+    fn load(&self) -> &V;
+    fn load_mut(&mut self) -> &mut V;
+}
+
+pub struct Any;
+
+impl Type for Any {}
+
+pub struct Trivial(TrivialItem);
+pub struct Bytes;
+pub struct Byts<L: LazyValue<Vec<u8>>>(L);
+
+impl<L: LazyValue<Vec<u8>>> Type for Byts<L> {}
+
+impl<L: LazyValue<Vec<u8>>> SimpleType for Byts<L> {}
+
+pub struct Number;
+pub struct Float<L: LazyValue<f64>>(L);
+pub struct Boolean;
+pub struct Bool(bool);
+pub struct Record<LK, LV, T>(FxHashMap<LK, LV>, PhantomData<T>)
+where
+    LK: LazyValue<RecordKey>,
+    LV: LazyValue<T>,
+    T: Type;
+
+pub struct FnPtr<L: LazyValue<FnPtrInfo>>(L);
+pub struct Reference<L: LazyValue<T>, T: Type>(L, PhantomData<T>);
+
+pub struct Union<T>(Vec<T>);
+
+impl<T: SimpleType> SimpleType for Union<T> {}

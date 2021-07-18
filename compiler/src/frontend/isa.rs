@@ -193,7 +193,9 @@ impl ISAInstruction for MakeInteger {
 /// single possible value.
 pub struct MakeTrivial(pub RegisterId, pub TrivialItem);
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TrivialItem {
+    Runtime,
     Null,
     Undefined,
     Empty,
@@ -213,9 +215,9 @@ impl ISAInstruction for MakeTrivial {
     }
 }
 
-pub struct MakeString(pub RegisterId, pub ConstantId);
+pub struct MakeBytes(pub RegisterId, pub ConstantId);
 
-impl ISAInstruction for MakeString {
+impl ISAInstruction for MakeBytes {
     fn declared_register(&self) -> Option<RegisterId> {
         Some(self.0)
     }
@@ -255,6 +257,26 @@ pub struct OpAdd {
 }
 
 impl ISAInstruction for OpAdd {
+    fn declared_register(&self) -> Option<RegisterId> {
+        Some(self.result)
+    }
+
+    fn used_registers(&self) -> TinyVec<[RegisterId; 3]> {
+        tiny_vec![self.lhs, self.rhs]
+    }
+
+    fn used_registers_mut(&mut self) -> Vec<&mut RegisterId> {
+        vec![&mut self.lhs, &mut self.rhs]
+    }
+}
+
+pub struct OpOr {
+    pub result: RegisterId,
+    pub lhs: RegisterId,
+    pub rhs: RegisterId,
+}
+
+impl ISAInstruction for OpOr {
     fn declared_register(&self) -> Option<RegisterId> {
         Some(self.result)
     }
@@ -308,69 +330,72 @@ impl ISAInstruction for OpEquals {
     }
 }
 
-pub struct RecordGetProp {
-    pub result: RegisterId,
-    pub record: RegisterId,
-    pub prop: RegisterId,
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum RecordKey {
+    Prop(RegisterId),
+    Slot(InternalSlot),
 }
 
-impl ISAInstruction for RecordGetProp {
-    fn declared_register(&self) -> Option<RegisterId> {
-        Some(self.result)
-    }
-
-    fn used_registers(&self) -> TinyVec<[RegisterId; 3]> {
-        tiny_vec![self.record, self.prop]
-    }
-
-    fn used_registers_mut(&mut self) -> Vec<&mut RegisterId> {
-        vec![&mut self.record, &mut self.prop]
-    }
-}
-
-pub struct RecordGetSlot {
-    pub result: RegisterId,
-    pub record: RegisterId,
-    pub slot: Slot,
-}
-
-pub enum Slot {
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum InternalSlot {
     // TODO: expand this to all ecmascript internal slot types
     // (should this even be here?)
     Call,
 }
 
-impl ISAInstruction for RecordGetSlot {
+pub struct RecordGet {
+    pub result: RegisterId,
+    pub record: RegisterId,
+    pub key: RecordKey,
+}
+
+impl ISAInstruction for RecordGet {
     fn declared_register(&self) -> Option<RegisterId> {
         Some(self.result)
     }
 
     fn used_registers(&self) -> TinyVec<[RegisterId; 3]> {
-        tiny_vec![self.record]
+        let mut used_registers = tiny_vec![self.record];
+        if let RecordKey::Prop(register) = self.key {
+            used_registers.push(register);
+        }
+        used_registers
     }
 
     fn used_registers_mut(&mut self) -> Vec<&mut RegisterId> {
-        vec![&mut self.record]
+        let mut used_registers = vec![&mut self.record];
+        if let RecordKey::Prop(register) = &mut self.key {
+            used_registers.push(register);
+        }
+        used_registers
     }
 }
 
-pub struct RecordSetProp {
+pub struct RecordSet {
     pub record: RegisterId,
-    pub prop: RegisterId,
+    pub key: RecordKey,
     pub value: RegisterId,
 }
 
-impl ISAInstruction for RecordSetProp {
+impl ISAInstruction for RecordSet {
     fn declared_register(&self) -> Option<RegisterId> {
         None
     }
 
     fn used_registers(&self) -> TinyVec<[RegisterId; 3]> {
-        tiny_vec![self.record, self.prop, self.value]
+        let mut used_registers = tiny_vec![self.record, self.value];
+        if let RecordKey::Prop(register) = self.key {
+            used_registers.push(register);
+        }
+        used_registers
     }
 
     fn used_registers_mut(&mut self) -> Vec<&mut RegisterId> {
-        vec![&mut self.record, &mut self.prop, &mut self.value]
+        let mut used_registers = vec![&mut self.record, &mut self.value];
+        if let RecordKey::Prop(register) = &mut self.key {
+            used_registers.push(register);
+        }
+        used_registers
     }
 }
 
@@ -485,5 +510,46 @@ impl ISAInstruction for CallExternal {
 
     fn used_registers_mut(&mut self) -> Vec<&mut RegisterId> {
         self.args.iter_mut().collect()
+    }
+}
+
+// TODO: widen/narrow instructions that operate based on a type
+pub struct Widen {
+    pub result: RegisterId,
+    pub input: RegisterId,
+    pub typ: (),
+}
+
+impl ISAInstruction for Widen {
+    fn declared_register(&self) -> Option<RegisterId> {
+        Some(self.result)
+    }
+
+    fn used_registers(&self) -> TinyVec<[RegisterId; 3]> {
+        tiny_vec![self.input]
+    }
+
+    fn used_registers_mut(&mut self) -> Vec<&mut RegisterId> {
+        vec![&mut self.input]
+    }
+}
+
+pub struct Narrow {
+    pub result: RegisterId,
+    pub input: RegisterId,
+    pub typ: (),
+}
+
+impl ISAInstruction for Narrow {
+    fn declared_register(&self) -> Option<RegisterId> {
+        Some(self.result)
+    }
+
+    fn used_registers(&self) -> TinyVec<[RegisterId; 3]> {
+        tiny_vec![self.input]
+    }
+
+    fn used_registers_mut(&mut self) -> Vec<&mut RegisterId> {
+        vec![&mut self.input]
     }
 }

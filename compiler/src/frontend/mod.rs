@@ -11,3 +11,5 @@ pub mod isa;
 pub mod js;
 pub mod old_types;
 pub mod type_annotater;
+// commented out until we test the `isa` design
+// pub mod types;
