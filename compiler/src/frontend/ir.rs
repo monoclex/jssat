@@ -10,6 +10,8 @@ type BlockId = crate::id::BlockId<IrCtx>;
 type FunctionId = crate::id::FunctionId<IrCtx>;
 type ConstantId = crate::id::ConstantId<IrCtx>;
 use crate::id::RegisterId;
+
+use super::isa::{ISAInstruction, MakeRecord};
 type PlainRegisterId = RegisterId<IrCtx>;
 type ExternalFunctionId = crate::id::ExternalFunctionId<IrCtx>;
 
@@ -127,7 +129,7 @@ impl<C> Display for RecordKey<C> {
 
 #[derive(Debug, Clone)]
 pub enum Instruction<C: ContextTag = crate::id::IrCtx, C2: ContextTag = crate::id::IrCtx> {
-    RecordNew(RegisterId<C>),
+    RecordNew(MakeRecord<C>),
     RecordGet {
         result: RegisterId<C>,
         record: RegisterId<C>,
@@ -325,12 +327,12 @@ impl<C: ContextTag> Instruction<C> {
             | Instruction::MakeUndefined(result)
             | Instruction::CompareLessThan(result, _, _)
             | Instruction::Add(result, _, _)
-            | Instruction::RecordNew(result)
             | Instruction::RecordGet { result, .. }
             | Instruction::ReferenceOfFunction(result, _)
             | Instruction::CompareEqual(result, _, _)
             | Instruction::Negate(result, _) => Some(*result),
             Instruction::RecordSet { .. } => None,
+            Instruction::RecordNew(isa) => isa.declared_register(),
         }
     }
 

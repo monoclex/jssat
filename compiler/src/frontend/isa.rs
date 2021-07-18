@@ -4,6 +4,8 @@
 
 use tinyvec::{tiny_vec, TinyVec};
 
+use crate::id::ContextTag;
+
 type RegisterId = crate::id::RegisterId<crate::id::NoContext>;
 type ConstantId = crate::id::ConstantId<crate::id::NoContext>;
 type BlockId = crate::id::BlockId<crate::id::NoContext>;
@@ -141,11 +143,12 @@ impl ISAInstruction for Jump {
     }
 }
 
-pub struct MakeRecord(pub RegisterId);
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct MakeRecord<C: ContextTag>(crate::id::RegisterId<C>);
 
-impl ISAInstruction for MakeRecord {
+impl<C: ContextTag> ISAInstruction for MakeRecord<C> {
     fn declared_register(&self) -> Option<RegisterId> {
-        Some(self.0)
+        Some(self.0.map_context())
     }
 
     fn used_registers(&self) -> TinyVec<[RegisterId; 3]> {
@@ -154,6 +157,20 @@ impl ISAInstruction for MakeRecord {
 
     fn used_registers_mut(&mut self) -> Vec<&mut RegisterId> {
         Vec::new()
+    }
+}
+
+impl<C: ContextTag> MakeRecord<C> {
+    pub fn new(result: crate::id::RegisterId<C>) -> Self {
+        Self(result)
+    }
+
+    pub fn result(&self) -> crate::id::RegisterId<C> {
+        self.0
+    }
+
+    pub fn map_context<C2: ContextTag>(self) -> MakeRecord<C2> {
+        MakeRecord(self.0.map_context())
     }
 }
 

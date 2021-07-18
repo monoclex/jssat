@@ -8,6 +8,8 @@ use crate::id::{Counter, IdCompat};
 use crate::name::DebugName;
 use crate::UnwrapNone;
 
+use super::isa::MakeRecord;
+
 pub type BlockId = crate::id::BlockId<crate::id::IrCtx>;
 pub type FunctionId = crate::id::FunctionId<crate::id::IrCtx>;
 pub type ConstantId = crate::id::ConstantId<crate::id::IrCtx>;
@@ -472,7 +474,8 @@ impl DynBlockBuilder {
 
     pub fn record_new(&mut self) -> RegisterId {
         let result = self.gen_register_id.next();
-        self.instructions.push(Instruction::RecordNew(result));
+        self.instructions
+            .push(Instruction::RecordNew(MakeRecord::new(result)));
         result
     }
 

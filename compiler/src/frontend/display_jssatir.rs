@@ -51,7 +51,7 @@ pub fn display(program: &IR) -> String {
             for inst in block.instructions.iter() {
                 match inst {
                     Instruction::RecordNew(r) => {
-                        iwl!(text, "    %{} = RecordNew", *r,)
+                        iwl!(text, "    %{} = RecordNew", r.result(),)
                     }
                     Instruction::RecordGet {
                         result,

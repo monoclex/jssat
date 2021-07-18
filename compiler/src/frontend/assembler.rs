@@ -825,7 +825,7 @@ impl<'d> InstWriter<'d> {
             //
             // i'll probably end up trashing this entire struct
             &ir::Instruction::RecordNew(r) => {
-                let r = self.reg_map.map(r);
+                let r = self.reg_map.map(r.result());
                 self.instructions.push(Instruction::RecordNew(r));
                 let alloc = self.register_types.insert_alloc();
                 self.register_types.insert(r, ValueType::Record(alloc));

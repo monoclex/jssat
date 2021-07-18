@@ -312,9 +312,9 @@ impl<'d> SymbolicExecutionEngine<'d> {
                         }
                     };
                 }
-                &Instruction::RecordNew(r) => {
+                &Instruction::RecordNew(inst) => {
                     let allocation = registers.insert_alloc();
-                    registers.insert(r, ValueType::Record(allocation));
+                    registers.insert(inst.result(), ValueType::Record(allocation));
                 }
                 Instruction::RecordGet {
                     result,
