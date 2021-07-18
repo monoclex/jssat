@@ -7,6 +7,7 @@ pub mod display;
 pub mod display_bb;
 pub mod display_jssatir;
 pub mod ir;
+pub mod isa;
 pub mod js;
 pub mod type_annotater;
 pub mod types;

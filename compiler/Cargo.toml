@@ -5,7 +5,7 @@ authors = ["SirJosh3917 <SirJosh3917@users.noreply.github.com>"]
 edition = "2018"
 
 [features]
-default = []
+default = ["link-swc"]
 
 # Linking LLVM can take a minute or more. This feature is made optional so that
 # debug builds, which often don't test the LLVM backend, can be faster.
@@ -27,6 +27,7 @@ tempfile = "3.2.0"
 bimap = "0.6.1"
 ref-cast = "1.0.6"
 assoc = "0.1.2"
+tinyvec = { version = "1.2.0", features = ["alloc", "rustc_1_40"] }
 
 [dependencies.inkwell]
 git = "https://github.com/TheDan64/inkwell"

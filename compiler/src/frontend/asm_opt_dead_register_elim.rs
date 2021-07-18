@@ -48,25 +48,7 @@ fn opt_fn(f: &mut Function) {
             used.extend(inst.used_registers());
         }
 
-        match &b.end {
-            EndInstruction::Unreachable => {}
-            EndInstruction::Jump(BlockJump(_, args)) => {
-                used.extend(args);
-            }
-            EndInstruction::JumpIf {
-                condition,
-                true_path: BlockJump(_, true_args),
-                false_path: BlockJump(_, false_args),
-            } => {
-                used.insert(*condition);
-                used.extend(true_args);
-                used.extend(false_args);
-            }
-            &EndInstruction::Return(Some(r)) => {
-                used.insert(r);
-            }
-            EndInstruction::Return(None) => {}
-        }
+        used.extend(b.end.used_registers());
     }
 
     let declared_but_not_used = declared.difference(&used).collect::<FxHashSet<_>>();
