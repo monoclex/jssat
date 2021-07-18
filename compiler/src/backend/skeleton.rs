@@ -6,8 +6,8 @@ use crate::backend::llvm::{
 };
 
 use crate::frontend::assembler::{self, Program, ReturnType};
+use crate::frontend::old_types::{RecordShape, RegMap, ShapeKey};
 use crate::frontend::type_annotater;
-use crate::frontend::types::{RecordShape, RegMap, ShapeKey};
 use crate::{id::*, UnwrapNone};
 
 use super::llvm::{Struct, ValueType};

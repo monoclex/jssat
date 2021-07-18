@@ -9,8 +9,8 @@ use super::{
     conv_only_bb::{self, PureBlocks},
     ir,
     ir::{FFIValueType, RecordKey, IR},
+    old_types::{RegMap, ShapeKey},
     type_annotater::{self, InvocationArgs, TypeAnnotations, TypeInformation, ValueType},
-    types::{RegMap, ShapeKey},
 };
 use crate::{frontend::ir::BasicBlockJump, id::*};
 

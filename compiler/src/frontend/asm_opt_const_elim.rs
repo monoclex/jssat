@@ -2,8 +2,8 @@ use rustc_hash::FxHashMap;
 
 use super::{
     assembler::{Block, Function, Program},
+    old_types::{RegMap, ShapeKey},
     type_annotater::ValueType,
-    types::{RegMap, ShapeKey},
 };
 use crate::{
     frontend::{
@@ -205,14 +205,14 @@ fn stack_alloc_valule(
             let shape = regs.get_shape(alloc).clone();
             for (k, v) in shape.fields() {
                 let key = match k {
-                    crate::frontend::types::ShapeKey::String => unreachable!("non const key"),
-                    crate::frontend::types::ShapeKey::Str(key) => {
+                    crate::frontend::old_types::ShapeKey::String => unreachable!("non const key"),
+                    crate::frontend::old_types::ShapeKey::Str(key) => {
                         let key_id = regs.gen_id();
                         prepend.push(Instruction::MakeString(key_id, cnsts.intern(key)));
                         regs.insert(key_id, ValueType::ExactString(key.clone()));
                         RecordKey::Value(key_id)
                     }
-                    crate::frontend::types::ShapeKey::InternalSlot(slot) => {
+                    crate::frontend::old_types::ShapeKey::InternalSlot(slot) => {
                         RecordKey::InternalSlot(slot)
                     }
                 };

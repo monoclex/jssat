@@ -2,13 +2,13 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::{
     assembler::{Block, Function, Program},
+    old_types::RegMap,
     type_annotater::ValueType,
-    types::RegMap,
 };
 use crate::{
     frontend::{
         assembler::{BlockJump, Callable, EndInstruction, Instruction},
-        types::ShapeKey,
+        old_types::ShapeKey,
     },
     id::*,
 };

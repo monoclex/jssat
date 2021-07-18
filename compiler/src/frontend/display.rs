@@ -2,8 +2,8 @@ use crate::frontend::assembler::BlockJump;
 
 use super::{
     assembler::{Function, Program},
+    old_types::RecordShape,
     type_annotater::ValueType,
-    types::RecordShape,
 };
 use std::fmt::Write;
 
@@ -197,9 +197,9 @@ fn display_rs(shape: &RecordShape, f: &Function) -> String {
     iw!(s, "{{ ");
     for (k, v) in shape.fields() {
         match k {
-            crate::frontend::types::ShapeKey::String => iw!(s, "*: "),
-            crate::frontend::types::ShapeKey::Str(cs) => iw!(s, "{}: ", display_str(cs)),
-            crate::frontend::types::ShapeKey::InternalSlot(str) => iw!(s, "[[{}]]: ", str),
+            crate::frontend::old_types::ShapeKey::String => iw!(s, "*: "),
+            crate::frontend::old_types::ShapeKey::Str(cs) => iw!(s, "{}: ", display_str(cs)),
+            crate::frontend::old_types::ShapeKey::InternalSlot(str) => iw!(s, "[[{}]]: ", str),
         };
 
         iw!(s, "{}, ", display_vt(v, f));

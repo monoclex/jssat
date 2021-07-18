@@ -3,13 +3,13 @@ use rustc_hash::FxHashMap;
 use std::hash::Hash;
 
 use crate::frontend::ir::*;
-use crate::frontend::types::ShapeKey;
+use crate::frontend::old_types::ShapeKey;
 use crate::id::*;
 use crate::poor_hashmap::PoorMap;
 
 use super::conv_only_bb::{Block, PureBlocks};
-use super::types::RecordShape;
-use super::types::RegMap;
+use super::old_types::RecordShape;
+use super::old_types::RegMap;
 
 /// Type annotation mechanism in JSSAT.
 ///
