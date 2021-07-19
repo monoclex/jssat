@@ -9,6 +9,7 @@ use super::{
     conv_only_bb::{self, PureBlocks},
     ir,
     ir::{FFIValueType, RecordKey, IR},
+    isa::{ISAInstruction, OpLessThan},
     old_types::{RegMap, ShapeKey},
     type_annotater::{self, InvocationArgs, TypeAnnotations, TypeInformation, ValueType},
 };
@@ -98,6 +99,7 @@ pub enum Instruction {
     },
     Unreachable,
     Noop,
+    OpLessThan(OpLessThan<AssemblerCtx>),
 }
 
 #[derive(Clone, Debug)]
@@ -612,7 +614,10 @@ impl<'d> InstWriter<'d> {
                 self.register_types
                     .insert(int_reg, ValueType::ExactInteger(val));
             }
-            &ir::Instruction::CompareLessThan(cmp, lhs, rhs) => {
+            &ir::Instruction::CompareLessThan(inst) => {
+                let cmp = inst.result;
+                let lhs = inst.lhs;
+                let rhs = inst.rhs;
                 let cmp_typ = self.type_info.get_type(cmp);
 
                 let cmp = self.reg_map.map(cmp);
@@ -1042,6 +1047,7 @@ impl Instruction {
             | Instruction::RecordGet { result, .. }
             | Instruction::MakeFnPtr(result, _) => Some(*result),
             Instruction::Unreachable | Instruction::Noop | Instruction::RecordSet { .. } => None,
+            Instruction::OpLessThan(inst) => inst.declared_register(),
         }
     }
 
@@ -1084,6 +1090,7 @@ impl Instruction {
             | Instruction::RecordNew(_)
             | Instruction::MakeNull(_)
             | Instruction::MakeUndefined(_) => vec![],
+            Instruction::OpLessThan(inst) => inst.used_registers().to_vec(),
         }
     }
 
@@ -1126,6 +1133,7 @@ impl Instruction {
             | Instruction::RecordNew(_)
             | Instruction::MakeNull(_)
             | Instruction::MakeUndefined(_) => vec![],
+            Instruction::OpLessThan(inst) => inst.used_registers_mut(),
         }
     }
 }

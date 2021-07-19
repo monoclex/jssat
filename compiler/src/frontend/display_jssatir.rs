@@ -93,7 +93,10 @@ pub fn display(program: &IR) -> String {
                     Instruction::ReferenceOfFunction(r, f) => {
                         iwl!(text, "    %{} = MakeFnPtr @{}", r, f)
                     }
-                    Instruction::CompareLessThan(r, l, rr) => {
+                    Instruction::CompareLessThan(inst) => {
+                        let r = inst.result;
+                        let l = inst.lhs;
+                        let rr = inst.rhs;
                         iwl!(text, "    %{} = CompareLessThan %{}, %{}", r, l, rr)
                     }
                     Instruction::CompareEqual(r, l, rr) => {

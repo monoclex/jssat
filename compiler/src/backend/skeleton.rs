@@ -6,6 +6,7 @@ use crate::backend::llvm::{
 };
 
 use crate::frontend::assembler::{self, Program, ReturnType};
+use crate::frontend::isa::OpLessThan;
 use crate::frontend::old_types::{RecordShape, RegMap, ShapeKey};
 use crate::frontend::type_annotater;
 use crate::{id::*, UnwrapNone};
@@ -819,6 +820,14 @@ pub fn translate(program: Program) -> BackendIR<'static> {
                             result: reg_map.map(r),
                             value: NumberValue::SignedArbitrary(1, 0),
                         });
+                    }
+                    assembler::Instruction::OpLessThan(inst) => {
+                        let result = reg_map.map(inst.result);
+                        let lhs = reg_map.map(inst.lhs);
+                        let rhs = reg_map.map(inst.rhs);
+                        instructions.push(llvm::Instruction::OpLessThan(OpLessThan::new(
+                            result, lhs, rhs,
+                        )));
                     }
                 }
             }

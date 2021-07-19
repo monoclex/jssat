@@ -11,7 +11,7 @@ type FunctionId = crate::id::FunctionId<IrCtx>;
 type ConstantId = crate::id::ConstantId<IrCtx>;
 use crate::id::RegisterId;
 
-use super::isa::{ISAInstruction, MakeRecord};
+use super::isa::{ISAInstruction, MakeRecord, OpLessThan};
 type PlainRegisterId = RegisterId<IrCtx>;
 type ExternalFunctionId = crate::id::ExternalFunctionId<IrCtx>;
 
@@ -178,7 +178,7 @@ pub enum Instruction<C: ContextTag = crate::id::IrCtx, C2: ContextTag = crate::i
     MakeInteger(RegisterId<C>, i64),
     MakeNull(RegisterId<C>),
     MakeUndefined(RegisterId<C>),
-    CompareLessThan(RegisterId<C>, RegisterId<C>, RegisterId<C>),
+    CompareLessThan(OpLessThan<C>),
     CompareEqual(RegisterId<C>, RegisterId<C>, RegisterId<C>),
     Negate(RegisterId<C>, RegisterId<C>),
     Add(RegisterId<C>, RegisterId<C>, RegisterId<C>),
@@ -232,11 +232,7 @@ impl<C: ContextTag> Instruction<C> {
             Instruction::GetRuntime(r) => Instruction::GetRuntime(r.map_context::<C2>()),
             Instruction::MakeString(r, s) => Instruction::MakeString(r.map_context::<C2>(), s),
             Instruction::MakeInteger(r, n) => Instruction::MakeInteger(r.map_context::<C2>(), n),
-            Instruction::CompareLessThan(r, l, rhs) => Instruction::CompareLessThan(
-                r.map_context::<C2>(),
-                l.map_context::<C2>(),
-                rhs.map_context::<C2>(),
-            ),
+            Instruction::CompareLessThan(inst) => Instruction::CompareLessThan(inst.map_context()),
             Instruction::Add(r, l, rh) => Instruction::Add(
                 r.map_context::<C2>(),
                 l.map_context::<C2>(),
@@ -325,7 +321,6 @@ impl<C: ContextTag> Instruction<C> {
             | Instruction::MakeInteger(result, _)
             | Instruction::MakeNull(result)
             | Instruction::MakeUndefined(result)
-            | Instruction::CompareLessThan(result, _, _)
             | Instruction::Add(result, _, _)
             | Instruction::RecordGet { result, .. }
             | Instruction::ReferenceOfFunction(result, _)
@@ -333,13 +328,14 @@ impl<C: ContextTag> Instruction<C> {
             | Instruction::Negate(result, _) => Some(*result),
             Instruction::RecordSet { .. } => None,
             Instruction::RecordNew(isa) => isa.declared_register(),
+            Instruction::CompareLessThan(inst) => inst.declared_register(),
         }
     }
 
     pub fn used_registers(&self) -> Vec<RegisterId<C>> {
         match self {
             Instruction::Call(_, _, params) => params.clone(),
-            Instruction::CompareLessThan(_, lhs, rhs) | Instruction::Add(_, lhs, rhs) => {
+            Instruction::Add(_, lhs, rhs) => {
                 vec![*lhs, *rhs]
             }
             Instruction::GetRuntime(_)
@@ -347,7 +343,6 @@ impl<C: ContextTag> Instruction<C> {
             | Instruction::MakeInteger(_, _)
             | Instruction::MakeNull(_)
             | Instruction::MakeUndefined(_)
-            | Instruction::RecordNew(_)
             | Instruction::ReferenceOfFunction(_, _) => Vec::new(),
             Instruction::RecordGet {
                 result: _,
@@ -371,13 +366,15 @@ impl<C: ContextTag> Instruction<C> {
             } => vec![*record, *value],
             &Instruction::CompareEqual(_, a, b) => vec![a, b],
             &Instruction::Negate(_, a) => vec![a],
+            Instruction::RecordNew(inst) => inst.used_registers().to_vec(),
+            Instruction::CompareLessThan(inst) => inst.used_registers().to_vec(),
         }
     }
 
     pub fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
         match self {
             Instruction::Call(_, _, params) => params.iter_mut().collect(),
-            Instruction::CompareLessThan(_, lhs, rhs) | Instruction::Add(_, lhs, rhs) => {
+            Instruction::Add(_, lhs, rhs) => {
                 vec![lhs, rhs]
             }
             Instruction::GetRuntime(_)
@@ -385,7 +382,6 @@ impl<C: ContextTag> Instruction<C> {
             | Instruction::MakeInteger(_, _)
             | Instruction::MakeNull(_)
             | Instruction::MakeUndefined(_)
-            | Instruction::RecordNew(_)
             | Instruction::ReferenceOfFunction(_, _) => Vec::new(),
             Instruction::RecordGet {
                 result: _,
@@ -409,6 +405,8 @@ impl<C: ContextTag> Instruction<C> {
             } => vec![record, value],
             Instruction::CompareEqual(_, a, b) => vec![a, b],
             Instruction::Negate(_, a) => vec![a],
+            Instruction::RecordNew(inst) => inst.used_registers_mut(),
+            Instruction::CompareLessThan(inst) => inst.used_registers_mut(),
         }
     }
 }

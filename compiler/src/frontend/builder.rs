@@ -8,7 +8,7 @@ use crate::id::{Counter, IdCompat};
 use crate::name::DebugName;
 use crate::UnwrapNone;
 
-use super::isa::MakeRecord;
+use super::isa::{MakeRecord, OpLessThan};
 
 pub type BlockId = crate::id::BlockId<crate::id::IrCtx>;
 pub type FunctionId = crate::id::FunctionId<crate::id::IrCtx>;
@@ -531,7 +531,9 @@ impl DynBlockBuilder {
     pub fn compare_less_than(&mut self, lhs: RegisterId, rhs: RegisterId) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions
-            .push(Instruction::CompareLessThan(result, lhs, rhs));
+            .push(Instruction::CompareLessThan(OpLessThan::new(
+                result, lhs, rhs,
+            )));
         result
     }
 

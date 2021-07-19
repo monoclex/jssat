@@ -307,6 +307,7 @@ impl<C: ContextTag> ISAInstruction<C> for OpOr<C> {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct OpLessThan<C: ContextTag> {
     pub result: RegisterId<C>,
     pub lhs: RegisterId<C>,
@@ -324,6 +325,20 @@ impl<C: ContextTag> ISAInstruction<C> for OpLessThan<C> {
 
     fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
         vec![&mut self.lhs, &mut self.rhs]
+    }
+}
+
+impl<C: ContextTag> OpLessThan<C> {
+    pub fn new(result: RegisterId<C>, lhs: RegisterId<C>, rhs: RegisterId<C>) -> Self {
+        Self { result, lhs, rhs }
+    }
+
+    pub fn map_context<C2: ContextTag>(self) -> OpLessThan<C2> {
+        OpLessThan {
+            result: self.result.map_context(),
+            lhs: self.lhs.map_context(),
+            rhs: self.rhs.map_context(),
+        }
     }
 }
 

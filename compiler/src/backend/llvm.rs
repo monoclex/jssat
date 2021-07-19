@@ -19,9 +19,11 @@ use inkwell::{
     passes::{PassManager, PassManagerBuilder},
     targets::{CodeModel, FileType, RelocMode, Target, TargetMachine},
     types::{BasicType, BasicTypeEnum, IntType, StructType},
-    values::{BasicValue, BasicValueEnum, FunctionValue, GlobalValue, IntValue, StructValue},
-    AddressSpace, OptimizationLevel,
+    values::{BasicValue, BasicValueEnum, FunctionValue, GlobalValue, IntValue},
+    AddressSpace, IntPredicate, OptimizationLevel,
 };
+
+use crate::frontend::isa::OpLessThan;
 
 #[cfg(feature = "link-llvm")]
 use crate::UnwrapNone;
@@ -181,6 +183,7 @@ pub enum Instruction {
         from_struct: RegisterId,
         field_index: usize,
     },
+    OpLessThan(OpLessThan<crate::id::LlvmCtx>),
 }
 
 #[derive(Debug, Clone)]
@@ -824,6 +827,21 @@ impl<'c> BackendCompiler<'c, '_> {
 
                         let value = self.builder.build_load(field, "");
                         register_values.insert(result, value).expect_free();
+                    }
+                    Instruction::OpLessThan(inst) => {
+                        let lhs = register_values.get(&inst.lhs).unwrap();
+                        let rhs = register_values.get(&inst.rhs).unwrap();
+
+                        debug_assert!(lhs.is_int_value());
+                        let lhs = lhs.into_int_value();
+                        debug_assert!(rhs.is_int_value());
+                        let rhs = rhs.into_int_value();
+
+                        let result =
+                            self.builder
+                                .build_int_compare(IntPredicate::SLT, lhs, rhs, "");
+
+                        register_values.insert(inst.result, result.as_basic_value_enum());
                     }
                 }
             }

@@ -196,9 +196,9 @@ impl<'d> SymbolicExecutionEngine<'d> {
                 &Instruction::MakeInteger(r, v) => {
                     registers.insert(r, ValueType::ExactInteger(v));
                 }
-                &Instruction::CompareLessThan(res, l, r) => {
-                    let l = registers.get(l);
-                    let r = registers.get(r);
+                &Instruction::CompareLessThan(inst) => {
+                    let l = registers.get(inst.lhs);
+                    let r = registers.get(inst.rhs);
 
                     let res_typ = match (l, r) {
                         (ValueType::Number, ValueType::Number)
@@ -210,7 +210,7 @@ impl<'d> SymbolicExecutionEngine<'d> {
                         (l, r) => panic!("unsupported `<` of types {:?} and {:?}", l, r),
                     };
 
-                    registers.insert(res, res_typ);
+                    registers.insert(inst.result, res_typ);
                 }
                 &Instruction::Add(res, l, r) => {
                     let l = registers.get(l);

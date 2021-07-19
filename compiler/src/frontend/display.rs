@@ -134,6 +134,9 @@ pub fn display(program: &Program) -> String {
                         iwl!(text, "    Unreachable")
                     }
                     crate::frontend::assembler::Instruction::Noop => iwl!(text, "    Noop"),
+                    crate::frontend::assembler::Instruction::OpLessThan(i) => {
+                        iwl!(text, "    op less than TODO")
+                    }
                 }
             }
 
