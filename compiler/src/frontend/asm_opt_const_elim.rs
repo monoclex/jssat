@@ -8,8 +8,7 @@ use super::{
 use crate::{
     frontend::{
         assembler::{BlockJump, Callable, EndInstruction, Instruction},
-        ir::RecordKey,
-        isa::MakeTrivial,
+        isa::{MakeTrivial, RecordKey},
     },
     id::*,
 };
@@ -118,7 +117,7 @@ fn opt_blk(regs: &mut RegMap<AssemblerCtx>, cnsts: &Cnsts, b: &mut Block) {
                 if let ValueType::Record(alloc) = *regs.get(*record) {
                     let total_shape = regs.get_shape(alloc);
                     let key = match key {
-                        RecordKey::Value(v) => match regs.get(*v) {
+                        RecordKey::Prop(v) => match regs.get(*v) {
                             ValueType::ExactString(s) => ShapeKey::Str(s.clone()),
                             ValueType::Any
                             | ValueType::Runtime
@@ -132,7 +131,7 @@ fn opt_blk(regs: &mut RegMap<AssemblerCtx>, cnsts: &Cnsts, b: &mut Block) {
                             | ValueType::Null
                             | ValueType::Undefined => todo!(),
                         },
-                        RecordKey::InternalSlot(s) => ShapeKey::InternalSlot(s),
+                        RecordKey::Slot(s) => ShapeKey::InternalSlot(*s),
                     };
                     let k = total_shape.type_at_key(&key);
 
@@ -209,10 +208,10 @@ fn stack_alloc_valule(
                         let key_id = regs.gen_id();
                         prepend.push(Instruction::MakeString(key_id, cnsts.intern(key)));
                         regs.insert(key_id, ValueType::ExactString(key.clone()));
-                        RecordKey::Value(key_id)
+                        RecordKey::Prop(key_id)
                     }
                     crate::frontend::old_types::ShapeKey::InternalSlot(slot) => {
-                        RecordKey::InternalSlot(slot)
+                        RecordKey::Slot(*slot)
                     }
                 };
 

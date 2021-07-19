@@ -4,7 +4,10 @@ use crate::id::*;
 use petgraph::{visit::EdgeRef, EdgeDirection};
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use super::type_annotater::{InvocationArgs, ValueType};
+use super::{
+    isa::InternalSlot,
+    type_annotater::{InvocationArgs, ValueType},
+};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RecordShape {
@@ -70,7 +73,7 @@ impl RecordShape {
 pub enum ShapeKey {
     String,
     Str(Vec<u8>),
-    InternalSlot(&'static str),
+    InternalSlot(InternalSlot),
 }
 
 impl ShapeKey {

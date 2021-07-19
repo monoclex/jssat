@@ -53,16 +53,8 @@ pub fn display(program: &IR) -> String {
                     Instruction::RecordNew(r) => {
                         iwl!(text, "    %{} = RecordNew", r.result,)
                     }
-                    Instruction::RecordGet {
-                        result,
-                        record,
-                        key,
-                    } => {
-                        iwl!(text, "    %{} = RecordGet %{}, {}", result, record, key,)
-                    }
-                    Instruction::RecordSet { record, key, value } => {
-                        iwl!(text, "    RecordSet %{}, {}, %{}", record, key, value,)
-                    }
+                    Instruction::RecordGet(_) => iwl!(text, "todo"),
+                    Instruction::RecordSet(_) => iwl!(text, "todo"),
                     Instruction::CallVirt(t) => iwl!(text, "todo"),
                     Instruction::CallExtern(t) => iwl!(text, "todo"),
                     Instruction::CallStatic(t) => iwl!(text, "todo"),

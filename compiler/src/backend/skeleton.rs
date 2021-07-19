@@ -6,7 +6,7 @@ use crate::backend::llvm::{
 };
 
 use crate::frontend::assembler::{self, Program, ReturnType};
-use crate::frontend::isa::{OpLessThan, TrivialItem};
+use crate::frontend::isa::{OpLessThan, RecordKey, TrivialItem};
 use crate::frontend::old_types::{RecordShape, RegMap, ShapeKey};
 use crate::frontend::type_annotater;
 use crate::{id::*, UnwrapNone};
@@ -727,9 +727,8 @@ pub fn translate(program: Program) -> BackendIR<'static> {
                         if let type_annotater::ValueType::Record(r) = reg_types.get(*record) {
                             let s = defined_structs.get_type(*r);
 
-                            let shape_key = match key {
-                                crate::frontend::ir::RecordKey::Value(r) => match reg_types.get(*r)
-                                {
+                            let shape_key = match *key {
+                                RecordKey::Prop(r) => match reg_types.get(r) {
                                     type_annotater::ValueType::String => ShapeKey::String,
                                     type_annotater::ValueType::ExactString(s) => {
                                         ShapeKey::Str(s.clone())
@@ -745,9 +744,7 @@ pub fn translate(program: Program) -> BackendIR<'static> {
                                     | type_annotater::ValueType::Record(_)
                                     | type_annotater::ValueType::FnPtr(_) => todo!(),
                                 },
-                                crate::frontend::ir::RecordKey::InternalSlot(r) => {
-                                    ShapeKey::InternalSlot(r)
-                                }
+                                RecordKey::Slot(r) => ShapeKey::InternalSlot(r),
                             };
 
                             let mut field_idx = None;
@@ -774,9 +771,8 @@ pub fn translate(program: Program) -> BackendIR<'static> {
                             let s = defined_structs.get_type(*r);
 
                             // TODO: deduplicate this
-                            let shape_key = match key {
-                                crate::frontend::ir::RecordKey::Value(r) => match reg_types.get(*r)
-                                {
+                            let shape_key = match *key {
+                                RecordKey::Prop(r) => match reg_types.get(r) {
                                     type_annotater::ValueType::String => ShapeKey::String,
                                     type_annotater::ValueType::ExactString(s) => {
                                         ShapeKey::Str(s.clone())
@@ -792,9 +788,7 @@ pub fn translate(program: Program) -> BackendIR<'static> {
                                     | type_annotater::ValueType::Record(_)
                                     | type_annotater::ValueType::FnPtr(_) => todo!(),
                                 },
-                                crate::frontend::ir::RecordKey::InternalSlot(r) => {
-                                    ShapeKey::InternalSlot(r)
-                                }
+                                RecordKey::Slot(r) => ShapeKey::InternalSlot(r),
                             };
 
                             let mut field_idx = None;

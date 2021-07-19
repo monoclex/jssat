@@ -9,7 +9,8 @@ use crate::name::DebugName;
 use crate::UnwrapNone;
 
 use super::isa::{
-    CallExtern, CallStatic, CallVirt, MakeRecord, MakeTrivial, OpLessThan, TrivialItem,
+    CallExtern, CallStatic, CallVirt, InternalSlot, MakeRecord, MakeTrivial, OpLessThan, RecordGet,
+    RecordKey, RecordSet, TrivialItem,
 };
 
 pub type BlockId = crate::id::BlockId<crate::id::IrCtx>;
@@ -495,38 +496,38 @@ impl DynBlockBuilder {
 
     pub fn record_get_prop(&mut self, record: RegisterId, property: RegisterId) -> RegisterId {
         let result = self.gen_register_id.next();
-        self.instructions.push(Instruction::RecordGet {
+        self.instructions.push(Instruction::RecordGet(RecordGet {
             result,
             record,
-            key: RecordKey::Value(property),
-        });
+            key: RecordKey::Prop(property),
+        }));
         result
     }
 
-    pub fn record_get_slot(&mut self, record: RegisterId, slot: &'static str) -> RegisterId {
+    pub fn record_get_slot(&mut self, record: RegisterId, slot: InternalSlot) -> RegisterId {
         let result = self.gen_register_id.next();
-        self.instructions.push(Instruction::RecordGet {
+        self.instructions.push(Instruction::RecordGet(RecordGet {
             result,
             record,
-            key: RecordKey::InternalSlot(slot),
-        });
+            key: RecordKey::Slot(slot),
+        }));
         result
     }
 
     pub fn record_set_prop(&mut self, record: RegisterId, property: RegisterId, value: RegisterId) {
-        self.instructions.push(Instruction::RecordSet {
+        self.instructions.push(Instruction::RecordSet(RecordSet {
             record,
-            key: RecordKey::Value(property),
+            key: RecordKey::Prop(property),
             value,
-        });
+        }));
     }
 
-    pub fn record_set_slot(&mut self, record: RegisterId, slot: &'static str, value: RegisterId) {
-        self.instructions.push(Instruction::RecordSet {
+    pub fn record_set_slot(&mut self, record: RegisterId, slot: InternalSlot, value: RegisterId) {
+        self.instructions.push(Instruction::RecordSet(RecordSet {
             record,
-            key: RecordKey::InternalSlot(slot),
+            key: RecordKey::Slot(slot),
             value,
-        });
+        }));
     }
 
     pub fn add(&mut self, lhs: RegisterId, rhs: RegisterId) -> RegisterId {

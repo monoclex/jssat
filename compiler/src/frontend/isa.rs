@@ -2,6 +2,7 @@
 //! to allow easy composability of instructions for other IR passes with their
 //! own in-house ISAs.
 
+use derive_more::Display;
 use tinyvec::{tiny_vec, TinyVec};
 
 use crate::id::ContextTag;
@@ -390,19 +391,32 @@ impl<C: ContextTag> ISAInstruction<C> for OpEquals<C> {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Display)]
 pub enum RecordKey<C: ContextTag> {
+    #[display(fmt = "%{}", _0)]
     Prop(RegisterId<C>),
+    #[display(fmt = "[[{}]]", _0)]
     Slot(InternalSlot),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+impl<C: ContextTag> RecordKey<C> {
+    pub fn map_context<C2: ContextTag>(self) -> RecordKey<C2> {
+        match self {
+            RecordKey::Prop(r) => RecordKey::Prop(r.map_context()),
+            RecordKey::Slot(s) => RecordKey::Slot(s),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Display)]
 pub enum InternalSlot {
     // TODO: expand this to all ecmascript internal slot types
     // (should this even be here?)
     Call,
+    HostDefined,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct RecordGet<C: ContextTag> {
     pub result: RegisterId<C>,
     pub record: RegisterId<C>,
@@ -431,6 +445,17 @@ impl<C: ContextTag> ISAInstruction<C> for RecordGet<C> {
     }
 }
 
+impl<C: ContextTag> RecordGet<C> {
+    pub fn map_context<C2: ContextTag>(self) -> RecordGet<C2> {
+        RecordGet {
+            result: self.result.map_context(),
+            record: self.record.map_context(),
+            key: self.key.map_context(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct RecordSet<C: ContextTag> {
     pub record: RegisterId<C>,
     pub key: RecordKey<C>,
@@ -456,6 +481,16 @@ impl<C: ContextTag> ISAInstruction<C> for RecordSet<C> {
             used_registers.push(register);
         }
         used_registers
+    }
+}
+
+impl<C: ContextTag> RecordSet<C> {
+    pub fn map_context<C2: ContextTag>(self) -> RecordSet<C2> {
+        RecordSet {
+            record: self.record.map_context(),
+            key: self.key.map_context(),
+            value: self.value.map_context(),
+        }
     }
 }
 

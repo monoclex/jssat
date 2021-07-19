@@ -28,6 +28,7 @@ bimap = "0.6.1"
 ref-cast = "1.0.6"
 assoc = "0.1.2"
 tinyvec = { version = "1.2.0", features = ["alloc", "rustc_1_40"] }
+derive_more = "0.99.16"
 
 [dependencies.inkwell]
 git = "https://github.com/TheDan64/inkwell"

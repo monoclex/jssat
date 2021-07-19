@@ -1,4 +1,3 @@
-use std::fmt::Display;
 use std::hash::Hash;
 
 use rustc_hash::FxHashMap;
@@ -13,6 +12,7 @@ use crate::id::RegisterId;
 
 use super::isa::{
     CallExtern, CallStatic, CallVirt, ISAInstruction, MakeRecord, MakeTrivial, OpLessThan,
+    RecordGet, RecordSet,
 };
 type PlainRegisterId = RegisterId<IrCtx>;
 type ExternalFunctionId = crate::id::ExternalFunctionId<IrCtx>;
@@ -112,36 +112,10 @@ pub struct FunctionBlock {
 }
 
 #[derive(Debug, Clone)]
-pub enum RecordKey<C = crate::id::IrCtx> {
-    Value(RegisterId<C>),
-    /// Denoted in the ECMAScript standard with double brackets: `[[Example]]`.
-    /// Properties that are internal to only the engine. The internal slot
-    /// `[[Example]]` is constructed like so: `RecordKey::InternalSlot("Example")`.
-    InternalSlot(&'static str),
-}
-
-impl<C> Display for RecordKey<C> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            RecordKey::Value(v) => write!(f, "%{}", v),
-            RecordKey::InternalSlot(n) => write!(f, "[[{}]]", n),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
 pub enum Instruction<C: ContextTag = crate::id::IrCtx, C2: ContextTag = crate::id::IrCtx> {
     RecordNew(MakeRecord<C>),
-    RecordGet {
-        result: RegisterId<C>,
-        record: RegisterId<C>,
-        key: RecordKey<C>,
-    },
-    RecordSet {
-        record: RegisterId<C>,
-        key: RecordKey<C>,
-        value: RegisterId<C>,
-    },
+    RecordGet(RecordGet<C>),
+    RecordSet(RecordSet<C>),
     ReferenceOfFunction(RegisterId<C>, crate::id::FunctionId<C2>),
     CallStatic(CallStatic<C>),
     CallExtern(CallExtern<C>),
@@ -212,26 +186,8 @@ impl<C: ContextTag> Instruction<C> {
                 rh.map_context::<C2>(),
             ),
             Instruction::RecordNew(r) => Instruction::RecordNew(r.map_context()),
-            Instruction::RecordGet {
-                result,
-                record,
-                key,
-            } => Instruction::RecordGet {
-                result: result.map_context(),
-                record: record.map_context(),
-                key: match key {
-                    RecordKey::Value(v) => RecordKey::Value(v.map_context()),
-                    RecordKey::InternalSlot(s) => RecordKey::InternalSlot(s),
-                },
-            },
-            Instruction::RecordSet { record, key, value } => Instruction::RecordSet {
-                record: record.map_context(),
-                key: match key {
-                    RecordKey::Value(v) => RecordKey::Value(v.map_context()),
-                    RecordKey::InternalSlot(s) => RecordKey::InternalSlot(s),
-                },
-                value: value.map_context(),
-            },
+            Instruction::RecordGet(inst) => Instruction::RecordGet(inst.map_context()),
+            Instruction::RecordSet(inst) => Instruction::RecordSet(inst.map_context()),
             Instruction::ReferenceOfFunction(r, f) => {
                 Instruction::ReferenceOfFunction(r.map_context(), f.map_context())
             }
@@ -293,17 +249,17 @@ impl<C: ContextTag> Instruction<C> {
             Instruction::MakeString(result, _)
             | Instruction::MakeInteger(result, _)
             | Instruction::Add(result, _, _)
-            | Instruction::RecordGet { result, .. }
             | Instruction::ReferenceOfFunction(result, _)
             | Instruction::CompareEqual(result, _, _)
             | Instruction::Negate(result, _) => Some(*result),
-            Instruction::RecordSet { .. } => None,
             Instruction::RecordNew(isa) => isa.declared_register(),
             Instruction::CompareLessThan(inst) => inst.declared_register(),
             Instruction::CallStatic(inst) => inst.declared_register(),
             Instruction::CallExtern(inst) => inst.declared_register(),
             Instruction::CallVirt(inst) => inst.declared_register(),
             Instruction::MakeTrivial(inst) => inst.declared_register(),
+            Instruction::RecordGet(inst) => inst.declared_register(),
+            Instruction::RecordSet(inst) => inst.declared_register(),
         }
     }
 
@@ -315,26 +271,6 @@ impl<C: ContextTag> Instruction<C> {
             Instruction::MakeString(_, _)
             | Instruction::MakeInteger(_, _)
             | Instruction::ReferenceOfFunction(_, _) => Vec::new(),
-            Instruction::RecordGet {
-                result: _,
-                record,
-                key: RecordKey::Value(key),
-            } => vec![*record, *key],
-            Instruction::RecordGet {
-                result: _,
-                record,
-                key: RecordKey::InternalSlot(_),
-            } => vec![*record],
-            Instruction::RecordSet {
-                record,
-                key: RecordKey::Value(key),
-                value,
-            } => vec![*record, *key, *value],
-            Instruction::RecordSet {
-                record,
-                key: RecordKey::InternalSlot(_),
-                value,
-            } => vec![*record, *value],
             &Instruction::CompareEqual(_, a, b) => vec![a, b],
             &Instruction::Negate(_, a) => vec![a],
             Instruction::RecordNew(inst) => inst.used_registers().to_vec(),
@@ -343,6 +279,8 @@ impl<C: ContextTag> Instruction<C> {
             Instruction::CallExtern(inst) => inst.used_registers().to_vec(),
             Instruction::CallVirt(inst) => inst.used_registers().to_vec(),
             Instruction::MakeTrivial(inst) => inst.used_registers().to_vec(),
+            Instruction::RecordGet(inst) => inst.used_registers().to_vec(),
+            Instruction::RecordSet(inst) => inst.used_registers().to_vec(),
         }
     }
 
@@ -354,26 +292,6 @@ impl<C: ContextTag> Instruction<C> {
             Instruction::MakeString(_, _)
             | Instruction::MakeInteger(_, _)
             | Instruction::ReferenceOfFunction(_, _) => Vec::new(),
-            Instruction::RecordGet {
-                result: _,
-                record,
-                key: RecordKey::Value(key),
-            } => vec![record, key],
-            Instruction::RecordGet {
-                result: _,
-                record,
-                key: RecordKey::InternalSlot(_),
-            } => vec![record],
-            Instruction::RecordSet {
-                record,
-                key: RecordKey::Value(key),
-                value,
-            } => vec![record, key, value],
-            Instruction::RecordSet {
-                record,
-                key: RecordKey::InternalSlot(_),
-                value,
-            } => vec![record, value],
             Instruction::CompareEqual(_, a, b) => vec![a, b],
             Instruction::Negate(_, a) => vec![a],
             Instruction::RecordNew(inst) => inst.used_registers_mut(),
@@ -382,6 +300,8 @@ impl<C: ContextTag> Instruction<C> {
             Instruction::CallExtern(inst) => inst.used_registers_mut(),
             Instruction::CallVirt(inst) => inst.used_registers_mut(),
             Instruction::MakeTrivial(inst) => inst.used_registers_mut(),
+            Instruction::RecordGet(inst) => inst.used_registers_mut(),
+            Instruction::RecordSet(inst) => inst.used_registers_mut(),
         }
     }
 }

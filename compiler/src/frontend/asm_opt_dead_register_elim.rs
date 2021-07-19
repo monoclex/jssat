@@ -4,7 +4,7 @@ use super::{
     assembler::{Function, Program},
     type_annotater::ValueType,
 };
-use crate::frontend::{assembler::Instruction, old_types::ShapeKey};
+use crate::frontend::{assembler::Instruction, isa::RecordKey, old_types::ShapeKey};
 
 /// This optimization pass is necessary to eliminate instructions that generate LLVM IR
 /// that uses runtime machinery - meaning LLVM cannot optimize it away.
@@ -59,7 +59,7 @@ fn opt_fn(f: &mut Function) {
                     // fix the object type
                     Instruction::RecordSet { shape_id, key, .. } => {
                         let k = match key {
-                            super::ir::RecordKey::Value(v) => match f.register_types.get(*v) {
+                            RecordKey::Prop(v) => match f.register_types.get(*v) {
                                 ValueType::ExactString(s) => ShapeKey::Str(s.clone()),
                                 ValueType::Any
                                 | ValueType::Runtime
@@ -73,7 +73,7 @@ fn opt_fn(f: &mut Function) {
                                 | ValueType::Null
                                 | ValueType::Undefined => todo!(),
                             },
-                            super::ir::RecordKey::InternalSlot(s) => ShapeKey::InternalSlot(s),
+                            RecordKey::Slot(s) => ShapeKey::InternalSlot(*s),
                         };
                         let shape = f.register_types.get_shape_by_id_mut(shape_id);
                         shape.remove_prop(&k);

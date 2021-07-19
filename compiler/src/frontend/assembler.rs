@@ -8,8 +8,8 @@ use rustc_hash::FxHashMap;
 use super::{
     conv_only_bb::{self, PureBlocks},
     ir,
-    ir::{FFIValueType, RecordKey, IR},
-    isa::{CallExtern, CallStatic, CallVirt, ISAInstruction, MakeTrivial, OpLessThan},
+    ir::{FFIValueType, IR},
+    isa::{CallExtern, CallStatic, CallVirt, ISAInstruction, MakeTrivial, OpLessThan, RecordKey},
     old_types::{RegMap, ShapeKey},
     type_annotater::{self, InvocationArgs, TypeAnnotations, TypeInformation, ValueType},
 };
@@ -863,21 +863,17 @@ impl<'d> InstWriter<'d> {
                 let alloc = self.register_types.insert_alloc();
                 self.register_types.insert(r, ValueType::Record(alloc));
             }
-            ir::Instruction::RecordGet {
-                result,
-                record,
-                key,
-            } => {
-                let result = &self.reg_map.map(*result);
-                let record = &self.reg_map.map(*record);
+            &ir::Instruction::RecordGet(inst) => {
+                let result = &self.reg_map.map(inst.result);
+                let record = &self.reg_map.map(inst.record);
 
-                let rec_key = match *key {
-                    RecordKey::Value(v) => RecordKey::Value(self.reg_map.map(v)),
-                    RecordKey::InternalSlot(s) => RecordKey::InternalSlot(s),
+                let rec_key = match inst.key {
+                    RecordKey::Prop(v) => RecordKey::Prop(self.reg_map.map(v)),
+                    RecordKey::Slot(s) => RecordKey::Slot(s),
                 };
 
-                let key = match key {
-                    &RecordKey::Value(r) => match self.register_types.get(self.reg_map.map(r)) {
+                let key = match inst.key {
+                    RecordKey::Prop(r) => match self.register_types.get(self.reg_map.map(r)) {
                         ValueType::String => ShapeKey::String,
                         ValueType::ExactString(str) => ShapeKey::Str(str.clone()),
                         ValueType::Any
@@ -893,7 +889,7 @@ impl<'d> InstWriter<'d> {
                             unimplemented!("unsupported record key type")
                         }
                     },
-                    RecordKey::InternalSlot(slot) => ShapeKey::InternalSlot(slot),
+                    RecordKey::Slot(slot) => ShapeKey::InternalSlot(slot),
                 };
 
                 if let ValueType::Record(alloc) = *self.register_types.get(*record) {
@@ -910,17 +906,17 @@ impl<'d> InstWriter<'d> {
                     panic!("cannot call RecordGet on non record");
                 }
             }
-            ir::Instruction::RecordSet { record, key, value } => {
-                let record = &self.reg_map.map(*record);
-                let value = &self.reg_map.map(*value);
+            ir::Instruction::RecordSet(inst) => {
+                let record = &self.reg_map.map(inst.record);
+                let value = &self.reg_map.map(inst.value);
 
-                let rec_key = match *key {
-                    RecordKey::Value(v) => RecordKey::Value(self.reg_map.map(v)),
-                    RecordKey::InternalSlot(s) => RecordKey::InternalSlot(s),
+                let rec_key = match inst.key {
+                    RecordKey::Prop(v) => RecordKey::Prop(self.reg_map.map(v)),
+                    RecordKey::Slot(s) => RecordKey::Slot(s),
                 };
 
-                let key = match *key {
-                    RecordKey::Value(v) => match self.register_types.get(self.reg_map.map(v)) {
+                let key = match inst.key {
+                    RecordKey::Prop(v) => match self.register_types.get(self.reg_map.map(v)) {
                         ValueType::String => ShapeKey::String,
                         ValueType::ExactString(str) => ShapeKey::Str(str.clone()),
                         ValueType::Any
@@ -936,7 +932,7 @@ impl<'d> InstWriter<'d> {
                             unimplemented!("unsupported record key type")
                         }
                     },
-                    RecordKey::InternalSlot(slot) => ShapeKey::InternalSlot(slot),
+                    RecordKey::Slot(slot) => ShapeKey::InternalSlot(slot),
                 };
 
                 if let ValueType::Record(alloc) = *self.register_types.get(*record) {
@@ -1082,24 +1078,24 @@ impl Instruction {
             Instruction::Widen { input, .. } => vec![*input],
             Instruction::RecordGet {
                 record,
-                key: RecordKey::Value(v),
+                key: RecordKey::Prop(v),
                 ..
             } => vec![*record, *v],
             Instruction::RecordGet {
                 record,
-                key: RecordKey::InternalSlot(_),
+                key: RecordKey::Slot(_),
                 ..
             } => vec![*record],
             Instruction::RecordSet {
                 shape_id: _,
                 record,
-                key: RecordKey::Value(v),
+                key: RecordKey::Prop(v),
                 value,
             } => vec![*record, *v, *value],
             Instruction::RecordSet {
                 shape_id: _,
                 record,
-                key: RecordKey::InternalSlot(_),
+                key: RecordKey::Slot(_),
                 value,
             } => vec![*record, *value],
             Instruction::Unreachable | Instruction::Noop | Instruction::RecordNew(_) => vec![],
@@ -1121,24 +1117,24 @@ impl Instruction {
             Instruction::Widen { input, .. } => vec![input],
             Instruction::RecordGet {
                 record,
-                key: RecordKey::Value(v),
+                key: RecordKey::Prop(v),
                 ..
             } => vec![record, v],
             Instruction::RecordGet {
                 record,
-                key: RecordKey::InternalSlot(_),
+                key: RecordKey::Slot(_),
                 ..
             } => vec![record],
             Instruction::RecordSet {
                 shape_id: _,
                 record,
-                key: RecordKey::Value(v),
+                key: RecordKey::Prop(v),
                 value,
             } => vec![record, v, value],
             Instruction::RecordSet {
                 shape_id: _,
                 record,
-                key: RecordKey::InternalSlot(_),
+                key: RecordKey::Slot(_),
                 value,
             } => vec![record, value],
             Instruction::Unreachable | Instruction::Noop | Instruction::RecordNew(_) => vec![],
