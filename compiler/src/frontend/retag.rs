@@ -229,6 +229,7 @@ pub trait ExtFnGenRetagger<C: Tag, C2: Tag>: ExtFnRetagger<C, C2> {
     fn gen(&mut self) -> ExternalFunctionId<C2>;
 }
 
+#[derive(Debug)]
 pub struct ExtFnPassRetagger<C: Tag, C2: Tag>(
     PassRetagger<ExternalFunctionId<C>, ExternalFunctionId<C2>>,
 );
@@ -514,7 +515,7 @@ trait CoreRetagger {
 /// Implements completely transparent retaggings. In release mode, this will
 /// have no performance impact for retagging. However, it does not provide
 /// a way to generate new IDs.
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct PassRetagger<I1, I2> {
     #[cfg(debug_assertions)]
     tagged: FxHashSet<usize>,

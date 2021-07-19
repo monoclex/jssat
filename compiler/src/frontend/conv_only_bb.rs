@@ -8,7 +8,10 @@ use crate::frontend::ir::{BasicBlockJump, ControlFlowInstruction, Function, Inst
 use crate::id::*;
 use crate::UnwrapNone;
 
-use super::retag::{RegGenRetagger, RegPassRetagger};
+use super::retag::{
+    ExtFnPassRetagger, FnPassRetagger, FnRetagger, RegGenRetagger, RegPassRetagger,
+};
+use crate::frontend::retag::ExtFnRetagger;
 
 pub type ControlFlowGraph = petgraph::graph::DiGraph<BlockId<PureBbCtx>, ()>;
 pub type ValueFlowGraph = petgraph::graph::DiGraph<RegisterId<IrCtx>, ()>;
@@ -87,6 +90,16 @@ pub fn translate(ir: &IR) -> PureBlocks {
     let block_id_gen = Counter::new();
     let mut blocks = FxHashMap::default();
 
+    let mut fn_retagger = FnPassRetagger::default();
+    for (id, _) in ir.functions.iter() {
+        fn_retagger.retag_new(*id);
+    }
+
+    let mut ext_fn_retagger = ExtFnPassRetagger::default();
+    for (id, _) in ir.external_functions.iter() {
+        ext_fn_retagger.retag_new(*id);
+    }
+
     for (id, function) in ir.functions.iter() {
         // UNIQUENESS GUARANTEE:
         // every block is a { (fn id, blk id) |-> blk } pairing
@@ -96,7 +109,13 @@ pub fn translate(ir: &IR) -> PureBlocks {
         // a unique mapping of { fn id |-> func } pairing
         // the block ids are guaranteed to be unique by the assertion inside
         // thus, we can safely extend `blocks` and know nothing is being overwritten
-        blocks.extend(translate_function(*id, function, &block_id_gen));
+        blocks.extend(translate_function(
+            *id,
+            function,
+            &block_id_gen,
+            &ext_fn_retagger,
+            &fn_retagger,
+        ));
     }
 
     PureBlocks::new(blocks)
@@ -396,13 +415,15 @@ pub fn translate_function(
     fn_id: FunctionId<IrCtx>,
     func: &Function,
     block_id_gen: &Counter<BlockId<PureBbCtx>>,
+    ext_fn_retagger: &ExtFnPassRetagger<IrCtx, IrCtx>,
+    fn_retagger: &impl FnRetagger<IrCtx, IrCtx>,
 ) -> FxHashMap<HostBlock, Block> {
     let highest_register = compute_highest_register(func);
-    let mut retagger = RegGenPassRetagger::new(highest_register.unwrap_or(RegisterId::new()));
+    let mut retagger = RegGenPassRetagger::new(highest_register.unwrap_or_default());
 
     // we will need to mutate something as we gradually get every basic block
     // into slowly a purer and purer state
-    let mut granular_rewrite = to_rewriting_fn(func, block_id_gen);
+    let mut granular_rewrite = to_rewriting_fn(func, block_id_gen, ext_fn_retagger, fn_retagger);
 
     let flow = compute_flow(&granular_rewrite);
 
@@ -541,7 +562,12 @@ fn compute_highest_register(f: &Function) -> Option<RegisterId<IrCtx>> {
     has_encountered_register.then_some(highest)
 }
 
-fn to_rewriting_fn(f: &Function, block_id_gen: &Counter<BlockId<PureBbCtx>>) -> RewritingFn {
+fn to_rewriting_fn(
+    f: &Function,
+    block_id_gen: &Counter<BlockId<PureBbCtx>>,
+    ext_fn_retagger: &ExtFnPassRetagger<IrCtx, IrCtx>,
+    fn_retagger: &impl FnRetagger<IrCtx, IrCtx>,
+) -> RewritingFn {
     let mut ir_to_bb_blk_id_map = FxHashMap::default();
     let mut bb_id_of = move |id: BlockId<IrCtx>| {
         *ir_to_bb_blk_id_map
@@ -578,7 +604,7 @@ fn to_rewriting_fn(f: &Function, block_id_gen: &Counter<BlockId<PureBbCtx>>) -> 
         let instructions = block
             .instructions
             .iter()
-            .map(|i| i.clone().retag(&mut retagger))
+            .map(|i| i.clone().retag(&mut retagger, ext_fn_retagger, fn_retagger))
             .collect();
 
         let end = {

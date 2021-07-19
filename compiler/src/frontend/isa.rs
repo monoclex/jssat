@@ -10,6 +10,8 @@ use crate::id::FunctionId;
 use crate::id::RegisterId;
 use crate::id::Tag;
 
+use super::retag::ExtFnRetagger;
+use super::retag::FnRetagger;
 use super::retag::RegRetagger;
 
 type ConstantId = crate::id::ConstantId<crate::id::NoContext>;
@@ -564,14 +566,14 @@ impl<C: Tag> ISAInstruction<C> for JumpIf<C> {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct CallStatic<C: Tag> {
+pub struct CallStatic<C: Tag, F: Tag> {
     pub result: Option<RegisterId<C>>,
-    pub fn_id: FunctionId<C>,
+    pub fn_id: FunctionId<F>,
     // TODO: figure out if there's a common size, to use `TinyVec`
     pub args: Vec<RegisterId<C>>,
 }
 
-impl<C: Tag> ISAInstruction<C> for CallStatic<C> {
+impl<C: Tag, F: Tag> ISAInstruction<C> for CallStatic<C, F> {
     fn is_pure() -> bool {
         // inside of the function may be calls to external functions
         false
@@ -590,12 +592,16 @@ impl<C: Tag> ISAInstruction<C> for CallStatic<C> {
     }
 }
 
-impl<C: Tag> CallStatic<C> {
+impl<C: Tag, F: Tag> CallStatic<C, F> {
     #[track_caller]
-    pub fn map_context<C2: Tag>(self, retagger: &mut impl RegRetagger<C, C2>) -> CallStatic<C2> {
+    pub fn retag<C2: Tag, F2: Tag>(
+        self,
+        retagger: &mut impl RegRetagger<C, C2>,
+        fn_retagger: &impl FnRetagger<F, F2>,
+    ) -> CallStatic<C2, F2> {
         CallStatic {
             result: self.result.map(|r| retagger.retag_new(r)),
-            fn_id: self.fn_id.map_context(),
+            fn_id: fn_retagger.retag_old(self.fn_id),
             args: self
                 .args
                 .into_iter()
@@ -640,10 +646,10 @@ impl<C: Tag> ISAInstruction<C> for CallVirt<C> {
 
 impl<C: Tag> CallVirt<C> {
     #[track_caller]
-    pub fn map_context<C2: Tag>(self, retagger: &mut impl RegRetagger<C, C2>) -> CallVirt<C2> {
+    pub fn retag<C2: Tag>(self, retagger: &mut impl RegRetagger<C, C2>) -> CallVirt<C2> {
         CallVirt {
             result: self.result.map(|r| retagger.retag_new(r)),
-            fn_ptr: self.fn_ptr.map_context(),
+            fn_ptr: retagger.retag_old(self.fn_ptr),
             args: self
                 .args
                 .into_iter()
@@ -654,13 +660,13 @@ impl<C: Tag> CallVirt<C> {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct CallExtern<C: Tag> {
+pub struct CallExtern<C: Tag, F: Tag> {
     pub result: Option<RegisterId<C>>,
-    pub fn_id: ExternalFunctionId<C>,
+    pub fn_id: ExternalFunctionId<F>,
     pub args: Vec<RegisterId<C>>,
 }
 
-impl<C: Tag> ISAInstruction<C> for CallExtern<C> {
+impl<C: Tag, F: Tag> ISAInstruction<C> for CallExtern<C, F> {
     fn is_pure() -> bool {
         // calling external functions is inherently side-effectful
         false
@@ -679,16 +685,20 @@ impl<C: Tag> ISAInstruction<C> for CallExtern<C> {
     }
 }
 
-impl<C: Tag> CallExtern<C> {
+impl<C: Tag, F: Tag> CallExtern<C, F> {
     #[track_caller]
-    pub fn map_context<C2: Tag>(self, retagger: &mut impl RegRetagger<C, C2>) -> CallExtern<C2> {
+    pub fn retag<C2: Tag, F2: Tag>(
+        self,
+        reg_retagger: &mut impl RegRetagger<C, C2>,
+        ext_fn_retagger: &impl ExtFnRetagger<F, F2>,
+    ) -> CallExtern<C2, F2> {
         CallExtern {
-            result: self.result.map(|r| retagger.retag_new(r)),
-            fn_id: self.fn_id.map_context(),
+            result: self.result.map(|r| reg_retagger.retag_new(r)),
+            fn_id: ext_fn_retagger.retag_old(self.fn_id),
             args: self
                 .args
                 .into_iter()
-                .map(|r| retagger.retag_old(r))
+                .map(|r| reg_retagger.retag_old(r))
                 .collect(),
         }
     }

@@ -14,7 +14,7 @@ use super::isa::{
     CallExtern, CallStatic, CallVirt, ISAInstruction, MakeInteger, MakeRecord, MakeTrivial, OpAdd,
     OpEquals, OpLessThan, OpNegate, RecordGet, RecordSet,
 };
-use super::retag::RegRetagger;
+use super::retag::{ExtFnRetagger, FnRetagger, RegRetagger};
 type PlainRegisterId = RegisterId<IrCtx>;
 type ExternalFunctionId = crate::id::ExternalFunctionId<IrCtx>;
 
@@ -113,13 +113,13 @@ pub struct FunctionBlock {
 }
 
 #[derive(Debug, Clone)]
-pub enum Instruction<C: Tag = crate::id::IrCtx, C2: Tag = crate::id::IrCtx> {
+pub enum Instruction<C: Tag = crate::id::IrCtx, F: Tag = crate::id::IrCtx> {
     RecordNew(MakeRecord<C>),
     RecordGet(RecordGet<C>),
     RecordSet(RecordSet<C>),
-    ReferenceOfFunction(RegisterId<C>, crate::id::FunctionId<C2>),
-    CallStatic(CallStatic<C>),
-    CallExtern(CallExtern<C>),
+    ReferenceOfFunction(RegisterId<C>, crate::id::FunctionId<F>),
+    CallStatic(CallStatic<C, F>),
+    CallExtern(CallExtern<C, F>),
     CallVirt(CallVirt<C>),
     // RefIsEmpty(RegisterId /*=*/, RegisterId),
     // RefDeref(RegisterId /*=*/, RegisterId),
@@ -135,7 +135,7 @@ pub enum Instruction<C: Tag = crate::id::IrCtx, C2: Tag = crate::id::IrCtx> {
     /// the constant referenced is a valid UTF-16 string.
     // TODO: the conv_bb_block phase doesn't mutate constants, so they're still
     // in the old constant phase. is this valid?
-    MakeString(RegisterId<C>, crate::id::ConstantId<C2>),
+    MakeString(RegisterId<C>, crate::id::ConstantId<F>),
     // /// # [`Instruction::Unreachable`]
     // ///
     // /// Indicates that the executing code path will never reach this instruction.
@@ -167,12 +167,19 @@ pub enum ControlFlowInstruction<Ctx = IrCtx, Path = IrCtx> {
     Ret(Option<RegisterId<Ctx>>),
 }
 
-impl<C: Tag> Instruction<C> {
+impl<C: Tag, F: Tag> Instruction<C, F> {
     // this should turn into a no-op lol
     #[track_caller]
-    pub fn retag<C2: Tag>(self, retagger: &mut impl RegRetagger<C, C2>) -> Instruction<C2> {
+    pub fn retag<C2: Tag, F2: Tag>(
+        self,
+        retagger: &mut impl RegRetagger<C, C2>,
+        ext_fn_retagger: &impl ExtFnRetagger<F, F2>,
+        fn_retagger: &impl FnRetagger<F, F2>,
+    ) -> Instruction<C2, F2> {
         match self {
-            Instruction::MakeString(r, s) => Instruction::MakeString(retagger.retag_new(r), s),
+            Instruction::MakeString(r, s) => {
+                Instruction::MakeString(retagger.retag_new(r), s.map_context())
+            }
             Instruction::CompareLessThan(inst) => {
                 Instruction::CompareLessThan(inst.retag(retagger))
             }
@@ -180,11 +187,15 @@ impl<C: Tag> Instruction<C> {
             Instruction::RecordGet(inst) => Instruction::RecordGet(inst.retag(retagger)),
             Instruction::RecordSet(inst) => Instruction::RecordSet(inst.retag(retagger)),
             Instruction::ReferenceOfFunction(r, f) => {
-                Instruction::ReferenceOfFunction(retagger.retag_new(r), f.map_context())
+                Instruction::ReferenceOfFunction(retagger.retag_new(r), fn_retagger.retag_old(f))
             }
-            Instruction::CallStatic(inst) => Instruction::CallStatic(inst.map_context(retagger)),
-            Instruction::CallExtern(inst) => Instruction::CallExtern(inst.map_context(retagger)),
-            Instruction::CallVirt(inst) => Instruction::CallVirt(inst.map_context(retagger)),
+            Instruction::CallStatic(inst) => {
+                Instruction::CallStatic(inst.retag(retagger, fn_retagger))
+            }
+            Instruction::CallExtern(inst) => {
+                Instruction::CallExtern(inst.retag(retagger, ext_fn_retagger))
+            }
+            Instruction::CallVirt(inst) => Instruction::CallVirt(inst.retag(retagger)),
             Instruction::MakeTrivial(inst) => Instruction::MakeTrivial(inst.retag(retagger)),
             Instruction::MakeInteger(inst) => Instruction::MakeInteger(inst.retag(retagger)),
             Instruction::CompareEqual(inst) => Instruction::CompareEqual(inst.retag(retagger)),

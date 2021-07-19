@@ -3,8 +3,6 @@
 
 use std::{collections::VecDeque, fmt::Debug, sync::Mutex};
 
-use rustc_hash::FxHashMap;
-
 use super::{
     conv_only_bb::{self, PureBlocks},
     ir,
@@ -14,8 +12,10 @@ use super::{
     retag::{ExtFnPassRetagger, RegGenRetagger, RegMapRetagger},
     type_annotater::{self, InvocationArgs, TypeAnnotations, TypeInformation, ValueType},
 };
-use crate::frontend::retag::ExtFnRetagger;
+use crate::frontend::retag::FnRetagger;
+use crate::frontend::retag::{ExtFnRetagger, FnPassRetagger};
 use crate::{frontend::ir::BasicBlockJump, id::*};
+use rustc_hash::FxHashMap;
 
 #[derive(Clone, Debug)]
 pub struct Program {
@@ -388,11 +388,6 @@ impl<'d> Assembler<'d> {
     }
 }
 
-// pub struct FnAssembleResult {
-//     function: Function,
-//     assembly_requests: Vec<BlockId<AnnotatedCtx>>,
-// }
-
 #[derive(Debug)]
 struct FnAssembler<'duration> {
     assembler: &'duration Assembler<'duration>,
@@ -429,6 +424,11 @@ impl<'d> FnAssembler<'d> {
         let mut reg_map = RegMapRetagger::default();
         let mut to_assemble = Vec::new();
 
+        let mut ext_fn_retagger = ExtFnPassRetagger::default();
+        for (id, _) in self.assembler.ir.external_functions.iter() {
+            ext_fn_retagger.retag_new(*id);
+        }
+
         let mut block_queue = VecDeque::new();
         block_queue.push_back(entry_block);
 
@@ -442,8 +442,15 @@ impl<'d> FnAssembler<'d> {
                 .register_types
                 .clone();
 
-            let (block, to_visit, reg_types) =
-                InstWriter::new(&self, block_id, &mut reg_map, &mut to_assemble, reg_typs).write();
+            let (block, to_visit, reg_types) = InstWriter::new(
+                &self,
+                block_id,
+                &mut reg_map,
+                &mut to_assemble,
+                reg_typs,
+                &ext_fn_retagger,
+            )
+            .write();
             blocks.insert(block_id, block);
 
             register_types.extend(reg_types);
@@ -473,9 +480,10 @@ impl<'d> FnAssembler<'d> {
 }
 
 #[derive(Debug)]
-struct InstWriter<'duration, R> {
+struct InstWriter<'duration, R, RF> {
     fn_assembler: &'duration FnAssembler<'duration>,
     retagger: &'duration mut R,
+    ext_fn_retagger: &'duration RF,
     type_info: &'duration TypeInformation,
     to_assemble: &'duration mut Vec<BlockId<AnnotatedCtx>>,
     bb: &'duration conv_only_bb::Block,
@@ -490,9 +498,10 @@ enum HaltStatus {
     Continue,
 }
 
-impl<'d, R> InstWriter<'d, R>
+impl<'d, R, RF> InstWriter<'d, R, RF>
 where
     R: RegGenRetagger<PureBbCtx, AssemblerCtx> + Debug,
+    RF: ExtFnRetagger<IrCtx, AssemblerCtx> + Debug,
 {
     pub fn new(
         fn_assembler: &'d FnAssembler<'d>,
@@ -500,11 +509,12 @@ where
         retagger: &'d mut R,
         to_assemble: &'d mut Vec<BlockId<AnnotatedCtx>>,
         bb_register_types: RegMap<PureBbCtx>,
+        ext_fn_retagger: &'d RF,
     ) -> Self {
         let type_info = fn_assembler.type_info_for_assembler_block(block_id);
         let bb = (fn_assembler.assembler.pure_bocks).get_block(type_info.pure_id);
 
-        let mut register_types = bb_register_types.duplicate_with_allocations();
+        let register_types = bb_register_types.duplicate_with_allocations();
 
         Self {
             fn_assembler,
@@ -514,6 +524,7 @@ where
             bb,
             register_types,
             bb_register_types,
+            ext_fn_retagger,
             instructions: Default::default(),
             to_visit: Default::default(),
         }
@@ -667,11 +678,11 @@ where
                 }
             }
             ir::Instruction::CallExtern(inst) => {
-                let inst = inst.clone().map_context(self.retagger);
-
                 let ext_fn = (self.fn_assembler.assembler.ir.external_functions)
-                    .get(&inst.fn_id.map_context())
+                    .get(&inst.fn_id)
                     .unwrap();
+
+                let inst = inst.clone().retag(self.retagger, self.ext_fn_retagger);
 
                 let val_types = (ext_fn.parameters.iter())
                     .map(|t| t.clone().into_value_type())
@@ -691,7 +702,7 @@ where
 
                 self.instructions.push(Instruction::Call(
                     inst.result,
-                    Callable::Extern(inst.fn_id.map_context()),
+                    Callable::Extern(inst.fn_id),
                     args,
                 ));
 
@@ -705,19 +716,25 @@ where
             }
             ir::Instruction::CallStatic(inst) => {
                 let original_res = inst.result;
-                let inst = inst.clone().map_context(self.retagger);
+
+                // MUSTDO
+                // TODO: remove this
+                let mut tmp_retagger = FnPassRetagger::default();
+                tmp_retagger.retag_new(inst.fn_id);
+
+                let inst = inst.clone().retag(self.retagger, &tmp_retagger);
 
                 let static_fn = self
                     .fn_assembler
                     .assembler
                     .ir
                     .functions
-                    .get(&inst.fn_id.map_context())
+                    .get(&inst.fn_id)
                     .unwrap();
                 let entry_blk = static_fn.entry_block;
 
                 let pure_bb_id = (self.fn_assembler.assembler.pure_bocks)
-                    .get_block_id_by_host(inst.fn_id.map_context(), entry_blk);
+                    .get_block_id_by_host(inst.fn_id, entry_blk);
 
                 // TODO: use `zip_eq`
                 println!("!!!! preparing call!!!!!!1!!!!!!");
@@ -766,7 +783,7 @@ where
             }
             ir::Instruction::CallVirt(inst) => {
                 let original_res = inst.result;
-                let inst = inst.clone().map_context(self.retagger);
+                let inst = inst.clone().retag(self.retagger);
                 let pure_bb_id = if let ValueType::FnPtr(id) = self.register_types.get(inst.fn_ptr)
                 {
                     *id
