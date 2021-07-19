@@ -1,15 +1,16 @@
+use crate::frontend::ir::{ControlFlowInstruction, Function, Instruction, IR};
+use crate::frontend::isa::BlockJump;
+use crate::frontend::retag::BlkRetagger;
 use crate::frontend::retag::{RegGenPassRetagger, RegRetagger};
+use crate::id::*;
+use crate::UnwrapNone;
 use bimap::BiHashMap;
 use petgraph::graph::NodeIndex;
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
 use std::hash::{BuildHasherDefault, Hash};
 
-use crate::frontend::ir::{BasicBlockJump, ControlFlowInstruction, Function, Instruction, IR};
-use crate::id::*;
-use crate::UnwrapNone;
-
 use super::retag::{
-    ExtFnPassRetagger, FnPassRetagger, FnRetagger, RegGenRetagger, RegPassRetagger,
+    BlkPassRetagger, ExtFnPassRetagger, FnPassRetagger, FnRetagger, RegGenRetagger, RegPassRetagger,
 };
 use crate::frontend::retag::ExtFnRetagger;
 
@@ -286,7 +287,7 @@ where
         // var: map of { child block register <-> register in original function block }
         let mut deps_needed = Vec::new();
 
-        for BasicBlockJump(id, params) in block.end.children() {
+        for BlockJump(id, params) in block.end.children() {
             let child_block = self.function.blocks.get(id).unwrap();
             let state = self
                 .blocks
@@ -370,7 +371,7 @@ where
         // provision parameters accordingly
         let mut final_provision_plan = FxHashMap::default();
 
-        for BasicBlockJump(child_id, params) in block.end.children() {
+        for BlockJump(child_id, params) in block.end.children() {
             let child_block = self.function.blocks.get(child_id).unwrap();
 
             if child_block.parameters.len() == params.len() {
@@ -398,7 +399,7 @@ where
         let block = self.function.blocks.get_mut(block_id).unwrap();
 
         let mut did_extend_params = false;
-        for BasicBlockJump(child_id, params) in block.end.children_mut() {
+        for BlockJump(child_id, params) in block.end.children_mut() {
             if let Some(plan) = final_provision_plan.remove(child_id) {
                 params.extend(plan);
                 did_extend_params = true;
@@ -501,19 +502,8 @@ fn compute_flow(f: &RewritingFn) -> Flow {
     for (id, block) in f.blocks.iter() {
         let from = map(id);
 
-        match &block.end {
-            ControlFlowInstruction::Ret(_) => {}
-            ControlFlowInstruction::Jmp(path) => {
-                flow.add_edge(from, map(&path.0), ());
-            }
-            ControlFlowInstruction::JmpIf {
-                condition: _,
-                true_path,
-                false_path,
-            } => {
-                flow.add_edge(from, map(&true_path.0), ());
-                flow.add_edge(from, map(&false_path.0), ());
-            }
+        for path in block.end.children() {
+            flow.add_edge(from, map(&path.0), ());
         }
     }
 
@@ -581,6 +571,11 @@ fn to_rewriting_fn(
 
     let mut retagger = RegPassRetagger::default();
 
+    let mut blk_retagger = BlkPassRetagger::default();
+    for (id, _) in f.blocks.iter() {
+        blk_retagger.retag_new(*id);
+    }
+
     for (id, block) in f.blocks.iter() {
         println!("converting {:?} |=> {:?}", id, block);
 
@@ -607,33 +602,7 @@ fn to_rewriting_fn(
             .map(|i| i.clone().retag(&mut retagger, ext_fn_retagger, fn_retagger))
             .collect();
 
-        let end = {
-            let mut map_bbjump = |bbjump: &BasicBlockJump<IrCtx, IrCtx>| {
-                let BasicBlockJump(id, path) = bbjump;
-                BasicBlockJump(
-                    bb_id_of(*id),
-                    path.iter().map(|r| retagger.retag_old(*r)).collect(),
-                )
-            };
-            match &block.end {
-                ControlFlowInstruction::Jmp(target) => {
-                    ControlFlowInstruction::Jmp(map_bbjump(target))
-                }
-                ControlFlowInstruction::JmpIf {
-                    condition,
-                    true_path,
-                    false_path,
-                } => ControlFlowInstruction::JmpIf {
-                    condition: retagger.retag_old(*condition),
-                    true_path: map_bbjump(true_path),
-                    false_path: map_bbjump(false_path),
-                },
-                ControlFlowInstruction::Ret(Some(reg)) => {
-                    ControlFlowInstruction::Ret(Some(retagger.retag_old(*reg)))
-                }
-                ControlFlowInstruction::Ret(None) => ControlFlowInstruction::Ret(None),
-            }
-        };
+        let end = block.end.clone().retag(&retagger, &blk_retagger);
 
         let bb_id = bb_id_of(*id);
 

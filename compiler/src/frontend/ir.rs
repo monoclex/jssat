@@ -11,10 +11,10 @@ type ConstantId = crate::id::ConstantId<IrCtx>;
 use crate::id::RegisterId;
 
 use super::isa::{
-    CallExtern, CallStatic, CallVirt, ISAInstruction, MakeInteger, MakeRecord, MakeTrivial, OpAdd,
-    OpEquals, OpLessThan, OpNegate, RecordGet, RecordSet,
+    BlockJump, CallExtern, CallStatic, CallVirt, ISAInstruction, Jump, JumpIf, MakeInteger,
+    MakeRecord, MakeTrivial, OpAdd, OpEquals, OpLessThan, OpNegate, RecordGet, RecordSet, Return,
 };
-use super::retag::{ExtFnRetagger, FnRetagger, RegRetagger};
+use super::retag::{BlkRetagger, ExtFnRetagger, FnRetagger, RegRetagger};
 type PlainRegisterId = RegisterId<IrCtx>;
 type ExternalFunctionId = crate::id::ExternalFunctionId<IrCtx>;
 
@@ -151,20 +151,10 @@ pub enum Instruction<C: Tag = crate::id::IrCtx, F: Tag = crate::id::IrCtx> {
 }
 
 #[derive(Debug, Clone)]
-pub struct BasicBlockJump<C = IrCtx, Path = IrCtx>(
-    pub crate::id::BlockId<Path>,
-    pub Vec<RegisterId<C>>,
-);
-
-#[derive(Debug, Clone)]
-pub enum ControlFlowInstruction<Ctx = IrCtx, Path = IrCtx> {
-    Jmp(BasicBlockJump<Ctx, Path>),
-    JmpIf {
-        condition: RegisterId<Ctx>,
-        true_path: BasicBlockJump<Ctx, Path>,
-        false_path: BasicBlockJump<Ctx, Path>,
-    },
-    Ret(Option<RegisterId<Ctx>>),
+pub enum ControlFlowInstruction<Ctx: Tag = IrCtx, Path: Tag = IrCtx> {
+    Jmp(Jump<Path, Ctx>),
+    JmpIf(JumpIf<Path, Ctx>),
+    Ret(Return<Ctx>),
 }
 
 impl<C: Tag, F: Tag> Instruction<C, F> {
@@ -207,40 +197,19 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
 
 impl<CO: Tag, PO: Tag> ControlFlowInstruction<CO, PO> {
     // this should turn into a no-op lol
-    pub fn map_context<CD: Tag, PD: Tag>(self) -> ControlFlowInstruction<CD, PD> {
+    pub fn retag<CD: Tag, PD: Tag>(
+        self,
+        retagger: &impl RegRetagger<CO, CD>,
+        blk_retagger: &impl BlkRetagger<PO, PD>,
+    ) -> ControlFlowInstruction<CD, PD> {
         match self {
-            ControlFlowInstruction::Jmp(BasicBlockJump(p, a)) => {
-                ControlFlowInstruction::Jmp(BasicBlockJump(
-                    p.map_context::<PD>(),
-                    a.into_iter().map(|r| r.map_context::<CD>()).collect(),
-                ))
+            ControlFlowInstruction::Jmp(inst) => {
+                ControlFlowInstruction::Jmp(inst.retag(retagger, blk_retagger))
             }
-            ControlFlowInstruction::JmpIf {
-                condition,
-                true_path,
-                false_path,
-            } => ControlFlowInstruction::JmpIf {
-                condition: condition.map_context::<CD>(),
-                true_path: BasicBlockJump(
-                    true_path.0.map_context::<PD>(),
-                    true_path
-                        .1
-                        .into_iter()
-                        .map(|r| r.map_context::<CD>())
-                        .collect(),
-                ),
-                false_path: BasicBlockJump(
-                    false_path.0.map_context::<PD>(),
-                    false_path
-                        .1
-                        .into_iter()
-                        .map(|r| r.map_context::<CD>())
-                        .collect(),
-                ),
-            },
-            ControlFlowInstruction::Ret(v) => {
-                ControlFlowInstruction::Ret(v.map(|r| r.map_context::<CD>()))
+            ControlFlowInstruction::JmpIf(inst) => {
+                ControlFlowInstruction::JmpIf(inst.retag(retagger, blk_retagger))
             }
+            ControlFlowInstruction::Ret(inst) => ControlFlowInstruction::Ret(inst.retag(retagger)),
         }
     }
 }
@@ -303,66 +272,35 @@ impl<C: Tag> Instruction<C> {
     }
 }
 
-impl<C: Copy, P> ControlFlowInstruction<C, P> {
+impl<C: Tag, P: Tag> ControlFlowInstruction<C, P> {
     pub fn used_registers(&self) -> Vec<RegisterId<C>> {
         match self {
-            ControlFlowInstruction::Jmp(path) => path.1.clone(),
-            ControlFlowInstruction::JmpIf {
-                condition,
-                true_path,
-                false_path,
-            } => {
-                let mut r = vec![*condition];
-                r.extend(true_path.1.clone());
-                r.extend(false_path.1.clone());
-                r
-            }
-            ControlFlowInstruction::Ret(Some(register)) => vec![*register],
-            ControlFlowInstruction::Ret(None) => vec![],
+            ControlFlowInstruction::Jmp(inst) => inst.used_registers().to_vec(),
+            ControlFlowInstruction::JmpIf(inst) => inst.used_registers().to_vec(),
+            ControlFlowInstruction::Ret(inst) => inst.used_registers().to_vec(),
         }
     }
 
     pub fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
-        let mut handles = Vec::new();
-
         match self {
-            ControlFlowInstruction::Jmp(path) => handles.extend(path.1.iter_mut()),
-            ControlFlowInstruction::JmpIf {
-                condition,
-                true_path,
-                false_path,
-            } => {
-                handles.push(condition);
-                handles.extend(true_path.1.iter_mut());
-                handles.extend(false_path.1.iter_mut());
-            }
-            ControlFlowInstruction::Ret(Some(register)) => handles.push(register),
-            ControlFlowInstruction::Ret(None) => {}
-        };
-
-        handles
+            ControlFlowInstruction::Jmp(inst) => inst.used_registers_mut(),
+            ControlFlowInstruction::JmpIf(inst) => inst.used_registers_mut(),
+            ControlFlowInstruction::Ret(inst) => inst.used_registers_mut(),
+        }
     }
 
-    pub fn children(&self) -> Vec<&BasicBlockJump<C, P>> {
+    pub fn children(&self) -> Vec<&BlockJump<P, C>> {
         match self {
-            ControlFlowInstruction::Jmp(block) => vec![block],
-            ControlFlowInstruction::JmpIf {
-                true_path,
-                false_path,
-                ..
-            } => vec![true_path, false_path],
+            ControlFlowInstruction::Jmp(inst) => inst.paths(),
+            ControlFlowInstruction::JmpIf(inst) => inst.paths(),
             ControlFlowInstruction::Ret(_) => Vec::new(),
         }
     }
 
-    pub fn children_mut(&mut self) -> Vec<&mut BasicBlockJump<C, P>> {
+    pub fn children_mut(&mut self) -> Vec<&mut BlockJump<P, C>> {
         match self {
-            ControlFlowInstruction::Jmp(block) => vec![block],
-            ControlFlowInstruction::JmpIf {
-                true_path,
-                false_path,
-                ..
-            } => vec![true_path, false_path],
+            ControlFlowInstruction::Jmp(inst) => inst.paths_mut(),
+            ControlFlowInstruction::JmpIf(inst) => inst.paths_mut(),
             ControlFlowInstruction::Ret(_) => Vec::new(),
         }
     }

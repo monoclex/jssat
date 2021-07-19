@@ -1,4 +1,4 @@
-use crate::frontend::ir::{BasicBlockJump, ControlFlowInstruction, Instruction};
+use crate::frontend::ir::{ControlFlowInstruction, Instruction};
 
 use super::conv_only_bb::PureBlocks;
 use std::fmt::Write;
@@ -59,22 +59,8 @@ pub fn display(program: &PureBlocks) -> String {
         }
 
         match &block.end {
-            ControlFlowInstruction::Jmp(BasicBlockJump(id, args)) => {
-                iwl!(text, "    Jump ${}({:?})", id, args)
-            }
-            ControlFlowInstruction::JmpIf {
-                condition,
-                true_path,
-                false_path,
-            } => iwl!(
-                text,
-                "    if %{}:\n        Jump ${}({:?})\n    else\n        Jump ${}({:?})",
-                condition,
-                true_path.0,
-                true_path.1,
-                false_path.0,
-                false_path.1,
-            ),
+            ControlFlowInstruction::Jmp(_) => iwl!(text, "todo"),
+            ControlFlowInstruction::JmpIf(_) => iwl!(text, "todo"),
             ControlFlowInstruction::Ret(r) => {
                 iwl!(text, "    Ret {:?}", r)
             }

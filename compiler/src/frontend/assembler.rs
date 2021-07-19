@@ -12,9 +12,10 @@ use super::{
     retag::{ExtFnPassRetagger, RegGenRetagger, RegMapRetagger},
     type_annotater::{self, InvocationArgs, TypeAnnotations, TypeInformation, ValueType},
 };
-use crate::frontend::retag::FnRetagger;
+use crate::frontend::retag::BlkRetagger;
+use crate::frontend::retag::{BlkPassRetagger, FnRetagger};
 use crate::frontend::retag::{ExtFnRetagger, FnPassRetagger};
-use crate::{frontend::ir::BasicBlockJump, id::*};
+use crate::id::*;
 use rustc_hash::FxHashMap;
 
 #[derive(Clone, Debug)]
@@ -556,29 +557,25 @@ where
 
         let end = match &self.bb.end {
             ir::ControlFlowInstruction::Jmp(bbjump) => {
-                EndInstruction::Jump(self.map_bbjump(bbjump))
+                EndInstruction::Jump(self.map_bbjump(&bbjump.0))
             }
-            ir::ControlFlowInstruction::JmpIf {
-                condition,
-                true_path,
-                false_path,
-            } => {
-                let condition = self.retagger.retag_old(*condition);
+            ir::ControlFlowInstruction::JmpIf(inst) => {
+                let condition = self.retagger.retag_old(inst.condition);
                 match self.register_types.get(condition) {
-                    ValueType::Bool(true) => EndInstruction::Jump(self.map_bbjump(true_path)),
-                    ValueType::Bool(false) => EndInstruction::Jump(self.map_bbjump(false_path)),
+                    ValueType::Bool(true) => EndInstruction::Jump(self.map_bbjump(&inst.if_so)),
+                    ValueType::Bool(false) => EndInstruction::Jump(self.map_bbjump(&inst.other)),
                     ValueType::Boolean => EndInstruction::JumpIf {
                         condition,
-                        true_path: self.map_bbjump(true_path),
-                        false_path: self.map_bbjump(false_path),
+                        true_path: self.map_bbjump(&inst.if_so),
+                        false_path: self.map_bbjump(&inst.other),
                     },
                     _ => unreachable!(
                         "invalid conditional register, this should be caught by typ annotation"
                     ),
                 }
             }
-            ir::ControlFlowInstruction::Ret(reg) => {
-                EndInstruction::Return(reg.map(|r| self.retagger.retag_old(r)))
+            ir::ControlFlowInstruction::Ret(inst) => {
+                EndInstruction::Return(inst.retag(self.retagger).0)
             }
         };
 
@@ -964,8 +961,11 @@ where
         HaltStatus::Continue
     }
 
-    fn map_bbjump(&mut self, bbjump: &BasicBlockJump<PureBbCtx, PureBbCtx>) -> BlockJump {
-        let BasicBlockJump(id, args) = bbjump;
+    fn map_bbjump(
+        &mut self,
+        bbjump: &crate::frontend::isa::BlockJump<PureBbCtx, PureBbCtx>,
+    ) -> BlockJump {
+        let crate::frontend::isa::BlockJump(id, args) = bbjump;
 
         // TODO: use `zip_eq`
         println!("!!!! preparing cal2l!!!!!!!!!!!!");

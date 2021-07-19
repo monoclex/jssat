@@ -9,8 +9,9 @@ use crate::name::DebugName;
 use crate::UnwrapNone;
 
 use super::isa::{
-    CallExtern, CallStatic, CallVirt, InternalSlot, MakeInteger, MakeRecord, MakeTrivial, OpAdd,
-    OpEquals, OpLessThan, OpNegate, RecordGet, RecordKey, RecordSet, TrivialItem,
+    BlockJump, CallExtern, CallStatic, CallVirt, InternalSlot, Jump, JumpIf, MakeInteger,
+    MakeRecord, MakeTrivial, OpAdd, OpEquals, OpLessThan, OpNegate, RecordGet, RecordKey,
+    RecordSet, Return, TrivialItem,
 };
 
 pub type BlockId = crate::id::BlockId<crate::id::IrCtx>;
@@ -693,7 +694,7 @@ impl DynBlockBuilder {
         DynFinalizedBlockBuilder {
             builder: self,
             is_ok_to_drop: false,
-            end_control_flow: ControlFlowInstruction::Jmp(BasicBlockJump(block, values)),
+            end_control_flow: ControlFlowInstruction::Jmp(Jump(BlockJump(block, values))),
         }
     }
 
@@ -702,7 +703,7 @@ impl DynBlockBuilder {
         DynFinalizedBlockBuilder {
             builder: self,
             is_ok_to_drop: false,
-            end_control_flow: ControlFlowInstruction::Ret(value),
+            end_control_flow: ControlFlowInstruction::Ret(Return(value)),
         }
     }
 
@@ -718,11 +719,11 @@ impl DynBlockBuilder {
         DynFinalizedBlockBuilder {
             builder: self,
             is_ok_to_drop: false,
-            end_control_flow: ControlFlowInstruction::JmpIf {
+            end_control_flow: ControlFlowInstruction::JmpIf(JumpIf {
                 condition,
-                true_path: BasicBlockJump(block_true, values_true),
-                false_path: BasicBlockJump(block_false, values_false),
-            },
+                if_so: BlockJump(block_true, values_true),
+                other: BlockJump(block_false, values_false),
+            }),
         }
     }
 

@@ -9,9 +9,11 @@ use crate::id::*;
 use crate::poor_hashmap::PoorMap;
 
 use super::conv_only_bb::PureBlocks;
+use super::isa::BlockJump;
 use super::isa::CallExtern;
 use super::isa::CallStatic;
 use super::isa::CallVirt;
+use super::isa::Jump;
 use super::old_types::RegMap;
 
 /// Type annotation mechanism in JSSAT.
@@ -450,16 +452,15 @@ impl<'d> SymbolicExecutionEngine<'d> {
             ReturnType::Never
         } else {
             match &block.end {
-                ControlFlowInstruction::Jmp(to) => {
+                ControlFlowInstruction::Jmp(Jump(to)) => {
                     let to = self.execute_jmp(to, &registers);
                     to.return_type()
                 }
-                ControlFlowInstruction::JmpIf {
-                    condition,
-                    true_path,
-                    false_path,
-                } => {
-                    let condition = registers.get(*condition);
+                ControlFlowInstruction::JmpIf(inst) => {
+                    let condition = inst.condition;
+                    let true_path = &inst.if_so;
+                    let false_path = &inst.other;
+                    let condition = registers.get(condition);
 
                     match condition {
                         ValueType::Boolean => {
@@ -479,11 +480,13 @@ impl<'d> SymbolicExecutionEngine<'d> {
                         _ => panic!("cannot conditionally jump based on non boolean"),
                     }
                 }
-                ControlFlowInstruction::Ret(Some(result)) => {
-                    let ret_typ = registers.get(*result);
-                    ReturnType::Value(ret_typ.clone())
-                }
-                ControlFlowInstruction::Ret(None) => ReturnType::Void,
+                ControlFlowInstruction::Ret(inst) => match inst.0 {
+                    Some(result) => {
+                        let ret_typ = registers.get(result);
+                        ReturnType::Value(ret_typ.clone())
+                    }
+                    None => ReturnType::Void,
+                },
             }
         };
 
@@ -507,10 +510,10 @@ impl<'d> SymbolicExecutionEngine<'d> {
 
     fn execute_jmp(
         &mut self,
-        jump: &BasicBlockJump<PureBbCtx, PureBbCtx>,
+        jump: &BlockJump<PureBbCtx, PureBbCtx>,
         registers: &RegMap<PureBbCtx>,
     ) -> &ExecutionResult {
-        let BasicBlockJump(blk_id, args) = jump;
+        let BlockJump(blk_id, args) = jump;
 
         // TODO: use zip_eq
         println!("!!!! preparing call5: {:?} ({:?})", jump, registers);

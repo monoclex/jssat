@@ -5,17 +5,18 @@
 use derive_more::Display;
 use tinyvec::{tiny_vec, TinyVec};
 
+use crate::id::BlockId;
 use crate::id::ExternalFunctionId;
 use crate::id::FunctionId;
 use crate::id::RegisterId;
 use crate::id::Tag;
 
+use super::retag::BlkRetagger;
 use super::retag::ExtFnRetagger;
 use super::retag::FnRetagger;
 use super::retag::RegRetagger;
 
 type ConstantId = crate::id::ConstantId<crate::id::NoContext>;
-type BlockId = crate::id::BlockId<crate::id::NoContext>;
 
 /// The contract provided by any single instruction. Provides methods to make
 /// interfacing with all instructions easy.
@@ -94,6 +95,7 @@ impl<C: Tag> ISAInstruction<C> for Unreachable {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Return<C: Tag>(pub Option<RegisterId<C>>);
 
 impl<C: Tag> ISAInstruction<C> for Return<C> {
@@ -122,11 +124,31 @@ impl<C: Tag> ISAInstruction<C> for Return<C> {
     }
 }
 
-pub struct BlockJump<C: Tag>(pub BlockId, pub Vec<RegisterId<C>>);
+impl<C: Tag> Return<C> {
+    #[track_caller]
+    pub fn retag<C2: Tag>(self, retagger: &impl RegRetagger<C, C2>) -> Return<C2> {
+        Return(self.0.map(|r| retagger.retag_old(r)))
+    }
+}
 
-pub struct Jump<C: Tag>(pub BlockJump<C>);
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct BlockJump<B: Tag, C: Tag>(pub BlockId<B>, pub Vec<RegisterId<C>>);
 
-impl<C: Tag> ISAInstruction<C> for Jump<C> {
+impl<B: Tag, C: Tag> BlockJump<B, C> {
+    #[track_caller]
+    pub fn retag<B2: Tag, C2: Tag>(
+        self,
+        retagger: &impl RegRetagger<C, C2>,
+        blk_retagger: &impl BlkRetagger<B, B2>,
+    ) -> BlockJump<B2, C2> {
+        BlockJump(blk_retagger.retag_old(self.0), retagger.retag_olds(self.1))
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct Jump<B: Tag, C: Tag>(pub BlockJump<B, C>);
+
+impl<B: Tag, C: Tag> ISAInstruction<C> for Jump<B, C> {
     fn is_pure() -> bool {
         // purity is only useful in regards to eliminating work,
         // LLVM will optimize control flow
@@ -145,6 +167,25 @@ impl<C: Tag> ISAInstruction<C> for Jump<C> {
 
     fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
         (self.0).1.iter_mut().collect()
+    }
+}
+
+impl<B: Tag, C: Tag> Jump<B, C> {
+    #[track_caller]
+    pub fn retag<B2: Tag, C2: Tag>(
+        self,
+        retagger: &impl RegRetagger<C, C2>,
+        blk_retagger: &impl BlkRetagger<B, B2>,
+    ) -> Jump<B2, C2> {
+        Jump(self.0.retag(retagger, blk_retagger))
+    }
+
+    pub fn paths(&self) -> Vec<&BlockJump<B, C>> {
+        vec![&self.0]
+    }
+
+    pub fn paths_mut(&mut self) -> Vec<&mut BlockJump<B, C>> {
+        vec![&mut self.0]
     }
 }
 
@@ -534,13 +575,14 @@ impl<C: Tag> RecordSet<C> {
     }
 }
 
-pub struct JumpIf<C: Tag> {
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct JumpIf<B: Tag, C: Tag> {
     pub condition: RegisterId<C>,
-    pub if_so: BlockJump<C>,
-    pub other: BlockJump<C>,
+    pub if_so: BlockJump<B, C>,
+    pub other: BlockJump<B, C>,
 }
 
-impl<C: Tag> ISAInstruction<C> for JumpIf<C> {
+impl<B: Tag, C: Tag> ISAInstruction<C> for JumpIf<B, C> {
     fn is_pure() -> bool {
         // purity is only useful in regards to eliminating work,
         // LLVM will optimize control flow
@@ -562,6 +604,28 @@ impl<C: Tag> ISAInstruction<C> for JumpIf<C> {
         (self.if_so.1.iter_mut())
             .chain(self.other.1.iter_mut())
             .collect()
+    }
+}
+
+impl<B: Tag, C: Tag> JumpIf<B, C> {
+    pub fn retag<B2: Tag, C2: Tag>(
+        self,
+        retagger: &impl RegRetagger<C, C2>,
+        blk_retagger: &impl BlkRetagger<B, B2>,
+    ) -> JumpIf<B2, C2> {
+        JumpIf {
+            condition: retagger.retag_old(self.condition),
+            if_so: self.if_so.retag(retagger, blk_retagger),
+            other: self.other.retag(retagger, blk_retagger),
+        }
+    }
+
+    pub fn paths(&self) -> Vec<&BlockJump<B, C>> {
+        vec![&self.if_so, &self.other]
+    }
+
+    pub fn paths_mut(&mut self) -> Vec<&mut BlockJump<B, C>> {
+        vec![&mut self.if_so, &mut self.other]
     }
 }
 
@@ -602,11 +666,7 @@ impl<C: Tag, F: Tag> CallStatic<C, F> {
         CallStatic {
             result: self.result.map(|r| retagger.retag_new(r)),
             fn_id: fn_retagger.retag_old(self.fn_id),
-            args: self
-                .args
-                .into_iter()
-                .map(|r| retagger.retag_old(r))
-                .collect(),
+            args: retagger.retag_olds(self.args),
         }
     }
 }
@@ -650,11 +710,7 @@ impl<C: Tag> CallVirt<C> {
         CallVirt {
             result: self.result.map(|r| retagger.retag_new(r)),
             fn_ptr: retagger.retag_old(self.fn_ptr),
-            args: self
-                .args
-                .into_iter()
-                .map(|r| retagger.retag_old(r))
-                .collect(),
+            args: retagger.retag_olds(self.args),
         }
     }
 }
@@ -695,11 +751,7 @@ impl<C: Tag, F: Tag> CallExtern<C, F> {
         CallExtern {
             result: self.result.map(|r| reg_retagger.retag_new(r)),
             fn_id: ext_fn_retagger.retag_old(self.fn_id),
-            args: self
-                .args
-                .into_iter()
-                .map(|r| reg_retagger.retag_old(r))
-                .collect(),
+            args: reg_retagger.retag_olds(self.args),
         }
     }
 }

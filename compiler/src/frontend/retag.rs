@@ -37,6 +37,11 @@ pub trait RegRetagger<C: Tag, C2: Tag> {
     /// has never been tagged before, this method may panic.
     #[track_caller]
     fn retag_old(&self, id: RegisterId<C>) -> RegisterId<C2>;
+
+    #[track_caller]
+    fn retag_olds(&self, ids: Vec<RegisterId<C>>) -> Vec<RegisterId<C2>> {
+        ids.into_iter().map(|r| self.retag_old(r)).collect()
+    }
 }
 
 pub trait RegGenRetagger<C: Tag, C2: Tag>: RegRetagger<C, C2> {
