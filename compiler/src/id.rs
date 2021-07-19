@@ -78,9 +78,9 @@ macro_rules! gen_id {
             }
         }
 
-        impl<C> ::std::fmt::Display for $name<C> {
+        impl<C: Tag> ::std::fmt::Display for $name<C> {
             fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-                write!(f, "{}", self.0)
+                write!(f, "{}", self.value())
             }
         }
     };
@@ -205,81 +205,6 @@ impl<I: IdCompat> Counter<I> {
 }
 
 impl<I: IdCompat> Default for Counter<I> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[derive(Debug)]
-pub struct RegIdMap<T, U> {
-    registers: FxHashMap<RegisterId<T>, RegisterId<U>>,
-    reg_counter: Counter<RegisterId<U>>,
-}
-
-impl<T, U> RegIdMap<T, U>
-where
-    T: Tag,
-    U: Tag,
-{
-    pub fn new() -> Self {
-        Self {
-            registers: Default::default(),
-            reg_counter: Default::default(),
-        }
-    }
-
-    pub fn map(&mut self, source: RegisterId<T>) -> RegisterId<U> {
-        let reg_counter = &self.reg_counter;
-        *(self.registers)
-            .entry(source)
-            .or_insert_with(|| reg_counter.next())
-    }
-
-    pub fn gen(&mut self) -> RegisterId<U> {
-        self.reg_counter.next()
-    }
-}
-
-impl<T, U> Default for RegIdMap<T, U>
-where
-    T: Tag,
-    U: Tag,
-{
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-pub struct BlockIdMap<T, U> {
-    registers: FxHashMap<BlockId<T>, BlockId<U>>,
-    reg_counter: Counter<BlockId<U>>,
-}
-
-impl<T, U> BlockIdMap<T, U>
-where
-    T: Tag,
-    U: Tag,
-{
-    pub fn new() -> Self {
-        Self {
-            registers: Default::default(),
-            reg_counter: Default::default(),
-        }
-    }
-
-    pub fn map(&mut self, source: BlockId<T>) -> BlockId<U> {
-        let reg_counter = &self.reg_counter;
-        *(self.registers)
-            .entry(source)
-            .or_insert_with(|| reg_counter.next())
-    }
-}
-
-impl<T, U> Default for BlockIdMap<T, U>
-where
-    T: Tag,
-    U: Tag,
-{
     fn default() -> Self {
         Self::new()
     }

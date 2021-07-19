@@ -7,6 +7,7 @@
 //! infrequently as possible.
 
 use std::marker::PhantomData;
+use std::panic::Location;
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -89,6 +90,7 @@ impl<C: Tag, C2: Tag> RegGenRetagger<C, C2> for RegGenPassRetagger<C, C2> {
     }
 }
 
+#[derive(Debug)]
 pub struct RegMapRetagger<C: Tag, C2: Tag>(MapRetagger<RegisterId<C>, RegisterId<C2>>);
 
 impl<A: Tag, B: Tag> Default for RegMapRetagger<A, B> {
@@ -564,7 +566,7 @@ struct GenPassRetagger<I1, I2> {
     max: usize,
     counter: usize,
     #[cfg(debug_assertions)]
-    tagged: FxHashSet<usize>,
+    tagged: DebugHelper,
     ids: PhantomData<(I1, I2)>,
 }
 
@@ -599,10 +601,6 @@ impl<I1: IdCompat, I2: IdCompat> CoreRetagger for GenPassRetagger<I1, I2> {
     #[track_caller]
     #[cfg(debug_assertions)]
     fn core_retag_new(&mut self, id: I1) -> I2 {
-        if !self.tagged.insert(id.raw_value()) {
-            panic!("attempted to retag new value {}, value was old", id.value());
-        }
-
         if id.raw_value() > self.max {
             panic!(
                 "attempted to retag value above maximum, {} > max {}",
@@ -610,6 +608,8 @@ impl<I1: IdCompat, I2: IdCompat> CoreRetagger for GenPassRetagger<I1, I2> {
                 self.max + 1
             );
         }
+
+        self.tagged.retag_new(id.value());
 
         I2::raw_new_with_value(id.raw_value())
     }
@@ -617,10 +617,6 @@ impl<I1: IdCompat, I2: IdCompat> CoreRetagger for GenPassRetagger<I1, I2> {
     #[track_caller]
     #[cfg(debug_assertions)]
     fn core_retag_old(&self, id: I1) -> I2 {
-        if !self.tagged.contains(&id.raw_value()) {
-            panic!("attempted to retag old value {}, value was new", id.value());
-        }
-
         if id.raw_value() > self.max {
             panic!(
                 "attempted to retag value above maximum, {} > max {}",
@@ -628,6 +624,8 @@ impl<I1: IdCompat, I2: IdCompat> CoreRetagger for GenPassRetagger<I1, I2> {
                 self.max + 1
             );
         }
+
+        self.tagged.retag_old(id.value());
 
         I2::raw_new_with_value(id.raw_value())
     }
@@ -645,9 +643,12 @@ impl<I1, I2: IdCompat> GenPassRetagger<I1, I2> {
 /// what values. This gives it the ability to generate new IDs that have not
 /// been mapped while mapping old values, but is not as fast as
 /// [`TransparentRetagger`].
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct MapRetagger<I1, I2> {
     counter: usize,
+    #[cfg(debug_assertions)]
+    map: FxHashMap<usize, (usize, &'static Location<'static>)>,
+    #[cfg(not(debug_assertions))]
     map: FxHashMap<usize, usize>,
     ids: PhantomData<(I1, I2)>,
 }
@@ -657,6 +658,7 @@ impl<I1: IdCompat, I2: IdCompat> CoreRetagger for MapRetagger<I1, I2> {
     type I2 = I2;
 
     #[track_caller]
+    #[cfg(not(debug_assertions))]
     fn core_retag_new(&mut self, id: I1) -> I2 {
         self.counter += 1;
         let old_value = self.map.insert(id.raw_value(), self.counter);
@@ -669,9 +671,38 @@ impl<I1: IdCompat, I2: IdCompat> CoreRetagger for MapRetagger<I1, I2> {
     }
 
     #[track_caller]
+    #[cfg(debug_assertions)]
+    fn core_retag_new(&mut self, id: I1) -> I2 {
+        self.counter += 1;
+        let old_value = self
+            .map
+            .insert(id.raw_value(), (self.counter, Location::caller()));
+
+        if let Some((_, location)) = old_value {
+            panic!(
+                "attempted to retag new value {}, value was old. initial retag: {}",
+                id.value(),
+                location
+            );
+        }
+
+        I2::raw_new_with_value(self.counter)
+    }
+
+    #[track_caller]
+    #[cfg(not(debug_assertions))]
     fn core_retag_old(&self, id: I1) -> I2 {
         match self.map.get(&id.raw_value()) {
             Some(id) => I2::raw_new_with_value(*id),
+            None => panic!("attempted to retag old value {}, value was new", id.value()),
+        }
+    }
+
+    #[track_caller]
+    #[cfg(debug_assertions)]
+    fn core_retag_old(&self, id: I1) -> I2 {
+        match self.map.get(&id.raw_value()) {
+            Some((id, _)) => I2::raw_new_with_value(*id),
             None => panic!("attempted to retag old value {}, value was new", id.value()),
         }
     }
@@ -681,5 +712,30 @@ impl<I1, I2: IdCompat> MapRetagger<I1, I2> {
     fn core_gen(&mut self) -> I2 {
         self.counter += 1;
         I2::raw_new_with_value(self.counter)
+    }
+}
+
+/// Provides debug information for retagging purposes
+#[derive(Debug, Default)]
+struct DebugHelper {
+    locations: FxHashMap<usize, &'static Location<'static>>,
+}
+
+impl DebugHelper {
+    #[track_caller]
+    fn retag_new(&mut self, id: usize) {
+        if let Some(old_location) = self.locations.insert(id, Location::caller()) {
+            panic!(
+                "attempted to retag new value {}, value was old. initial retag: {}",
+                id, old_location
+            )
+        }
+    }
+
+    #[track_caller]
+    fn retag_old(&self, id: usize) {
+        if let None = self.locations.get(&id) {
+            panic!("attempted to retag old value {}, value was new", id);
+        }
     }
 }

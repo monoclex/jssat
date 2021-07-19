@@ -174,7 +174,7 @@ impl<C: Tag> Instruction<C> {
         match self {
             Instruction::MakeString(r, s) => Instruction::MakeString(retagger.retag_new(r), s),
             Instruction::CompareLessThan(inst) => {
-                Instruction::CompareLessThan(inst.map_context(retagger))
+                Instruction::CompareLessThan(inst.retag(retagger))
             }
             Instruction::RecordNew(inst) => Instruction::RecordNew(inst.retag(retagger)),
             Instruction::RecordGet(inst) => Instruction::RecordGet(inst.retag(retagger)),

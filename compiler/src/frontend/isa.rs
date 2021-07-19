@@ -385,7 +385,7 @@ impl<C: Tag> ISAInstruction<C> for OpLessThan<C> {
 
 impl<C: Tag> OpLessThan<C> {
     #[track_caller]
-    pub fn map_context<C2: Tag>(self, retagger: &mut impl RegRetagger<C, C2>) -> OpLessThan<C2> {
+    pub fn retag<C2: Tag>(self, retagger: &mut impl RegRetagger<C, C2>) -> OpLessThan<C2> {
         OpLessThan {
             result: retagger.retag_new(self.result),
             lhs: retagger.retag_old(self.lhs),
@@ -436,7 +436,7 @@ pub enum RecordKey<C: Tag> {
 
 impl<C: Tag> RecordKey<C> {
     #[track_caller]
-    pub fn map_context<C2: Tag>(self, retagger: &impl RegRetagger<C, C2>) -> RecordKey<C2> {
+    pub fn retag<C2: Tag>(self, retagger: &impl RegRetagger<C, C2>) -> RecordKey<C2> {
         match self {
             RecordKey::Prop(r) => RecordKey::Prop(retagger.retag_old(r)),
             RecordKey::Slot(s) => RecordKey::Slot(s),
@@ -487,7 +487,7 @@ impl<C: Tag> RecordGet<C> {
         RecordGet {
             result: retagger.retag_new(self.result),
             record: retagger.retag_old(self.record),
-            key: self.key.map_context(retagger),
+            key: self.key.retag(retagger),
         }
     }
 }
@@ -526,7 +526,7 @@ impl<C: Tag> RecordSet<C> {
     pub fn retag<C2: Tag>(self, retagger: &mut impl RegRetagger<C, C2>) -> RecordSet<C2> {
         RecordSet {
             record: retagger.retag_old(self.record),
-            key: self.key.map_context(retagger),
+            key: self.key.retag(retagger),
             value: retagger.retag_old(self.value),
         }
     }

@@ -157,8 +157,11 @@ impl<C: Tag> RegMap<C> {
         self.allocations.insert(id, vec![empty_rec_shape]);
     }
 
+    #[track_caller]
     pub fn get(&self, register: RegisterId<C>) -> &ValueType {
-        self.registers.get(&register).unwrap()
+        self.registers
+            .get(&register)
+            .expect("register should be valid")
     }
 
     pub fn get_shape(&self, allocation: AllocationId<NoContext>) -> &RecordShape {

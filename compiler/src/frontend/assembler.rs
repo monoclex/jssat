@@ -1,7 +1,7 @@
 //! Assembles together the informatino from the original IR, and type_annotator
 //! passes into a fully conherent IR, which will then be passed to `skeleton`.
 
-use std::{collections::VecDeque, sync::Mutex};
+use std::{collections::VecDeque, fmt::Debug, sync::Mutex};
 
 use rustc_hash::FxHashMap;
 
@@ -11,8 +11,10 @@ use super::{
     ir::{FFIValueType, IR},
     isa::{CallExtern, CallStatic, CallVirt, ISAInstruction, MakeTrivial, OpLessThan, RecordKey},
     old_types::{RegMap, ShapeKey},
+    retag::{ExtFnPassRetagger, RegGenRetagger, RegMapRetagger},
     type_annotater::{self, InvocationArgs, TypeAnnotations, TypeInformation, ValueType},
 };
+use crate::frontend::retag::ExtFnRetagger;
 use crate::{frontend::ir::BasicBlockJump, id::*};
 
 #[derive(Clone, Debug)]
@@ -372,8 +374,9 @@ impl<'d> Assembler<'d> {
 
         // `external_functions`
         // external functions don't need any transformations, so we can directly map 'em
+        let mut ext_retagger = ExtFnPassRetagger::default();
         let external_functions = (self.ir.external_functions.iter())
-            .map(|(k, v)| (k.map_context::<AssemblerCtx>(), map_ext_fn(v.clone())))
+            .map(|(k, v)| (ext_retagger.retag_new(*k), map_ext_fn(v.clone())))
             .collect::<FxHashMap<_, _>>();
 
         Program {
@@ -423,7 +426,7 @@ impl<'d> FnAssembler<'d> {
 
         let mut blocks = FxHashMap::default();
         let mut register_types = RegMap::default();
-        let mut reg_map = RegIdMap::default();
+        let mut reg_map = RegMapRetagger::default();
         let mut to_assemble = Vec::new();
 
         let mut block_queue = VecDeque::new();
@@ -470,13 +473,14 @@ impl<'d> FnAssembler<'d> {
 }
 
 #[derive(Debug)]
-struct InstWriter<'duration> {
+struct InstWriter<'duration, R> {
     fn_assembler: &'duration FnAssembler<'duration>,
-    reg_map: &'duration mut RegIdMap<PureBbCtx, AssemblerCtx>,
+    retagger: &'duration mut R,
     type_info: &'duration TypeInformation,
     to_assemble: &'duration mut Vec<BlockId<AnnotatedCtx>>,
     bb: &'duration conv_only_bb::Block,
     register_types: RegMap<AssemblerCtx>,
+    bb_register_types: RegMap<PureBbCtx>,
     instructions: Vec<Instruction>,
     to_visit: Vec<BlockId<AssemblerCtx>>,
 }
@@ -486,11 +490,14 @@ enum HaltStatus {
     Continue,
 }
 
-impl<'d> InstWriter<'d> {
+impl<'d, R> InstWriter<'d, R>
+where
+    R: RegGenRetagger<PureBbCtx, AssemblerCtx> + Debug,
+{
     pub fn new(
         fn_assembler: &'d FnAssembler<'d>,
         block_id: BlockId<AssemblerCtx>,
-        reg_map: &'d mut RegIdMap<PureBbCtx, AssemblerCtx>,
+        retagger: &'d mut R,
         to_assemble: &'d mut Vec<BlockId<AnnotatedCtx>>,
         bb_register_types: RegMap<PureBbCtx>,
     ) -> Self {
@@ -498,17 +505,15 @@ impl<'d> InstWriter<'d> {
         let bb = (fn_assembler.assembler.pure_bocks).get_block(type_info.pure_id);
 
         let mut register_types = bb_register_types.duplicate_with_allocations();
-        for r in bb_register_types.registers() {
-            register_types.insert(r.map_context(), bb_register_types.get(r).clone());
-        }
 
         Self {
             fn_assembler,
-            reg_map,
+            retagger,
             type_info,
             to_assemble,
             bb,
             register_types,
+            bb_register_types,
             instructions: Default::default(),
             to_visit: Default::default(),
         }
@@ -523,7 +528,7 @@ impl<'d> InstWriter<'d> {
             .map(|r| {
                 let parameter = Parameter {
                     typ: self.type_info.register_types.get(*r).clone(),
-                    register: self.reg_map.map(*r),
+                    register: self.retagger.retag_new(*r),
                 };
                 self.register_types
                     .insert(parameter.register, parameter.typ.clone());
@@ -547,7 +552,7 @@ impl<'d> InstWriter<'d> {
                 true_path,
                 false_path,
             } => {
-                let condition = self.reg_map.map(*condition);
+                let condition = self.retagger.retag_old(*condition);
                 match self.register_types.get(condition) {
                     ValueType::Bool(true) => EndInstruction::Jump(self.map_bbjump(true_path)),
                     ValueType::Bool(false) => EndInstruction::Jump(self.map_bbjump(false_path)),
@@ -562,7 +567,7 @@ impl<'d> InstWriter<'d> {
                 }
             }
             ir::ControlFlowInstruction::Ret(reg) => {
-                EndInstruction::Return(reg.map(|r| self.reg_map.map(r)))
+                EndInstruction::Return(reg.map(|r| self.retagger.retag_old(r)))
             }
         };
 
@@ -578,16 +583,18 @@ impl<'d> InstWriter<'d> {
     fn write_inst(&mut self, inst: &ir::Instruction<PureBbCtx>) -> HaltStatus {
         match inst {
             &ir::Instruction::ReferenceOfFunction(result, func) => {
-                let fnptr = self.reg_map.map(result);
+                let fnptr = self.retagger.retag_new(result);
                 let static_fn = self.fn_assembler.assembler.ir.functions.get(&func).unwrap();
                 let entry_blk = static_fn.entry_block;
                 let pure_bb_id =
                     (self.fn_assembler.assembler.pure_bocks).get_block_id_by_host(func, entry_blk);
                 self.instructions
                     .push(Instruction::MakeFnPtr(fnptr, pure_bb_id));
+                self.register_types
+                    .insert(fnptr, ValueType::FnPtr(pure_bb_id));
             }
             &ir::Instruction::MakeTrivial(inst) => {
-                let rt = self.reg_map.map(inst.result);
+                let rt = self.retagger.retag_new(inst.result);
                 self.instructions
                     .push(Instruction::MakeTrivial(MakeTrivial {
                         result: rt,
@@ -606,7 +613,7 @@ impl<'d> InstWriter<'d> {
             &ir::Instruction::MakeString(str, val) => {
                 let constant = self.fn_assembler.assembler.ir.constants.get(&val).unwrap();
 
-                let str_reg = self.reg_map.map(str);
+                let str_reg = self.retagger.retag_new(str);
                 let const_id = self
                     .fn_assembler
                     .assembler
@@ -618,71 +625,61 @@ impl<'d> InstWriter<'d> {
                     .insert(str_reg, ValueType::ExactString(constant.payload.clone()));
             }
             &ir::Instruction::MakeInteger(inst) => {
-                let int_reg = self.reg_map.map(inst.result);
+                let inst = inst.retag(self.retagger);
                 self.instructions
-                    .push(Instruction::MakeNumber(int_reg, inst.value));
+                    .push(Instruction::MakeNumber(inst.result, inst.value));
                 self.register_types
-                    .insert(int_reg, ValueType::ExactInteger(inst.value));
+                    .insert(inst.result, ValueType::ExactInteger(inst.value));
             }
             &ir::Instruction::CompareLessThan(inst) => {
-                let cmp = inst.result;
-                let lhs = inst.lhs;
-                let rhs = inst.rhs;
-                let cmp_typ = self.type_info.get_type(cmp);
-
-                let cmp = self.reg_map.map(cmp);
-                let lhs = self.reg_map.map(lhs);
-                let rhs = self.reg_map.map(rhs);
+                let cmp_typ = self.type_info.get_type(inst.result);
+                let inst = inst.retag(self.retagger);
 
                 // TODO: emit a `CompareLessThan` instruction properly
                 // for now i'll just emit MakeBoolean
                 // and i'm not introducing `CompareLessThan` rn because im busy rewriting the assembler
                 // and annotator and that's a big enough task for now
                 if let ValueType::Bool(b) = *cmp_typ {
-                    self.instructions.push(Instruction::MakeBoolean(cmp, b));
-                    self.register_types.insert(cmp, ValueType::Bool(b));
+                    self.instructions
+                        .push(Instruction::MakeBoolean(inst.result, b));
+                    self.register_types.insert(inst.result, ValueType::Bool(b));
                 } else {
-                    todo!("support non const comparison via {:?} {:?}", lhs, rhs);
+                    todo!(
+                        "support non const comparison via {:?} {:?}",
+                        inst.lhs,
+                        inst.rhs
+                    );
                 }
             }
             &ir::Instruction::Add(inst) => {
                 let res_typ = self.type_info.get_type(inst.result);
-
-                let res = self.reg_map.map(inst.result);
-                let lhs = self.reg_map.map(inst.lhs);
-                let rhs = self.reg_map.map(inst.rhs);
+                let inst = inst.retag(self.retagger);
 
                 // TODO: emit a `Add` instruction properly
                 // same case with above
                 if let ValueType::ExactInteger(i) = *res_typ {
-                    self.instructions.push(Instruction::MakeNumber(res, i));
-                    self.register_types.insert(res, ValueType::ExactInteger(i));
+                    self.instructions
+                        .push(Instruction::MakeNumber(inst.result, i));
+                    self.register_types
+                        .insert(inst.result, ValueType::ExactInteger(i));
                 } else {
-                    todo!("suport non const math via {:?} {:?}", lhs, rhs);
+                    todo!("suport non const math via {:?} {:?}", inst.lhs, inst.rhs);
                 }
             }
-            ir::Instruction::CallExtern(CallExtern {
-                result: original_res,
-                fn_id,
-                args,
-            }) => {
-                let res = original_res.map(|r| self.reg_map.map(r));
+            ir::Instruction::CallExtern(inst) => {
+                let inst = inst.clone().map_context(self.retagger);
 
                 let ext_fn = (self.fn_assembler.assembler.ir.external_functions)
-                    .get(&fn_id.map_context())
+                    .get(&inst.fn_id.map_context())
                     .unwrap();
-
-                let args = args
-                    .iter()
-                    .map(|r| self.reg_map.map(*r))
-                    .collect::<Vec<_>>();
 
                 let val_types = (ext_fn.parameters.iter())
                     .map(|t| t.clone().into_value_type())
                     .collect::<Vec<_>>();
 
-                debug_assert_eq!(args.len(), val_types.len());
-                let args = args
+                debug_assert_eq!(inst.args.len(), val_types.len());
+                let args = inst
+                    .args
                     .into_iter()
                     .zip(val_types.iter())
                     .map(|(register, coercion_type)| {
@@ -693,12 +690,12 @@ impl<'d> InstWriter<'d> {
                     .collect::<Vec<_>>();
 
                 self.instructions.push(Instruction::Call(
-                    res,
-                    Callable::Extern(fn_id.map_context()),
+                    inst.result,
+                    Callable::Extern(inst.fn_id.map_context()),
                     args,
                 ));
 
-                if let Some(reg) = res {
+                if let Some(reg) = inst.result {
                     if let ir::Returns::Value(v) = ext_fn.return_type.clone() {
                         self.register_types.insert(reg, v.into_value_type());
                     } else {
@@ -706,32 +703,24 @@ impl<'d> InstWriter<'d> {
                     }
                 }
             }
-            ir::Instruction::CallStatic(CallStatic {
-                result: res,
-                fn_id,
-                args,
-            }) => {
-                let original_res = res;
-                let res = res.map(|r| self.reg_map.map(r));
+            ir::Instruction::CallStatic(inst) => {
+                let original_res = inst.result;
+                let inst = inst.clone().map_context(self.retagger);
 
                 let static_fn = self
                     .fn_assembler
                     .assembler
                     .ir
                     .functions
-                    .get(&fn_id.map_context())
+                    .get(&inst.fn_id.map_context())
                     .unwrap();
                 let entry_blk = static_fn.entry_block;
 
                 let pure_bb_id = (self.fn_assembler.assembler.pure_bocks)
-                    .get_block_id_by_host(fn_id.map_context(), entry_blk);
+                    .get_block_id_by_host(inst.fn_id.map_context(), entry_blk);
 
                 // TODO: use `zip_eq`
                 println!("!!!! preparing call!!!!!!1!!!!!!");
-                let src_regs = args
-                    .iter()
-                    .map(|r| self.reg_map.map(*r))
-                    .collect::<Vec<_>>();
                 let dest_regs = self
                     .fn_assembler
                     .assembler
@@ -741,10 +730,10 @@ impl<'d> InstWriter<'d> {
                     .iter()
                     .copied()
                     .collect::<Vec<_>>();
-                debug_assert_eq!(src_regs.len(), dest_regs.len());
+                debug_assert_eq!(inst.args.len(), dest_regs.len());
                 let invocation_args = self
                     .register_types
-                    .prepare_invocation(src_regs.into_iter().zip(dest_regs.into_iter()));
+                    .prepare_invocation(inst.args.clone().into_iter().zip(dest_regs.into_iter()));
                 println!(
                     "preparing to call function:::::: {:#?} into block {:#?}",
                     invocation_args,
@@ -760,19 +749,13 @@ impl<'d> InstWriter<'d> {
                     .assembler
                     .blk_id(pure_bb_id, &invocation_args);
 
-                let args = args.iter().map(|r| self.reg_map.map(*r)).collect();
-
                 self.instructions.push(Instruction::Call(
-                    res,
+                    inst.result,
                     Callable::Static(annotated_fn_id),
-                    args,
+                    inst.args,
                 ));
 
-                debug_assert!(
-                    res.is_some() == original_res.is_some()
-                        && res.is_none() == original_res.is_none()
-                );
-                if let (Some(reg), Some(orig_reg)) = (res, *original_res) {
+                if let (Some(reg), Some(orig_reg)) = (inst.result, original_res) {
                     // TODO: handle never type
 
                     self.register_types
@@ -781,13 +764,11 @@ impl<'d> InstWriter<'d> {
 
                 self.to_assemble.push(annotated_blk_id);
             }
-            ir::Instruction::CallVirt(CallVirt {
-                result: res,
-                fn_ptr: fn_ptr_id,
-                args,
-            }) => {
-                let fn_ptr_id = self.reg_map.map(*fn_ptr_id);
-                let pure_bb_id = if let ValueType::FnPtr(id) = self.register_types.get(fn_ptr_id) {
+            ir::Instruction::CallVirt(inst) => {
+                let original_res = inst.result;
+                let inst = inst.clone().map_context(self.retagger);
+                let pure_bb_id = if let ValueType::FnPtr(id) = self.register_types.get(inst.fn_ptr)
+                {
                     *id
                 } else {
                     panic!("cannot virtual call non fnptr")
@@ -795,15 +776,8 @@ impl<'d> InstWriter<'d> {
 
                 // TODO: don't blatantly copy Call(Static())
 
-                let original_res = res;
-                let res = res.map(|r| self.reg_map.map(r));
-
                 // TODO: use `zip_eq`
                 println!("!!!! preparing call!!!!!!2!!!!!!");
-                let src_regs = args
-                    .iter()
-                    .map(|r| self.reg_map.map(*r))
-                    .collect::<Vec<_>>();
                 let dest_regs = self
                     .fn_assembler
                     .assembler
@@ -813,10 +787,10 @@ impl<'d> InstWriter<'d> {
                     .iter()
                     .copied()
                     .collect::<Vec<_>>();
-                debug_assert_eq!(src_regs.len(), dest_regs.len());
+                debug_assert_eq!(inst.args.len(), dest_regs.len());
                 let invocation_args = self
                     .register_types
-                    .prepare_invocation(src_regs.into_iter().zip(dest_regs.into_iter()));
+                    .prepare_invocation(inst.args.clone().into_iter().zip(dest_regs.into_iter()));
                 println!(
                     "preparing to call function:::::: {:#?} into block {:#?}",
                     invocation_args,
@@ -832,19 +806,13 @@ impl<'d> InstWriter<'d> {
                     .assembler
                     .blk_id(pure_bb_id, &invocation_args);
 
-                let args = args.iter().map(|r| self.reg_map.map(*r)).collect();
-
                 self.instructions.push(Instruction::Call(
-                    res,
+                    inst.result,
                     Callable::Static(annotated_fn_id),
-                    args,
+                    inst.args,
                 ));
 
-                debug_assert!(
-                    res.is_some() == original_res.is_some()
-                        && res.is_none() == original_res.is_none()
-                );
-                if let (Some(reg), Some(orig_reg)) = (res, *original_res) {
+                if let (Some(reg), Some(orig_reg)) = (inst.result, original_res) {
                     // TODO: handle never type
 
                     self.register_types
@@ -857,23 +825,18 @@ impl<'d> InstWriter<'d> {
             // if this entire `assembler` phase is even necessary
             //
             // i'll probably end up trashing this entire struct
-            &ir::Instruction::RecordNew(r) => {
-                let r = self.reg_map.map(r.result);
-                self.instructions.push(Instruction::RecordNew(r));
+            &ir::Instruction::RecordNew(inst) => {
+                let inst = inst.retag(self.retagger);
+                self.instructions.push(Instruction::RecordNew(inst.result));
                 let alloc = self.register_types.insert_alloc();
-                self.register_types.insert(r, ValueType::Record(alloc));
+                self.register_types
+                    .insert(inst.result, ValueType::Record(alloc));
             }
             &ir::Instruction::RecordGet(inst) => {
-                let result = &self.reg_map.map(inst.result);
-                let record = &self.reg_map.map(inst.record);
-
-                let rec_key = match inst.key {
-                    RecordKey::Prop(v) => RecordKey::Prop(self.reg_map.map(v)),
-                    RecordKey::Slot(s) => RecordKey::Slot(s),
-                };
+                let inst = inst.retag(self.retagger);
 
                 let key = match inst.key {
-                    RecordKey::Prop(r) => match self.register_types.get(self.reg_map.map(r)) {
+                    RecordKey::Prop(r) => match self.register_types.get(r) {
                         ValueType::String => ShapeKey::String,
                         ValueType::ExactString(str) => ShapeKey::Str(str.clone()),
                         ValueType::Any
@@ -892,31 +855,25 @@ impl<'d> InstWriter<'d> {
                     RecordKey::Slot(slot) => ShapeKey::InternalSlot(slot),
                 };
 
-                if let ValueType::Record(alloc) = *self.register_types.get(*record) {
+                if let ValueType::Record(alloc) = *self.register_types.get(inst.record) {
                     let shape = self.register_types.get_shape(alloc);
                     let prop_value_typ = shape.type_at_key(&key).clone();
-                    self.register_types.insert(*result, prop_value_typ);
+                    self.register_types.insert(inst.result, prop_value_typ);
 
                     self.instructions.push(Instruction::RecordGet {
-                        result: *result,
-                        record: *record,
-                        key: rec_key,
+                        result: inst.result,
+                        record: inst.record,
+                        key: inst.key,
                     });
                 } else {
                     panic!("cannot call RecordGet on non record");
                 }
             }
             ir::Instruction::RecordSet(inst) => {
-                let record = &self.reg_map.map(inst.record);
-                let value = &self.reg_map.map(inst.value);
-
-                let rec_key = match inst.key {
-                    RecordKey::Prop(v) => RecordKey::Prop(self.reg_map.map(v)),
-                    RecordKey::Slot(s) => RecordKey::Slot(s),
-                };
+                let inst = inst.retag(self.retagger);
 
                 let key = match inst.key {
-                    RecordKey::Prop(v) => match self.register_types.get(self.reg_map.map(v)) {
+                    RecordKey::Prop(v) => match self.register_types.get(v) {
                         ValueType::String => ShapeKey::String,
                         ValueType::ExactString(str) => ShapeKey::Str(str.clone()),
                         ValueType::Any
@@ -935,18 +892,18 @@ impl<'d> InstWriter<'d> {
                     RecordKey::Slot(slot) => ShapeKey::InternalSlot(slot),
                 };
 
-                if let ValueType::Record(alloc) = *self.register_types.get(*record) {
+                if let ValueType::Record(alloc) = *self.register_types.get(inst.record) {
                     let shape = self.register_types.get_shape(alloc);
-                    let value_typ = self.register_types.get(*value).clone();
+                    let value_typ = self.register_types.get(inst.value).clone();
                     let shape = shape.add_prop(key, value_typ);
                     let shape_id = self.register_types.insert_shape(shape);
                     self.register_types.assign_new_shape(alloc, shape_id);
 
                     self.instructions.push(Instruction::RecordSet {
                         shape_id,
-                        record: *record,
-                        key: rec_key,
-                        value: *value,
+                        record: inst.record,
+                        key: inst.key,
+                        value: inst.value,
                     });
                 } else {
                     panic!("cannot call RecordSet on non record");
@@ -954,31 +911,36 @@ impl<'d> InstWriter<'d> {
             }
             &ir::Instruction::CompareEqual(inst) => {
                 let res_typ = self.type_info.get_type(inst.result);
-
-                let res = self.reg_map.map(inst.result);
-                let l = self.reg_map.map(inst.lhs);
-                let r = self.reg_map.map(inst.rhs);
+                let inst = inst.retag(self.retagger);
 
                 // TODO: emit a `CompareEqual` instruction properly
                 // same case with above (i.e. Add)
                 if let ValueType::Bool(b) = *res_typ {
-                    self.instructions.push(Instruction::MakeBoolean(res, b));
+                    self.instructions
+                        .push(Instruction::MakeBoolean(inst.result, b));
                 } else {
-                    todo!("suport non const comparison via {:?} {:?}", l, r);
+                    todo!(
+                        "suport non const comparison via {:?} {:?}",
+                        inst.lhs,
+                        inst.rhs
+                    );
                 }
             }
             &ir::Instruction::Negate(inst) => {
                 let res_typ = self.type_info.get_type(inst.result);
-
-                let res = self.reg_map.map(inst.result);
-                let r = self.reg_map.map(inst.operand);
+                let inst = inst.retag(self.retagger);
 
                 // TODO: emit a `Negate` instruction properly
                 // same case with above
                 if let ValueType::Bool(b) = *res_typ {
-                    self.instructions.push(Instruction::MakeBoolean(res, b));
+                    self.instructions
+                        .push(Instruction::MakeBoolean(inst.result, b));
                 } else {
-                    todo!("suport non const comparison via {:?} {:?}", r, inst.operand);
+                    todo!(
+                        "suport non const comparison via {:?} {:?}",
+                        inst.result,
+                        inst.operand
+                    );
                 }
             }
         };
@@ -992,7 +954,7 @@ impl<'d> InstWriter<'d> {
         println!("!!!! preparing cal2l!!!!!!!!!!!!");
         let src_regs = args
             .iter()
-            .map(|r| self.reg_map.map(*r))
+            .map(|r| self.retagger.retag_old(*r))
             .collect::<Vec<_>>();
         let dest_regs = self
             .fn_assembler
@@ -1020,7 +982,7 @@ impl<'d> InstWriter<'d> {
 
         let args = args
             .iter()
-            .map(|r| self.reg_map.map(*r))
+            .map(|r| self.retagger.retag_old(*r))
             .collect::<Vec<_>>();
 
         BlockJump(id, args)
@@ -1036,7 +998,7 @@ impl<'d> InstWriter<'d> {
             return reg;
         }
 
-        let result = self.reg_map.gen();
+        let result = self.retagger.gen();
         self.instructions.push(Instruction::Widen {
             result,
             input: reg,
