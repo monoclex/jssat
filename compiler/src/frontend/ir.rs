@@ -14,6 +14,7 @@ use super::isa::{
     CallExtern, CallStatic, CallVirt, ISAInstruction, MakeInteger, MakeRecord, MakeTrivial, OpAdd,
     OpEquals, OpLessThan, OpNegate, RecordGet, RecordSet,
 };
+use super::retag::RegRetagger;
 type PlainRegisterId = RegisterId<IrCtx>;
 type ExternalFunctionId = crate::id::ExternalFunctionId<IrCtx>;
 
@@ -168,24 +169,27 @@ pub enum ControlFlowInstruction<Ctx = IrCtx, Path = IrCtx> {
 
 impl<C: Tag> Instruction<C> {
     // this should turn into a no-op lol
-    pub fn map_context<C2: Tag>(self) -> Instruction<C2> {
+    #[track_caller]
+    pub fn retag<C2: Tag>(self, retagger: &mut impl RegRetagger<C, C2>) -> Instruction<C2> {
         match self {
-            Instruction::MakeString(r, s) => Instruction::MakeString(r.map_context::<C2>(), s),
-            Instruction::CompareLessThan(inst) => Instruction::CompareLessThan(inst.map_context()),
-            Instruction::RecordNew(r) => Instruction::RecordNew(r.map_context()),
-            Instruction::RecordGet(inst) => Instruction::RecordGet(inst.map_context()),
-            Instruction::RecordSet(inst) => Instruction::RecordSet(inst.map_context()),
-            Instruction::ReferenceOfFunction(r, f) => {
-                Instruction::ReferenceOfFunction(r.map_context(), f.map_context())
+            Instruction::MakeString(r, s) => Instruction::MakeString(retagger.retag_new(r), s),
+            Instruction::CompareLessThan(inst) => {
+                Instruction::CompareLessThan(inst.map_context(retagger))
             }
-            Instruction::CallStatic(inst) => Instruction::CallStatic(inst.map_context()),
-            Instruction::CallExtern(inst) => Instruction::CallExtern(inst.map_context()),
-            Instruction::CallVirt(inst) => Instruction::CallVirt(inst.map_context()),
-            Instruction::MakeTrivial(inst) => Instruction::MakeTrivial(inst.map_context()),
-            Instruction::MakeInteger(inst) => Instruction::MakeInteger(inst.map_context()),
-            Instruction::CompareEqual(inst) => Instruction::CompareEqual(inst.map_context()),
-            Instruction::Negate(inst) => Instruction::Negate(inst.map_context()),
-            Instruction::Add(inst) => Instruction::Add(inst.map_context()),
+            Instruction::RecordNew(inst) => Instruction::RecordNew(inst.retag(retagger)),
+            Instruction::RecordGet(inst) => Instruction::RecordGet(inst.retag(retagger)),
+            Instruction::RecordSet(inst) => Instruction::RecordSet(inst.retag(retagger)),
+            Instruction::ReferenceOfFunction(r, f) => {
+                Instruction::ReferenceOfFunction(retagger.retag_new(r), f.map_context())
+            }
+            Instruction::CallStatic(inst) => Instruction::CallStatic(inst.map_context(retagger)),
+            Instruction::CallExtern(inst) => Instruction::CallExtern(inst.map_context(retagger)),
+            Instruction::CallVirt(inst) => Instruction::CallVirt(inst.map_context(retagger)),
+            Instruction::MakeTrivial(inst) => Instruction::MakeTrivial(inst.retag(retagger)),
+            Instruction::MakeInteger(inst) => Instruction::MakeInteger(inst.retag(retagger)),
+            Instruction::CompareEqual(inst) => Instruction::CompareEqual(inst.retag(retagger)),
+            Instruction::Negate(inst) => Instruction::Negate(inst.retag(retagger)),
+            Instruction::Add(inst) => Instruction::Add(inst.retag(retagger)),
         }
     }
 }

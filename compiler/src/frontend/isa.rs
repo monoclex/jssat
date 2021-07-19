@@ -10,6 +10,8 @@ use crate::id::FunctionId;
 use crate::id::RegisterId;
 use crate::id::Tag;
 
+use super::retag::RegRetagger;
+
 type ConstantId = crate::id::ConstantId<crate::id::NoContext>;
 type BlockId = crate::id::BlockId<crate::id::NoContext>;
 
@@ -51,21 +53,6 @@ pub trait ISAInstruction<C: Tag> {
     /// provides mutable access to the registers being used to allow for
     /// changes to the registers.
     fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>>;
-}
-
-// TODO: check if this works
-pub trait ISAInstruction2<C: Tag> {
-    type ContextMap;
-
-    fn map_context(self) -> Self::ContextMap;
-}
-
-impl<C: Tag, C2: Tag> ISAInstruction2<C2> for Return<C> {
-    type ContextMap = Return<C2>;
-
-    fn map_context(self) -> Self::ContextMap {
-        todo!()
-    }
 }
 
 pub struct Noop;
@@ -179,9 +166,10 @@ impl<C: Tag> ISAInstruction<C> for MakeRecord<C> {
 }
 
 impl<C: Tag> MakeRecord<C> {
-    pub fn map_context<C2: Tag>(self) -> MakeRecord<C2> {
+    #[track_caller]
+    pub fn retag<C2: Tag>(self, retagger: &mut impl RegRetagger<C, C2>) -> MakeRecord<C2> {
         MakeRecord {
-            result: self.result.map_context(),
+            result: retagger.retag_new(self.result),
         }
     }
 }
@@ -223,9 +211,10 @@ impl<C: Tag> ISAInstruction<C> for MakeInteger<C> {
 }
 
 impl<C: Tag> MakeInteger<C> {
-    pub fn map_context<C2: Tag>(self) -> MakeInteger<C2> {
+    #[track_caller]
+    pub fn retag<C2: Tag>(self, retagger: &mut impl RegRetagger<C, C2>) -> MakeInteger<C2> {
         MakeInteger {
-            result: self.result.map_context(),
+            result: retagger.retag_new(self.result),
             value: self.value,
         }
     }
@@ -266,9 +255,10 @@ impl<C: Tag> ISAInstruction<C> for MakeTrivial<C> {
 }
 
 impl<C: Tag> MakeTrivial<C> {
-    pub fn map_context<C2: Tag>(self) -> MakeTrivial<C2> {
+    #[track_caller]
+    pub fn retag<C2: Tag>(self, retagger: &mut impl RegRetagger<C, C2>) -> MakeTrivial<C2> {
         MakeTrivial {
-            result: self.result.map_context(),
+            result: retagger.retag_new(self.result),
             item: self.item,
         }
     }
@@ -311,10 +301,11 @@ impl<C: Tag> ISAInstruction<C> for OpNegate<C> {
 }
 
 impl<C: Tag> OpNegate<C> {
-    pub fn map_context<C2: Tag>(self) -> OpNegate<C2> {
+    #[track_caller]
+    pub fn retag<C2: Tag>(self, retagger: &mut impl RegRetagger<C, C2>) -> OpNegate<C2> {
         OpNegate {
-            result: self.result.map_context(),
-            operand: self.operand.map_context(),
+            result: retagger.retag_new(self.result),
+            operand: retagger.retag_old(self.operand),
         }
     }
 }
@@ -341,11 +332,12 @@ impl<C: Tag> ISAInstruction<C> for OpAdd<C> {
 }
 
 impl<C: Tag> OpAdd<C> {
-    pub fn map_context<C2: Tag>(self) -> OpAdd<C2> {
+    #[track_caller]
+    pub fn retag<C2: Tag>(self, retagger: &mut impl RegRetagger<C, C2>) -> OpAdd<C2> {
         OpAdd {
-            result: self.result.map_context(),
-            lhs: self.lhs.map_context(),
-            rhs: self.rhs.map_context(),
+            result: retagger.retag_new(self.result),
+            lhs: retagger.retag_old(self.lhs),
+            rhs: retagger.retag_old(self.rhs),
         }
     }
 }
@@ -392,11 +384,12 @@ impl<C: Tag> ISAInstruction<C> for OpLessThan<C> {
 }
 
 impl<C: Tag> OpLessThan<C> {
-    pub fn map_context<C2: Tag>(self) -> OpLessThan<C2> {
+    #[track_caller]
+    pub fn map_context<C2: Tag>(self, retagger: &mut impl RegRetagger<C, C2>) -> OpLessThan<C2> {
         OpLessThan {
-            result: self.result.map_context(),
-            lhs: self.lhs.map_context(),
-            rhs: self.rhs.map_context(),
+            result: retagger.retag_new(self.result),
+            lhs: retagger.retag_old(self.lhs),
+            rhs: retagger.retag_old(self.rhs),
         }
     }
 }
@@ -423,11 +416,12 @@ impl<C: Tag> ISAInstruction<C> for OpEquals<C> {
 }
 
 impl<C: Tag> OpEquals<C> {
-    pub fn map_context<C2: Tag>(self) -> OpEquals<C2> {
+    #[track_caller]
+    pub fn retag<C2: Tag>(self, retagger: &mut impl RegRetagger<C, C2>) -> OpEquals<C2> {
         OpEquals {
-            result: self.result.map_context(),
-            lhs: self.lhs.map_context(),
-            rhs: self.rhs.map_context(),
+            result: retagger.retag_new(self.result),
+            lhs: retagger.retag_old(self.lhs),
+            rhs: retagger.retag_old(self.rhs),
         }
     }
 }
@@ -441,9 +435,10 @@ pub enum RecordKey<C: Tag> {
 }
 
 impl<C: Tag> RecordKey<C> {
-    pub fn map_context<C2: Tag>(self) -> RecordKey<C2> {
+    #[track_caller]
+    pub fn map_context<C2: Tag>(self, retagger: &impl RegRetagger<C, C2>) -> RecordKey<C2> {
         match self {
-            RecordKey::Prop(r) => RecordKey::Prop(r.map_context()),
+            RecordKey::Prop(r) => RecordKey::Prop(retagger.retag_old(r)),
             RecordKey::Slot(s) => RecordKey::Slot(s),
         }
     }
@@ -487,11 +482,12 @@ impl<C: Tag> ISAInstruction<C> for RecordGet<C> {
 }
 
 impl<C: Tag> RecordGet<C> {
-    pub fn map_context<C2: Tag>(self) -> RecordGet<C2> {
+    #[track_caller]
+    pub fn retag<C2: Tag>(self, retagger: &mut impl RegRetagger<C, C2>) -> RecordGet<C2> {
         RecordGet {
-            result: self.result.map_context(),
-            record: self.record.map_context(),
-            key: self.key.map_context(),
+            result: retagger.retag_new(self.result),
+            record: retagger.retag_old(self.record),
+            key: self.key.map_context(retagger),
         }
     }
 }
@@ -526,11 +522,12 @@ impl<C: Tag> ISAInstruction<C> for RecordSet<C> {
 }
 
 impl<C: Tag> RecordSet<C> {
-    pub fn map_context<C2: Tag>(self) -> RecordSet<C2> {
+    #[track_caller]
+    pub fn retag<C2: Tag>(self, retagger: &mut impl RegRetagger<C, C2>) -> RecordSet<C2> {
         RecordSet {
-            record: self.record.map_context(),
-            key: self.key.map_context(),
-            value: self.value.map_context(),
+            record: retagger.retag_old(self.record),
+            key: self.key.map_context(retagger),
+            value: retagger.retag_old(self.value),
         }
     }
 }
@@ -594,11 +591,16 @@ impl<C: Tag> ISAInstruction<C> for CallStatic<C> {
 }
 
 impl<C: Tag> CallStatic<C> {
-    pub fn map_context<C2: Tag>(self) -> CallStatic<C2> {
+    #[track_caller]
+    pub fn map_context<C2: Tag>(self, retagger: &mut impl RegRetagger<C, C2>) -> CallStatic<C2> {
         CallStatic {
-            result: self.result.map(|r| r.map_context()),
+            result: self.result.map(|r| retagger.retag_new(r)),
             fn_id: self.fn_id.map_context(),
-            args: self.args.into_iter().map(|r| r.map_context()).collect(),
+            args: self
+                .args
+                .into_iter()
+                .map(|r| retagger.retag_old(r))
+                .collect(),
         }
     }
 }
@@ -637,11 +639,16 @@ impl<C: Tag> ISAInstruction<C> for CallVirt<C> {
 }
 
 impl<C: Tag> CallVirt<C> {
-    pub fn map_context<C2: Tag>(self) -> CallVirt<C2> {
+    #[track_caller]
+    pub fn map_context<C2: Tag>(self, retagger: &mut impl RegRetagger<C, C2>) -> CallVirt<C2> {
         CallVirt {
-            result: self.result.map(|r| r.map_context()),
+            result: self.result.map(|r| retagger.retag_new(r)),
             fn_ptr: self.fn_ptr.map_context(),
-            args: self.args.into_iter().map(|r| r.map_context()).collect(),
+            args: self
+                .args
+                .into_iter()
+                .map(|r| retagger.retag_old(r))
+                .collect(),
         }
     }
 }
@@ -673,11 +680,16 @@ impl<C: Tag> ISAInstruction<C> for CallExtern<C> {
 }
 
 impl<C: Tag> CallExtern<C> {
-    pub fn map_context<C2: Tag>(self) -> CallExtern<C2> {
+    #[track_caller]
+    pub fn map_context<C2: Tag>(self, retagger: &mut impl RegRetagger<C, C2>) -> CallExtern<C2> {
         CallExtern {
-            result: self.result.map(|r| r.map_context()),
+            result: self.result.map(|r| retagger.retag_new(r)),
             fn_id: self.fn_id.map_context(),
-            args: self.args.into_iter().map(|r| r.map_context()).collect(),
+            args: self
+                .args
+                .into_iter()
+                .map(|r| retagger.retag_old(r))
+                .collect(),
         }
     }
 }

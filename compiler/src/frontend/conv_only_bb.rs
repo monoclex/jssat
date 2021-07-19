@@ -1,3 +1,4 @@
+use crate::frontend::retag::RegRetagger;
 use bimap::BiHashMap;
 use petgraph::graph::NodeIndex;
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
@@ -6,6 +7,8 @@ use std::hash::{BuildHasherDefault, Hash};
 use crate::frontend::ir::{BasicBlockJump, ControlFlowInstruction, Function, Instruction, IR};
 use crate::id::*;
 use crate::UnwrapNone;
+
+use super::retag::RegPassRetagger;
 
 pub type ControlFlowGraph = petgraph::graph::DiGraph<BlockId<PureBbCtx>, ()>;
 pub type ValueFlowGraph = petgraph::graph::DiGraph<RegisterId<IrCtx>, ()>;
@@ -559,26 +562,32 @@ fn to_rewriting_fn(f: &Function, block_id_gen: &Counter<BlockId<PureBbCtx>>) -> 
         blocks: FxHashMap::default(),
     };
 
+    let mut retagger = RegPassRetagger::default();
+
     for (id, block) in f.blocks.iter() {
+        println!("converting {:?} |=> {:?}", id, block);
+
         let is_entry_block = *id == f.entry_block;
 
         let parameters: Vec<RegisterId<PureBbCtx>> = match is_entry_block {
             // the entry block has no parameters, so we must use the parameters
             // from the function itself
-
-            // `map_context` SAFETY: we're going from a block in the IR to a basic block
             true => f
                 .parameters
                 .iter()
-                .map(|p| p.register.map_context())
+                .map(|p| retagger.retag_new(p.register))
                 .collect(),
-            false => block.parameters.iter().map(|r| r.map_context()).collect(),
+            false => block
+                .parameters
+                .iter()
+                .map(|r| retagger.retag_new(*r))
+                .collect(),
         };
 
         let instructions = block
             .instructions
             .iter()
-            .map(|i| i.clone().map_context::<PureBbCtx>())
+            .map(|i| i.clone().retag(&mut retagger))
             .collect();
 
         let end = {
@@ -586,7 +595,7 @@ fn to_rewriting_fn(f: &Function, block_id_gen: &Counter<BlockId<PureBbCtx>>) -> 
                 let BasicBlockJump(id, path) = bbjump;
                 BasicBlockJump(
                     bb_id_of(*id),
-                    path.iter().map(|r| r.map_context()).collect(),
+                    path.iter().map(|r| retagger.retag_old(*r)).collect(),
                 )
             };
             match &block.end {
@@ -598,12 +607,12 @@ fn to_rewriting_fn(f: &Function, block_id_gen: &Counter<BlockId<PureBbCtx>>) -> 
                     true_path,
                     false_path,
                 } => ControlFlowInstruction::JmpIf {
-                    condition: condition.map_context(),
+                    condition: retagger.retag_old(*condition),
                     true_path: map_bbjump(true_path),
                     false_path: map_bbjump(false_path),
                 },
                 ControlFlowInstruction::Ret(Some(reg)) => {
-                    ControlFlowInstruction::Ret(Some(reg.map_context()))
+                    ControlFlowInstruction::Ret(Some(retagger.retag_old(*reg)))
                 }
                 ControlFlowInstruction::Ret(None) => ControlFlowInstruction::Ret(None),
             }

@@ -53,12 +53,12 @@ pub fn display(program: &IR) -> String {
                     Instruction::RecordNew(r) => {
                         iwl!(text, "    %{} = RecordNew", r.result,)
                     }
-                    Instruction::RecordGet(_) => iwl!(text, "todo"),
-                    Instruction::RecordSet(_) => iwl!(text, "todo"),
-                    Instruction::CallVirt(t) => iwl!(text, "todo"),
-                    Instruction::CallExtern(t) => iwl!(text, "todo"),
-                    Instruction::CallStatic(t) => iwl!(text, "todo"),
-                    Instruction::MakeTrivial(t) => iwl!(text, "todo"),
+                    Instruction::RecordGet(t) => iwl!(text, "    RecordGet {:?}", t),
+                    Instruction::RecordSet(t) => iwl!(text, "    RecordSet {:?}", t),
+                    Instruction::CallVirt(t) => iwl!(text, "    CallVirt {:?}", t),
+                    Instruction::CallExtern(t) => iwl!(text, "    CallExtern {:?}", t),
+                    Instruction::CallStatic(t) => iwl!(text, "    CallStatic {:?}", t),
+                    Instruction::MakeTrivial(t) => iwl!(text, "    MakeTrivial {:?}", t),
                     Instruction::MakeString(r, s) => {
                         iwl!(
                             text,
@@ -76,10 +76,10 @@ pub fn display(program: &IR) -> String {
                         let rr = inst.rhs;
                         iwl!(text, "    %{} = CompareLessThan %{}, %{}", r, l, rr)
                     }
-                    Instruction::MakeInteger(_) => iwl!(text, "todo"),
-                    Instruction::CompareEqual(_) => iwl!(text, "todo"),
-                    Instruction::Negate(_) => iwl!(text, "todo"),
-                    Instruction::Add(_) => iwl!(text, "todo"),
+                    Instruction::MakeInteger(t) => iwl!(text, "    MakeInteger {:?}", t),
+                    Instruction::CompareEqual(t) => iwl!(text, "    CompareEqual {:?}", t),
+                    Instruction::Negate(t) => iwl!(text, "    Negate {:?}", t),
+                    Instruction::Add(t) => iwl!(text, "    Add {:?}", t),
                 }
             }
 
