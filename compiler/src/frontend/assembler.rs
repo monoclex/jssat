@@ -617,12 +617,12 @@ impl<'d> InstWriter<'d> {
                 self.register_types
                     .insert(str_reg, ValueType::ExactString(constant.payload.clone()));
             }
-            &ir::Instruction::MakeInteger(int, val) => {
-                let int_reg = self.reg_map.map(int);
+            &ir::Instruction::MakeInteger(inst) => {
+                let int_reg = self.reg_map.map(inst.result);
                 self.instructions
-                    .push(Instruction::MakeNumber(int_reg, val));
+                    .push(Instruction::MakeNumber(int_reg, inst.value));
                 self.register_types
-                    .insert(int_reg, ValueType::ExactInteger(val));
+                    .insert(int_reg, ValueType::ExactInteger(inst.value));
             }
             &ir::Instruction::CompareLessThan(inst) => {
                 let cmp = inst.result;
@@ -645,12 +645,12 @@ impl<'d> InstWriter<'d> {
                     todo!("support non const comparison via {:?} {:?}", lhs, rhs);
                 }
             }
-            &ir::Instruction::Add(res, lhs, rhs) => {
-                let res_typ = self.type_info.get_type(res);
+            &ir::Instruction::Add(inst) => {
+                let res_typ = self.type_info.get_type(inst.result);
 
-                let res = self.reg_map.map(res);
-                let lhs = self.reg_map.map(lhs);
-                let rhs = self.reg_map.map(rhs);
+                let res = self.reg_map.map(inst.result);
+                let lhs = self.reg_map.map(inst.lhs);
+                let rhs = self.reg_map.map(inst.rhs);
 
                 // TODO: emit a `Add` instruction properly
                 // same case with above
@@ -952,12 +952,12 @@ impl<'d> InstWriter<'d> {
                     panic!("cannot call RecordSet on non record");
                 }
             }
-            &ir::Instruction::CompareEqual(res, l, r) => {
-                let res_typ = self.type_info.get_type(res);
+            &ir::Instruction::CompareEqual(inst) => {
+                let res_typ = self.type_info.get_type(inst.result);
 
-                let res = self.reg_map.map(res);
-                let l = self.reg_map.map(l);
-                let r = self.reg_map.map(r);
+                let res = self.reg_map.map(inst.result);
+                let l = self.reg_map.map(inst.lhs);
+                let r = self.reg_map.map(inst.rhs);
 
                 // TODO: emit a `CompareEqual` instruction properly
                 // same case with above (i.e. Add)
@@ -967,18 +967,18 @@ impl<'d> InstWriter<'d> {
                     todo!("suport non const comparison via {:?} {:?}", l, r);
                 }
             }
-            &ir::Instruction::Negate(res, v) => {
-                let res_typ = self.type_info.get_type(res);
+            &ir::Instruction::Negate(inst) => {
+                let res_typ = self.type_info.get_type(inst.result);
 
-                let res = self.reg_map.map(res);
-                let r = self.reg_map.map(v);
+                let res = self.reg_map.map(inst.result);
+                let r = self.reg_map.map(inst.operand);
 
                 // TODO: emit a `Negate` instruction properly
                 // same case with above
                 if let ValueType::Bool(b) = *res_typ {
                     self.instructions.push(Instruction::MakeBoolean(res, b));
                 } else {
-                    todo!("suport non const comparison via {:?} {:?}", r, v);
+                    todo!("suport non const comparison via {:?} {:?}", r, inst.operand);
                 }
             }
         };

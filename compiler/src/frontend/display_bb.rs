@@ -42,16 +42,6 @@ pub fn display(program: &PureBlocks) -> String {
                 Instruction::MakeString(r, s) => {
                     iwl!(text, "    %{} = MakeString {}", r, s);
                 }
-                Instruction::MakeInteger(r, i) => {
-                    iwl!(text, "    %{} = MakeNumber {}", r, i);
-                }
-                // Instruction::M(r, v) => iwl!(
-                //     text,
-                //     "    %{} = MakeBoolean {}",
-                //     r,
-                //     display_vt(f.register_types.get(*r), f),
-                //     v
-                // ),
                 Instruction::ReferenceOfFunction(r, f) => {
                     iwl!(text, "    %{} = MakeFnPtr @{}", r, f)
                 }
@@ -61,11 +51,10 @@ pub fn display(program: &PureBlocks) -> String {
                     let rr = inst.rhs;
                     iwl!(text, "    %{} = CompareLessThan %{}, %{}", r, l, rr)
                 }
-                Instruction::CompareEqual(r, l, rr) => {
-                    iwl!(text, "    %{} = CompareEqual %{}, %{}", r, l, rr)
-                }
-                Instruction::Negate(r, i) => iwl!(text, "    %{} = Negate %{}", r, i),
-                Instruction::Add(re, l, r) => iwl!(text, "    %{} = Add %{}, %{}", re, l, r),
+                Instruction::MakeInteger(_) => iwl!(text, "todo"),
+                Instruction::CompareEqual(_) => iwl!(text, "todo"),
+                Instruction::Negate(_) => iwl!(text, "todo"),
+                Instruction::Add(_) => iwl!(text, "todo"),
             }
         }
 

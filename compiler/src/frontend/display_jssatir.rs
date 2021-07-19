@@ -67,9 +67,6 @@ pub fn display(program: &IR) -> String {
                             display_str(&program.constants.get(s).unwrap().payload)
                         );
                     }
-                    Instruction::MakeInteger(r, i) => {
-                        iwl!(text, "    %{} = MakeNumber {}", r, i);
-                    }
                     // Instruction::M(r, v) => iwl!(
                     //     text,
                     //     "    %{} = MakeBoolean {}",
@@ -86,11 +83,10 @@ pub fn display(program: &IR) -> String {
                         let rr = inst.rhs;
                         iwl!(text, "    %{} = CompareLessThan %{}, %{}", r, l, rr)
                     }
-                    Instruction::CompareEqual(r, l, rr) => {
-                        iwl!(text, "    %{} = CompareEqual %{}, %{}", r, l, rr)
-                    }
-                    Instruction::Negate(r, i) => iwl!(text, "    %{} = Negate %{}", r, i),
-                    Instruction::Add(re, l, r) => iwl!(text, "    %{} = Add %{}, %{}", re, l, r),
+                    Instruction::MakeInteger(_) => iwl!(text, "todo"),
+                    Instruction::CompareEqual(_) => iwl!(text, "todo"),
+                    Instruction::Negate(_) => iwl!(text, "todo"),
+                    Instruction::Add(_) => iwl!(text, "todo"),
                 }
             }
 

@@ -9,8 +9,8 @@ use crate::name::DebugName;
 use crate::UnwrapNone;
 
 use super::isa::{
-    CallExtern, CallStatic, CallVirt, InternalSlot, MakeRecord, MakeTrivial, OpLessThan, RecordGet,
-    RecordKey, RecordSet, TrivialItem,
+    CallExtern, CallStatic, CallVirt, InternalSlot, MakeInteger, MakeRecord, MakeTrivial, OpAdd,
+    OpEquals, OpLessThan, OpNegate, RecordGet, RecordKey, RecordSet, TrivialItem,
 };
 
 pub type BlockId = crate::id::BlockId<crate::id::IrCtx>;
@@ -456,7 +456,7 @@ impl DynBlockBuilder {
     pub fn make_number_decimal(&mut self, value: i64) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions
-            .push(Instruction::MakeInteger(result, value));
+            .push(Instruction::MakeInteger(MakeInteger { result, value }));
         result
     }
 
@@ -532,29 +532,33 @@ impl DynBlockBuilder {
 
     pub fn add(&mut self, lhs: RegisterId, rhs: RegisterId) -> RegisterId {
         let result = self.gen_register_id.next();
-        self.instructions.push(Instruction::Add(result, lhs, rhs));
+        self.instructions
+            .push(Instruction::Add(OpAdd { result, lhs, rhs }));
         result
     }
 
     pub fn compare_equal(&mut self, lhs: RegisterId, rhs: RegisterId) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions
-            .push(Instruction::CompareEqual(result, lhs, rhs));
+            .push(Instruction::CompareEqual(OpEquals { result, lhs, rhs }));
         result
     }
 
     pub fn compare_less_than(&mut self, lhs: RegisterId, rhs: RegisterId) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions
-            .push(Instruction::CompareLessThan(OpLessThan::new(
-                result, lhs, rhs,
-            )));
+            .push(Instruction::CompareLessThan(OpLessThan {
+                result,
+                lhs,
+                rhs,
+            }));
         result
     }
 
-    pub fn negate(&mut self, value: RegisterId) -> RegisterId {
+    pub fn negate(&mut self, operand: RegisterId) -> RegisterId {
         let result = self.gen_register_id.next();
-        self.instructions.push(Instruction::Negate(result, value));
+        self.instructions
+            .push(Instruction::Negate(OpNegate { result, operand }));
         result
     }
 

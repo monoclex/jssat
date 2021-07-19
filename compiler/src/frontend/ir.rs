@@ -11,8 +11,8 @@ type ConstantId = crate::id::ConstantId<IrCtx>;
 use crate::id::RegisterId;
 
 use super::isa::{
-    CallExtern, CallStatic, CallVirt, ISAInstruction, MakeRecord, MakeTrivial, OpLessThan,
-    RecordGet, RecordSet,
+    CallExtern, CallStatic, CallVirt, ISAInstruction, MakeInteger, MakeRecord, MakeTrivial, OpAdd,
+    OpEquals, OpLessThan, OpNegate, RecordGet, RecordSet,
 };
 type PlainRegisterId = RegisterId<IrCtx>;
 type ExternalFunctionId = crate::id::ExternalFunctionId<IrCtx>;
@@ -142,11 +142,11 @@ pub enum Instruction<C: ContextTag = crate::id::IrCtx, C2: ContextTag = crate::i
     // /// This is used to implement functions that recurse an unknown amount of
     // /// times.
     // Unreachable,
-    MakeInteger(RegisterId<C>, i64),
+    MakeInteger(MakeInteger<C>),
     CompareLessThan(OpLessThan<C>),
-    CompareEqual(RegisterId<C>, RegisterId<C>, RegisterId<C>),
-    Negate(RegisterId<C>, RegisterId<C>),
-    Add(RegisterId<C>, RegisterId<C>, RegisterId<C>),
+    CompareEqual(OpEquals<C>),
+    Negate(OpNegate<C>),
+    Add(OpAdd<C>),
 }
 
 #[derive(Debug, Clone)]
@@ -166,39 +166,26 @@ pub enum ControlFlowInstruction<Ctx = IrCtx, Path = IrCtx> {
     Ret(Option<RegisterId<Ctx>>),
 }
 
-// pub enum RecordKey {
-//     /// An ECMAScript internal slot. `[[str]]`
-//     InternalSlot(&'static str),
-//     Register(RegisterId),
-//     Constant(TopLevelId),
-// }
-
 impl<C: ContextTag> Instruction<C> {
     // this should turn into a no-op lol
     pub fn map_context<C2: ContextTag>(self) -> Instruction<C2> {
         match self {
             Instruction::MakeString(r, s) => Instruction::MakeString(r.map_context::<C2>(), s),
-            Instruction::MakeInteger(r, n) => Instruction::MakeInteger(r.map_context::<C2>(), n),
             Instruction::CompareLessThan(inst) => Instruction::CompareLessThan(inst.map_context()),
-            Instruction::Add(r, l, rh) => Instruction::Add(
-                r.map_context::<C2>(),
-                l.map_context::<C2>(),
-                rh.map_context::<C2>(),
-            ),
             Instruction::RecordNew(r) => Instruction::RecordNew(r.map_context()),
             Instruction::RecordGet(inst) => Instruction::RecordGet(inst.map_context()),
             Instruction::RecordSet(inst) => Instruction::RecordSet(inst.map_context()),
             Instruction::ReferenceOfFunction(r, f) => {
                 Instruction::ReferenceOfFunction(r.map_context(), f.map_context())
             }
-            Instruction::CompareEqual(a, b, c) => {
-                Instruction::CompareEqual(a.map_context(), b.map_context(), c.map_context())
-            }
-            Instruction::Negate(a, b) => Instruction::Negate(a.map_context(), b.map_context()),
             Instruction::CallStatic(inst) => Instruction::CallStatic(inst.map_context()),
             Instruction::CallExtern(inst) => Instruction::CallExtern(inst.map_context()),
             Instruction::CallVirt(inst) => Instruction::CallVirt(inst.map_context()),
             Instruction::MakeTrivial(inst) => Instruction::MakeTrivial(inst.map_context()),
+            Instruction::MakeInteger(inst) => Instruction::MakeInteger(inst.map_context()),
+            Instruction::CompareEqual(inst) => Instruction::CompareEqual(inst.map_context()),
+            Instruction::Negate(inst) => Instruction::Negate(inst.map_context()),
+            Instruction::Add(inst) => Instruction::Add(inst.map_context()),
         }
     }
 }
@@ -246,12 +233,9 @@ impl<CO: ContextTag, PO: ContextTag> ControlFlowInstruction<CO, PO> {
 impl<C: ContextTag> Instruction<C> {
     pub fn assigned_to(&self) -> Option<RegisterId<C>> {
         match self {
-            Instruction::MakeString(result, _)
-            | Instruction::MakeInteger(result, _)
-            | Instruction::Add(result, _, _)
-            | Instruction::ReferenceOfFunction(result, _)
-            | Instruction::CompareEqual(result, _, _)
-            | Instruction::Negate(result, _) => Some(*result),
+            Instruction::MakeString(result, _) | Instruction::ReferenceOfFunction(result, _) => {
+                Some(*result)
+            }
             Instruction::RecordNew(isa) => isa.declared_register(),
             Instruction::CompareLessThan(inst) => inst.declared_register(),
             Instruction::CallStatic(inst) => inst.declared_register(),
@@ -260,19 +244,16 @@ impl<C: ContextTag> Instruction<C> {
             Instruction::MakeTrivial(inst) => inst.declared_register(),
             Instruction::RecordGet(inst) => inst.declared_register(),
             Instruction::RecordSet(inst) => inst.declared_register(),
+            Instruction::MakeInteger(inst) => inst.declared_register(),
+            Instruction::CompareEqual(inst) => inst.declared_register(),
+            Instruction::Negate(inst) => inst.declared_register(),
+            Instruction::Add(inst) => inst.declared_register(),
         }
     }
 
     pub fn used_registers(&self) -> Vec<RegisterId<C>> {
         match self {
-            Instruction::Add(_, lhs, rhs) => {
-                vec![*lhs, *rhs]
-            }
-            Instruction::MakeString(_, _)
-            | Instruction::MakeInteger(_, _)
-            | Instruction::ReferenceOfFunction(_, _) => Vec::new(),
-            &Instruction::CompareEqual(_, a, b) => vec![a, b],
-            &Instruction::Negate(_, a) => vec![a],
+            Instruction::MakeString(_, _) | Instruction::ReferenceOfFunction(_, _) => Vec::new(),
             Instruction::RecordNew(inst) => inst.used_registers().to_vec(),
             Instruction::CompareLessThan(inst) => inst.used_registers().to_vec(),
             Instruction::CallStatic(inst) => inst.used_registers().to_vec(),
@@ -281,19 +262,16 @@ impl<C: ContextTag> Instruction<C> {
             Instruction::MakeTrivial(inst) => inst.used_registers().to_vec(),
             Instruction::RecordGet(inst) => inst.used_registers().to_vec(),
             Instruction::RecordSet(inst) => inst.used_registers().to_vec(),
+            Instruction::MakeInteger(inst) => inst.used_registers().to_vec(),
+            Instruction::CompareEqual(inst) => inst.used_registers().to_vec(),
+            Instruction::Negate(inst) => inst.used_registers().to_vec(),
+            Instruction::Add(inst) => inst.used_registers().to_vec(),
         }
     }
 
     pub fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
         match self {
-            Instruction::Add(_, lhs, rhs) => {
-                vec![lhs, rhs]
-            }
-            Instruction::MakeString(_, _)
-            | Instruction::MakeInteger(_, _)
-            | Instruction::ReferenceOfFunction(_, _) => Vec::new(),
-            Instruction::CompareEqual(_, a, b) => vec![a, b],
-            Instruction::Negate(_, a) => vec![a],
+            Instruction::MakeString(_, _) | Instruction::ReferenceOfFunction(_, _) => Vec::new(),
             Instruction::RecordNew(inst) => inst.used_registers_mut(),
             Instruction::CompareLessThan(inst) => inst.used_registers_mut(),
             Instruction::CallStatic(inst) => inst.used_registers_mut(),
@@ -302,6 +280,10 @@ impl<C: ContextTag> Instruction<C> {
             Instruction::MakeTrivial(inst) => inst.used_registers_mut(),
             Instruction::RecordGet(inst) => inst.used_registers_mut(),
             Instruction::RecordSet(inst) => inst.used_registers_mut(),
+            Instruction::MakeInteger(inst) => inst.used_registers_mut(),
+            Instruction::CompareEqual(inst) => inst.used_registers_mut(),
+            Instruction::Negate(inst) => inst.used_registers_mut(),
+            Instruction::Add(inst) => inst.used_registers_mut(),
         }
     }
 }

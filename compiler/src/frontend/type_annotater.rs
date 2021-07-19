@@ -203,8 +203,8 @@ impl<'d> SymbolicExecutionEngine<'d> {
                     let constant = self.ir.constants.get(&c).unwrap();
                     registers.insert(r, ValueType::ExactString(constant.payload.clone()));
                 }
-                &Instruction::MakeInteger(r, v) => {
-                    registers.insert(r, ValueType::ExactInteger(v));
+                &Instruction::MakeInteger(inst) => {
+                    registers.insert(inst.result, ValueType::ExactInteger(inst.value));
                 }
                 &Instruction::CompareLessThan(inst) => {
                     let l = registers.get(inst.lhs);
@@ -222,9 +222,9 @@ impl<'d> SymbolicExecutionEngine<'d> {
 
                     registers.insert(inst.result, res_typ);
                 }
-                &Instruction::Add(res, l, r) => {
-                    let l = registers.get(l);
-                    let r = registers.get(r);
+                &Instruction::Add(inst) => {
+                    let l = registers.get(inst.lhs);
+                    let r = registers.get(inst.rhs);
 
                     let res_typ = match (l, r) {
                         (ValueType::Number, ValueType::Number)
@@ -236,7 +236,7 @@ impl<'d> SymbolicExecutionEngine<'d> {
                         (l, r) => panic!("unsupported `+` of types {:?} and {:?}", l, r),
                     };
 
-                    registers.insert(res, res_typ);
+                    registers.insert(inst.result, res_typ);
                 }
                 Instruction::CallStatic(CallStatic {
                     result,
@@ -401,12 +401,14 @@ impl<'d> SymbolicExecutionEngine<'d> {
                         panic!("cannot call RecordSet on non record");
                     }
                 }
-                &Instruction::Negate(r, i) => {
-                    let typ = registers.get(i);
+                &Instruction::Negate(inst) => {
+                    let typ = registers.get(inst.operand);
 
                     match typ {
-                        ValueType::Boolean => registers.insert(r, ValueType::Boolean),
-                        &ValueType::Bool(value) => registers.insert(r, ValueType::Bool(!value)),
+                        ValueType::Boolean => registers.insert(inst.result, ValueType::Boolean),
+                        &ValueType::Bool(value) => {
+                            registers.insert(inst.result, ValueType::Bool(!value))
+                        }
                         ValueType::Any
                         | ValueType::Runtime
                         | ValueType::String
@@ -419,9 +421,9 @@ impl<'d> SymbolicExecutionEngine<'d> {
                         | ValueType::Undefined => unimplemented!("cannot negate {:?}", typ),
                     };
                 }
-                &Instruction::CompareEqual(res, l, r) => {
-                    let l = registers.get(l);
-                    let r = registers.get(r);
+                &Instruction::CompareEqual(inst) => {
+                    let l = registers.get(inst.lhs);
+                    let r = registers.get(inst.rhs);
 
                     let res_typ = match (l, r) {
                         (ValueType::String, ValueType::String)
@@ -439,7 +441,7 @@ impl<'d> SymbolicExecutionEngine<'d> {
                         (l, r) => panic!("unsupported `==` of types {:?} and {:?}", l, r),
                     };
 
-                    registers.insert(res, res_typ);
+                    registers.insert(inst.result, res_typ);
                 }
             };
         }

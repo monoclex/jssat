@@ -202,11 +202,15 @@ impl<C: ContextTag> ISAInstruction<C> for MakeBoolean<C> {
     }
 }
 
-pub struct MakeInteger<C: ContextTag>(pub RegisterId<C>, pub i64);
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct MakeInteger<C: ContextTag> {
+    pub result: RegisterId<C>,
+    pub value: i64,
+}
 
 impl<C: ContextTag> ISAInstruction<C> for MakeInteger<C> {
     fn declared_register(&self) -> Option<RegisterId<C>> {
-        Some(self.0)
+        Some(self.result)
     }
 
     fn used_registers(&self) -> TinyVec<[RegisterId<C>; 3]> {
@@ -215,6 +219,15 @@ impl<C: ContextTag> ISAInstruction<C> for MakeInteger<C> {
 
     fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
         Vec::new()
+    }
+}
+
+impl<C: ContextTag> MakeInteger<C> {
+    pub fn map_context<C2: ContextTag>(self) -> MakeInteger<C2> {
+        MakeInteger {
+            result: self.result.map_context(),
+            value: self.value,
+        }
     }
 }
 
@@ -277,6 +290,7 @@ impl<C: ContextTag> ISAInstruction<C> for MakeBytes<C> {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct OpNegate<C: ContextTag> {
     pub result: RegisterId<C>,
     pub operand: RegisterId<C>,
@@ -296,6 +310,16 @@ impl<C: ContextTag> ISAInstruction<C> for OpNegate<C> {
     }
 }
 
+impl<C: ContextTag> OpNegate<C> {
+    pub fn map_context<C2: ContextTag>(self) -> OpNegate<C2> {
+        OpNegate {
+            result: self.result.map_context(),
+            operand: self.operand.map_context(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct OpAdd<C: ContextTag> {
     pub result: RegisterId<C>,
     pub lhs: RegisterId<C>,
@@ -313,6 +337,16 @@ impl<C: ContextTag> ISAInstruction<C> for OpAdd<C> {
 
     fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
         vec![&mut self.lhs, &mut self.rhs]
+    }
+}
+
+impl<C: ContextTag> OpAdd<C> {
+    pub fn map_context<C2: ContextTag>(self) -> OpAdd<C2> {
+        OpAdd {
+            result: self.result.map_context(),
+            lhs: self.lhs.map_context(),
+            rhs: self.rhs.map_context(),
+        }
     }
 }
 
@@ -358,10 +392,6 @@ impl<C: ContextTag> ISAInstruction<C> for OpLessThan<C> {
 }
 
 impl<C: ContextTag> OpLessThan<C> {
-    pub fn new(result: RegisterId<C>, lhs: RegisterId<C>, rhs: RegisterId<C>) -> Self {
-        Self { result, lhs, rhs }
-    }
-
     pub fn map_context<C2: ContextTag>(self) -> OpLessThan<C2> {
         OpLessThan {
             result: self.result.map_context(),
@@ -371,6 +401,7 @@ impl<C: ContextTag> OpLessThan<C> {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct OpEquals<C: ContextTag> {
     pub result: RegisterId<C>,
     pub lhs: RegisterId<C>,
@@ -388,6 +419,16 @@ impl<C: ContextTag> ISAInstruction<C> for OpEquals<C> {
 
     fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
         vec![&mut self.lhs, &mut self.rhs]
+    }
+}
+
+impl<C: ContextTag> OpEquals<C> {
+    pub fn map_context<C2: ContextTag>(self) -> OpEquals<C2> {
+        OpEquals {
+            result: self.result.map_context(),
+            lhs: self.lhs.map_context(),
+            rhs: self.rhs.map_context(),
+        }
     }
 }
 

@@ -812,9 +812,11 @@ pub fn translate(program: Program) -> BackendIR<'static> {
                         let result = reg_map.map(inst.result);
                         let lhs = reg_map.map(inst.lhs);
                         let rhs = reg_map.map(inst.rhs);
-                        instructions.push(llvm::Instruction::OpLessThan(OpLessThan::new(
-                            result, lhs, rhs,
-                        )));
+                        instructions.push(llvm::Instruction::OpLessThan(OpLessThan {
+                            result,
+                            lhs,
+                            rhs,
+                        }));
                     }
                 }
             }
