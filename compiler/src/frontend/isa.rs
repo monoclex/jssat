@@ -5,12 +5,12 @@
 use tinyvec::{tiny_vec, TinyVec};
 
 use crate::id::ContextTag;
+use crate::id::ExternalFunctionId;
+use crate::id::FunctionId;
 use crate::id::RegisterId;
 
 type ConstantId = crate::id::ConstantId<crate::id::NoContext>;
 type BlockId = crate::id::BlockId<crate::id::NoContext>;
-type FunctionId = crate::id::FunctionId<crate::id::NoContext>;
-type ExternalFunctionId = crate::id::ExternalFunctionId<crate::id::NoContext>;
 
 /// The contract provided by any single instruction. Provides methods to make
 /// interfacing with all instructions easy.
@@ -50,6 +50,21 @@ pub trait ISAInstruction<C: ContextTag> {
     /// provides mutable access to the registers being used to allow for
     /// changes to the registers.
     fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>>;
+}
+
+// TODO: check if this works
+pub trait ISAInstruction2<C: ContextTag> {
+    type ContextMap;
+
+    fn map_context(self) -> Self::ContextMap;
+}
+
+impl<C: ContextTag, C2: ContextTag> ISAInstruction2<C2> for Return<C> {
+    type ContextMap = Return<C2>;
+
+    fn map_context(self) -> Self::ContextMap {
+        todo!()
+    }
 }
 
 pub struct Noop;
@@ -144,11 +159,13 @@ impl<C: ContextTag> ISAInstruction<C> for Jump<C> {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct MakeRecord<C: ContextTag>(RegisterId<C>);
+pub struct MakeRecord<C: ContextTag> {
+    pub result: RegisterId<C>,
+}
 
 impl<C: ContextTag> ISAInstruction<C> for MakeRecord<C> {
     fn declared_register(&self) -> Option<RegisterId<C>> {
-        Some(self.0.map_context())
+        Some(self.result)
     }
 
     fn used_registers(&self) -> TinyVec<[RegisterId<C>; 3]> {
@@ -161,16 +178,10 @@ impl<C: ContextTag> ISAInstruction<C> for MakeRecord<C> {
 }
 
 impl<C: ContextTag> MakeRecord<C> {
-    pub fn new(result: crate::id::RegisterId<C>) -> Self {
-        Self(result)
-    }
-
-    pub fn result(&self) -> crate::id::RegisterId<C> {
-        self.0
-    }
-
     pub fn map_context<C2: ContextTag>(self) -> MakeRecord<C2> {
-        MakeRecord(self.0.map_context())
+        MakeRecord {
+            result: self.result.map_context(),
+        }
     }
 }
 
@@ -208,19 +219,27 @@ impl<C: ContextTag> ISAInstruction<C> for MakeInteger<C> {
 
 /// [`MakeTrivial`] creates trivial items. Trivial items are elements with a
 /// single possible value.
-pub struct MakeTrivial<C: ContextTag>(pub RegisterId<C>, pub TrivialItem);
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct MakeTrivial<C: ContextTag> {
+    pub result: RegisterId<C>,
+    pub item: TrivialItem,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TrivialItem {
+    /// JSSAT Runtime
     Runtime,
+    /// JS null
     Null,
+    /// JS undefined
     Undefined,
+    /// ECMAScript "empty"
     Empty,
 }
 
 impl<C: ContextTag> ISAInstruction<C> for MakeTrivial<C> {
     fn declared_register(&self) -> Option<RegisterId<C>> {
-        Some(self.0)
+        Some(self.result)
     }
 
     fn used_registers(&self) -> TinyVec<[RegisterId<C>; 3]> {
@@ -229,6 +248,15 @@ impl<C: ContextTag> ISAInstruction<C> for MakeTrivial<C> {
 
     fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
         Vec::new()
+    }
+}
+
+impl<C: ContextTag> MakeTrivial<C> {
+    pub fn map_context<C2: ContextTag>(self) -> MakeTrivial<C2> {
+        MakeTrivial {
+            result: self.result.map_context(),
+            item: self.item,
+        }
     }
 }
 
@@ -462,9 +490,10 @@ impl<C: ContextTag> ISAInstruction<C> for JumpIf<C> {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct CallStatic<C: ContextTag> {
     pub result: Option<RegisterId<C>>,
-    pub fn_id: FunctionId,
+    pub fn_id: FunctionId<C>,
     // TODO: figure out if there's a common size, to use `TinyVec`
     pub args: Vec<RegisterId<C>>,
 }
@@ -488,14 +517,25 @@ impl<C: ContextTag> ISAInstruction<C> for CallStatic<C> {
     }
 }
 
-pub struct CallVirtual<C: ContextTag> {
+impl<C: ContextTag> CallStatic<C> {
+    pub fn map_context<C2: ContextTag>(self) -> CallStatic<C2> {
+        CallStatic {
+            result: self.result.map(|r| r.map_context()),
+            fn_id: self.fn_id.map_context(),
+            args: self.args.into_iter().map(|r| r.map_context()).collect(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct CallVirt<C: ContextTag> {
     pub result: Option<RegisterId<C>>,
     pub fn_ptr: RegisterId<C>,
     // TODO: figure out if there's a common size, to use `TinyVec`
     pub args: Vec<RegisterId<C>>,
 }
 
-impl<C: ContextTag> ISAInstruction<C> for CallVirtual<C> {
+impl<C: ContextTag> ISAInstruction<C> for CallVirt<C> {
     fn is_pure() -> bool {
         // calling a function that may call external functions is side-effectful
         false
@@ -520,13 +560,24 @@ impl<C: ContextTag> ISAInstruction<C> for CallVirtual<C> {
     }
 }
 
-pub struct CallExternal<C: ContextTag> {
+impl<C: ContextTag> CallVirt<C> {
+    pub fn map_context<C2: ContextTag>(self) -> CallVirt<C2> {
+        CallVirt {
+            result: self.result.map(|r| r.map_context()),
+            fn_ptr: self.fn_ptr.map_context(),
+            args: self.args.into_iter().map(|r| r.map_context()).collect(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct CallExtern<C: ContextTag> {
     pub result: Option<RegisterId<C>>,
-    pub fn_id: ExternalFunctionId,
+    pub fn_id: ExternalFunctionId<C>,
     pub args: Vec<RegisterId<C>>,
 }
 
-impl<C: ContextTag> ISAInstruction<C> for CallExternal<C> {
+impl<C: ContextTag> ISAInstruction<C> for CallExtern<C> {
     fn is_pure() -> bool {
         // calling external functions is inherently side-effectful
         false
@@ -542,6 +593,16 @@ impl<C: ContextTag> ISAInstruction<C> for CallExternal<C> {
 
     fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
         self.args.iter_mut().collect()
+    }
+}
+
+impl<C: ContextTag> CallExtern<C> {
+    pub fn map_context<C2: ContextTag>(self) -> CallExtern<C2> {
+        CallExtern {
+            result: self.result.map(|r| r.map_context()),
+            fn_id: self.fn_id.map_context(),
+            args: self.args.into_iter().map(|r| r.map_context()).collect(),
+        }
     }
 }
 

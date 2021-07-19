@@ -11,7 +11,9 @@ type FunctionId = crate::id::FunctionId<IrCtx>;
 type ConstantId = crate::id::ConstantId<IrCtx>;
 use crate::id::RegisterId;
 
-use super::isa::{ISAInstruction, MakeRecord, OpLessThan};
+use super::isa::{
+    CallExtern, CallStatic, CallVirt, ISAInstruction, MakeRecord, MakeTrivial, OpLessThan,
+};
 type PlainRegisterId = RegisterId<IrCtx>;
 type ExternalFunctionId = crate::id::ExternalFunctionId<IrCtx>;
 
@@ -141,25 +143,16 @@ pub enum Instruction<C: ContextTag = crate::id::IrCtx, C2: ContextTag = crate::i
         value: RegisterId<C>,
     },
     ReferenceOfFunction(RegisterId<C>, crate::id::FunctionId<C2>),
-    // RecordGet(RegisterId /*=*/, RegisterId, RecordKey),
-    // RecordSet(RegisterId, RecordKey, Value),
+    CallStatic(CallStatic<C>),
+    CallExtern(CallExtern<C>),
+    CallVirt(CallVirt<C>),
     // RefIsEmpty(RegisterId /*=*/, RegisterId),
     // RefDeref(RegisterId /*=*/, RegisterId),
-    // MakePrimitive(RegisterId /*=*/, PrimtiveCreationDetails),
     // FAR FUTURE: GcMakeRegion(RegisterId /*=*/),
     // FAR FUTURE: GcEndRegion(RegisterId),
     // FAR FUTURE: GcTracingMarkRoot(RegisterId),
     // FAR FUTURE: GcTracingUnmarkRoot(RegisterId),
-    Call(
-        Option<RegisterId<C>>, /*=*/
-        Callable<C>,
-        Vec<RegisterId<C>>,
-    ),
-    // Phi(RegisterId /*=*/, Vec<BlockImpliesRegister>),
-    /// # `GetRuntime`
-    ///
-    /// Stores a pointer to the JSSAT Runtime in the specified register.
-    GetRuntime(RegisterId<C>),
+    MakeTrivial(MakeTrivial<C>),
     /// # `MakeString`
     ///
     /// Will instantiate a string, using the constant referenced as payload for
@@ -176,8 +169,6 @@ pub enum Instruction<C: ContextTag = crate::id::IrCtx, C2: ContextTag = crate::i
     // /// times.
     // Unreachable,
     MakeInteger(RegisterId<C>, i64),
-    MakeNull(RegisterId<C>),
-    MakeUndefined(RegisterId<C>),
     CompareLessThan(OpLessThan<C>),
     CompareEqual(RegisterId<C>, RegisterId<C>, RegisterId<C>),
     Negate(RegisterId<C>, RegisterId<C>),
@@ -201,14 +192,6 @@ pub enum ControlFlowInstruction<Ctx = IrCtx, Path = IrCtx> {
     Ret(Option<RegisterId<Ctx>>),
 }
 
-#[derive(Debug, Clone)]
-pub enum Callable<C: ContextTag> {
-    External(ExternalFunctionId),
-    Static(FunctionId),
-    // virtual just means fn pointer
-    Virtual(RegisterId<C>),
-}
-
 // pub enum RecordKey {
 //     /// An ECMAScript internal slot. `[[str]]`
 //     InternalSlot(&'static str),
@@ -220,16 +203,6 @@ impl<C: ContextTag> Instruction<C> {
     // this should turn into a no-op lol
     pub fn map_context<C2: ContextTag>(self) -> Instruction<C2> {
         match self {
-            Instruction::Call(result, callable, args) => Instruction::Call(
-                result.map(|r| r.map_context::<C2>()),
-                match callable {
-                    Callable::External(a) => Callable::External(a),
-                    Callable::Static(a) => Callable::Static(a),
-                    Callable::Virtual(a) => Callable::Virtual(a.map_context()),
-                },
-                args.into_iter().map(|r| r.map_context::<C2>()).collect(),
-            ),
-            Instruction::GetRuntime(r) => Instruction::GetRuntime(r.map_context::<C2>()),
             Instruction::MakeString(r, s) => Instruction::MakeString(r.map_context::<C2>(), s),
             Instruction::MakeInteger(r, n) => Instruction::MakeInteger(r.map_context::<C2>(), n),
             Instruction::CompareLessThan(inst) => Instruction::CompareLessThan(inst.map_context()),
@@ -262,12 +235,14 @@ impl<C: ContextTag> Instruction<C> {
             Instruction::ReferenceOfFunction(r, f) => {
                 Instruction::ReferenceOfFunction(r.map_context(), f.map_context())
             }
-            Instruction::MakeNull(r) => Instruction::MakeNull(r.map_context()),
-            Instruction::MakeUndefined(r) => Instruction::MakeUndefined(r.map_context()),
             Instruction::CompareEqual(a, b, c) => {
                 Instruction::CompareEqual(a.map_context(), b.map_context(), c.map_context())
             }
             Instruction::Negate(a, b) => Instruction::Negate(a.map_context(), b.map_context()),
+            Instruction::CallStatic(inst) => Instruction::CallStatic(inst.map_context()),
+            Instruction::CallExtern(inst) => Instruction::CallExtern(inst.map_context()),
+            Instruction::CallVirt(inst) => Instruction::CallVirt(inst.map_context()),
+            Instruction::MakeTrivial(inst) => Instruction::MakeTrivial(inst.map_context()),
         }
     }
 }
@@ -315,12 +290,8 @@ impl<CO: ContextTag, PO: ContextTag> ControlFlowInstruction<CO, PO> {
 impl<C: ContextTag> Instruction<C> {
     pub fn assigned_to(&self) -> Option<RegisterId<C>> {
         match self {
-            Instruction::Call(result, _, _) => *result,
-            Instruction::GetRuntime(result)
-            | Instruction::MakeString(result, _)
+            Instruction::MakeString(result, _)
             | Instruction::MakeInteger(result, _)
-            | Instruction::MakeNull(result)
-            | Instruction::MakeUndefined(result)
             | Instruction::Add(result, _, _)
             | Instruction::RecordGet { result, .. }
             | Instruction::ReferenceOfFunction(result, _)
@@ -329,20 +300,20 @@ impl<C: ContextTag> Instruction<C> {
             Instruction::RecordSet { .. } => None,
             Instruction::RecordNew(isa) => isa.declared_register(),
             Instruction::CompareLessThan(inst) => inst.declared_register(),
+            Instruction::CallStatic(inst) => inst.declared_register(),
+            Instruction::CallExtern(inst) => inst.declared_register(),
+            Instruction::CallVirt(inst) => inst.declared_register(),
+            Instruction::MakeTrivial(inst) => inst.declared_register(),
         }
     }
 
     pub fn used_registers(&self) -> Vec<RegisterId<C>> {
         match self {
-            Instruction::Call(_, _, params) => params.clone(),
             Instruction::Add(_, lhs, rhs) => {
                 vec![*lhs, *rhs]
             }
-            Instruction::GetRuntime(_)
-            | Instruction::MakeString(_, _)
+            Instruction::MakeString(_, _)
             | Instruction::MakeInteger(_, _)
-            | Instruction::MakeNull(_)
-            | Instruction::MakeUndefined(_)
             | Instruction::ReferenceOfFunction(_, _) => Vec::new(),
             Instruction::RecordGet {
                 result: _,
@@ -368,20 +339,20 @@ impl<C: ContextTag> Instruction<C> {
             &Instruction::Negate(_, a) => vec![a],
             Instruction::RecordNew(inst) => inst.used_registers().to_vec(),
             Instruction::CompareLessThan(inst) => inst.used_registers().to_vec(),
+            Instruction::CallStatic(inst) => inst.used_registers().to_vec(),
+            Instruction::CallExtern(inst) => inst.used_registers().to_vec(),
+            Instruction::CallVirt(inst) => inst.used_registers().to_vec(),
+            Instruction::MakeTrivial(inst) => inst.used_registers().to_vec(),
         }
     }
 
     pub fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
         match self {
-            Instruction::Call(_, _, params) => params.iter_mut().collect(),
             Instruction::Add(_, lhs, rhs) => {
                 vec![lhs, rhs]
             }
-            Instruction::GetRuntime(_)
-            | Instruction::MakeString(_, _)
+            Instruction::MakeString(_, _)
             | Instruction::MakeInteger(_, _)
-            | Instruction::MakeNull(_)
-            | Instruction::MakeUndefined(_)
             | Instruction::ReferenceOfFunction(_, _) => Vec::new(),
             Instruction::RecordGet {
                 result: _,
@@ -407,6 +378,10 @@ impl<C: ContextTag> Instruction<C> {
             Instruction::Negate(_, a) => vec![a],
             Instruction::RecordNew(inst) => inst.used_registers_mut(),
             Instruction::CompareLessThan(inst) => inst.used_registers_mut(),
+            Instruction::CallStatic(inst) => inst.used_registers_mut(),
+            Instruction::CallExtern(inst) => inst.used_registers_mut(),
+            Instruction::CallVirt(inst) => inst.used_registers_mut(),
+            Instruction::MakeTrivial(inst) => inst.used_registers_mut(),
         }
     }
 }

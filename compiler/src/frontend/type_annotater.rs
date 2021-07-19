@@ -8,6 +8,9 @@ use crate::id::*;
 use crate::poor_hashmap::PoorMap;
 
 use super::conv_only_bb::PureBlocks;
+use super::isa::CallExtern;
+use super::isa::CallStatic;
+use super::isa::CallVirt;
 use super::old_types::RegMap;
 
 /// Type annotation mechanism in JSSAT.
@@ -186,9 +189,15 @@ impl<'d> SymbolicExecutionEngine<'d> {
 
                     registers.insert(r, ValueType::FnPtr(blk_id));
                 }
-                &Instruction::GetRuntime(r) => {
-                    registers.insert(r, ValueType::Runtime);
-                }
+                &Instruction::MakeTrivial(r) => registers.insert(
+                    r.result,
+                    match r.item {
+                        super::isa::TrivialItem::Runtime => ValueType::Runtime,
+                        super::isa::TrivialItem::Null => ValueType::Null,
+                        super::isa::TrivialItem::Undefined => ValueType::Undefined,
+                        super::isa::TrivialItem::Empty => todo!(), // ValueType::Empty,
+                    },
+                ),
                 &Instruction::MakeString(r, c) => {
                     let constant = self.ir.constants.get(&c).unwrap();
                     registers.insert(r, ValueType::ExactString(constant.payload.clone()));
@@ -228,9 +237,15 @@ impl<'d> SymbolicExecutionEngine<'d> {
 
                     registers.insert(res, res_typ);
                 }
-                Instruction::Call(res, Callable::Static(fn_id), args) => {
-                    let func = self.ir.functions.get(fn_id).unwrap();
-                    let blk_id = self.blocks.get_block_id_by_host(*fn_id, func.entry_block);
+                Instruction::CallStatic(CallStatic {
+                    result,
+                    fn_id,
+                    args,
+                }) => {
+                    let func = self.ir.functions.get(&fn_id.map_context()).unwrap();
+                    let blk_id = self
+                        .blocks
+                        .get_block_id_by_host(fn_id.map_context(), func.entry_block);
 
                     // TODO: use zip_eq
                     println!("!!!! preparing call3");
@@ -247,9 +262,9 @@ impl<'d> SymbolicExecutionEngine<'d> {
                     let invocation_args = registers
                         .prepare_invocation(src_regs.into_iter().zip(dest_regs.into_iter()));
 
-                    let result = self.execute(blk_id, invocation_args);
+                    let exec_result = self.execute(blk_id, invocation_args);
 
-                    match (res, result.return_type()) {
+                    match (result, exec_result.return_type()) {
                         (Some(_), ReturnType::Void) => panic!("cannot assign register to void"),
                         (None, _) => {}
                         (_, ReturnType::Never) => {
@@ -261,12 +276,16 @@ impl<'d> SymbolicExecutionEngine<'d> {
                         }
                     };
                 }
-                Instruction::Call(res, Callable::External(fn_id), _) => {
+                Instruction::CallExtern(CallExtern { result, fn_id, .. }) => {
                     // TODO: ensure/make args are coercible into `fn_id`,
                     // although the `assembler` phase does this for us as of the time of writing
-                    let ext_fn = self.ir.external_functions.get(fn_id).unwrap();
+                    let ext_fn = self
+                        .ir
+                        .external_functions
+                        .get(&fn_id.map_context())
+                        .unwrap();
 
-                    match (*res, &ext_fn.return_type) {
+                    match (*result, &ext_fn.return_type) {
                         (Some(_), Returns::Void) => panic!("cannot assign `void` to register"),
                         (None, _) => {}
                         (Some(reg), Returns::Value(v)) => {
@@ -274,8 +293,12 @@ impl<'d> SymbolicExecutionEngine<'d> {
                         }
                     };
                 }
-                Instruction::Call(res, Callable::Virtual(fn_id), args) => {
-                    let fn_reg_typ = registers.get(*fn_id);
+                Instruction::CallVirt(CallVirt {
+                    result,
+                    fn_ptr,
+                    args,
+                }) => {
+                    let fn_reg_typ = registers.get(*fn_ptr);
                     let blk_id = if let ValueType::FnPtr(blk_id) = fn_reg_typ {
                         *blk_id
                     } else {
@@ -298,9 +321,9 @@ impl<'d> SymbolicExecutionEngine<'d> {
                     let invocation_args = registers
                         .prepare_invocation(src_regs.into_iter().zip(dest_regs.into_iter()));
 
-                    let result = self.execute(blk_id, invocation_args);
+                    let exec_result = self.execute(blk_id, invocation_args);
 
-                    match (res, result.return_type()) {
+                    match (result, exec_result.return_type()) {
                         (Some(_), ReturnType::Void) => panic!("cannot assign register to void"),
                         (None, _) => {}
                         (_, ReturnType::Never) => {
@@ -314,7 +337,7 @@ impl<'d> SymbolicExecutionEngine<'d> {
                 }
                 &Instruction::RecordNew(inst) => {
                     let allocation = registers.insert_alloc();
-                    registers.insert(inst.result(), ValueType::Record(allocation));
+                    registers.insert(inst.result, ValueType::Record(allocation));
                 }
                 Instruction::RecordGet {
                     result,
@@ -380,12 +403,6 @@ impl<'d> SymbolicExecutionEngine<'d> {
                     } else {
                         panic!("cannot call RecordSet on non record");
                     }
-                }
-                &Instruction::MakeNull(r) => {
-                    registers.insert(r, ValueType::Null);
-                }
-                &Instruction::MakeUndefined(r) => {
-                    registers.insert(r, ValueType::Undefined);
                 }
                 &Instruction::Negate(r, i) => {
                     let typ = registers.get(i);

@@ -51,7 +51,7 @@ pub fn display(program: &IR) -> String {
             for inst in block.instructions.iter() {
                 match inst {
                     Instruction::RecordNew(r) => {
-                        iwl!(text, "    %{} = RecordNew", r.result(),)
+                        iwl!(text, "    %{} = RecordNew", r.result,)
                     }
                     Instruction::RecordGet {
                         result,
@@ -63,13 +63,10 @@ pub fn display(program: &IR) -> String {
                     Instruction::RecordSet { record, key, value } => {
                         iwl!(text, "    RecordSet %{}, {}, %{}", record, key, value,)
                     }
-                    Instruction::Call(None, c, a) => {
-                        iwl!(text, "    Call {:?}({:?})", c, a)
-                    }
-                    Instruction::Call(Some(r), c, a) => {
-                        iwl!(text, "    %{} = Call {:?}({:?})", r, c, a)
-                    }
-                    Instruction::GetRuntime(rt) => iwl!(text, "    %{} = GetRuntime", rt),
+                    Instruction::CallVirt(t) => iwl!(text, "todo"),
+                    Instruction::CallExtern(t) => iwl!(text, "todo"),
+                    Instruction::CallStatic(t) => iwl!(text, "todo"),
+                    Instruction::MakeTrivial(t) => iwl!(text, "todo"),
                     Instruction::MakeString(r, s) => {
                         iwl!(
                             text,
@@ -88,8 +85,6 @@ pub fn display(program: &IR) -> String {
                     //     display_vt(f.register_types.get(*r), f),
                     //     v
                     // ),
-                    Instruction::MakeNull(r) => iwl!(text, "    %{} = MakeNull", r),
-                    Instruction::MakeUndefined(r) => iwl!(text, "    %{} = MakeUndefined", r),
                     Instruction::ReferenceOfFunction(r, f) => {
                         iwl!(text, "    %{} = MakeFnPtr @{}", r, f)
                     }

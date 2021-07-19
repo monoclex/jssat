@@ -6,7 +6,7 @@ use crate::backend::llvm::{
 };
 
 use crate::frontend::assembler::{self, Program, ReturnType};
-use crate::frontend::isa::OpLessThan;
+use crate::frontend::isa::{OpLessThan, TrivialItem};
 use crate::frontend::old_types::{RecordShape, RegMap, ShapeKey};
 use crate::frontend::type_annotater;
 use crate::{id::*, UnwrapNone};
@@ -645,8 +645,15 @@ pub fn translate(program: Program) -> BackendIR<'static> {
                             calling_args,
                         ));
                     }
-                    &assembler::Instruction::GetRuntime(rt) => {
-                        rt_regs.insert(rt);
+                    &assembler::Instruction::MakeTrivial(inst) => {
+                        if let TrivialItem::Runtime = inst.item {
+                            rt_regs.insert(inst.result);
+                        } else {
+                            instructions.push(llvm::Instruction::LoadNumber {
+                                result: reg_map.map(inst.result),
+                                value: NumberValue::SignedArbitrary(1, 0),
+                            });
+                        }
                     }
                     &assembler::Instruction::MakeString(result, id) => {
                         let const_ptr_8 = reg_map.new_register();
@@ -806,20 +813,6 @@ pub fn translate(program: Program) -> BackendIR<'static> {
                         } else {
                             panic!("cannot get non-record")
                         }
-                    }
-                    &assembler::Instruction::MakeNull(r) => {
-                        // TODO: use zero sized types to represent null and undefined maybe?
-                        instructions.push(llvm::Instruction::LoadNumber {
-                            result: reg_map.map(r),
-                            value: NumberValue::SignedArbitrary(1, 0),
-                        });
-                    }
-                    &assembler::Instruction::MakeUndefined(r) => {
-                        // TODO: use zero sized types to represent null and undefined maybe?
-                        instructions.push(llvm::Instruction::LoadNumber {
-                            result: reg_map.map(r),
-                            value: NumberValue::SignedArbitrary(1, 0),
-                        });
                     }
                     assembler::Instruction::OpLessThan(inst) => {
                         let result = reg_map.map(inst.result);

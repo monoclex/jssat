@@ -9,7 +9,7 @@ use super::{
     conv_only_bb::{self, PureBlocks},
     ir,
     ir::{FFIValueType, RecordKey, IR},
-    isa::{ISAInstruction, OpLessThan},
+    isa::{CallExtern, CallStatic, CallVirt, ISAInstruction, MakeTrivial, OpLessThan},
     old_types::{RegMap, ShapeKey},
     type_annotater::{self, InvocationArgs, TypeAnnotations, TypeInformation, ValueType},
 };
@@ -82,13 +82,11 @@ pub enum Instruction {
         Callable,
         Vec<RegisterId<AssemblerCtx>>,
     ),
-    GetRuntime(RegisterId<AssemblerCtx>),
+    MakeTrivial(MakeTrivial<AssemblerCtx>),
     MakeFnPtr(RegisterId<AssemblerCtx>, BlockId<PureBbCtx>),
     MakeString(RegisterId<AssemblerCtx>, ConstantId<AssemblerCtx>),
     MakeNumber(RegisterId<AssemblerCtx>, i64),
     MakeBoolean(RegisterId<AssemblerCtx>, bool),
-    MakeNull(RegisterId<AssemblerCtx>),
-    MakeUndefined(RegisterId<AssemblerCtx>),
     /// "Widens" a given register to a type. The type must wider/bigger than the
     /// input register.
     Widen {
@@ -588,10 +586,22 @@ impl<'d> InstWriter<'d> {
                 self.instructions
                     .push(Instruction::MakeFnPtr(fnptr, pure_bb_id));
             }
-            &ir::Instruction::GetRuntime(rt) => {
-                let rt = self.reg_map.map(rt);
-                self.instructions.push(Instruction::GetRuntime(rt));
-                self.register_types.insert(rt, ValueType::Runtime);
+            &ir::Instruction::MakeTrivial(inst) => {
+                let rt = self.reg_map.map(inst.result);
+                self.instructions
+                    .push(Instruction::MakeTrivial(MakeTrivial {
+                        result: rt,
+                        item: inst.item,
+                    }));
+                self.register_types.insert(
+                    rt,
+                    match inst.item {
+                        super::isa::TrivialItem::Runtime => ValueType::Runtime,
+                        super::isa::TrivialItem::Null => ValueType::Null,
+                        super::isa::TrivialItem::Undefined => ValueType::Undefined,
+                        super::isa::TrivialItem::Empty => todo!(), // ValueType::Empty,
+                    },
+                );
             }
             &ir::Instruction::MakeString(str, val) => {
                 let constant = self.fn_assembler.assembler.ir.constants.get(&val).unwrap();
@@ -651,11 +661,15 @@ impl<'d> InstWriter<'d> {
                     todo!("suport non const math via {:?} {:?}", lhs, rhs);
                 }
             }
-            ir::Instruction::Call(original_res, ir::Callable::External(fn_id), args) => {
+            ir::Instruction::CallExtern(CallExtern {
+                result: original_res,
+                fn_id,
+                args,
+            }) => {
                 let res = original_res.map(|r| self.reg_map.map(r));
 
                 let ext_fn = (self.fn_assembler.assembler.ir.external_functions)
-                    .get(fn_id)
+                    .get(&fn_id.map_context())
                     .unwrap();
 
                 let args = args
@@ -692,15 +706,25 @@ impl<'d> InstWriter<'d> {
                     }
                 }
             }
-            ir::Instruction::Call(res, ir::Callable::Static(fn_id), args) => {
+            ir::Instruction::CallStatic(CallStatic {
+                result: res,
+                fn_id,
+                args,
+            }) => {
                 let original_res = res;
                 let res = res.map(|r| self.reg_map.map(r));
 
-                let static_fn = self.fn_assembler.assembler.ir.functions.get(fn_id).unwrap();
+                let static_fn = self
+                    .fn_assembler
+                    .assembler
+                    .ir
+                    .functions
+                    .get(&fn_id.map_context())
+                    .unwrap();
                 let entry_blk = static_fn.entry_block;
 
                 let pure_bb_id = (self.fn_assembler.assembler.pure_bocks)
-                    .get_block_id_by_host(*fn_id, entry_blk);
+                    .get_block_id_by_host(fn_id.map_context(), entry_blk);
 
                 // TODO: use `zip_eq`
                 println!("!!!! preparing call!!!!!!1!!!!!!");
@@ -757,7 +781,11 @@ impl<'d> InstWriter<'d> {
 
                 self.to_assemble.push(annotated_blk_id);
             }
-            ir::Instruction::Call(res, ir::Callable::Virtual(fn_ptr_id), args) => {
+            ir::Instruction::CallVirt(CallVirt {
+                result: res,
+                fn_ptr: fn_ptr_id,
+                args,
+            }) => {
                 let fn_ptr_id = self.reg_map.map(*fn_ptr_id);
                 let pure_bb_id = if let ValueType::FnPtr(id) = self.register_types.get(fn_ptr_id) {
                     *id
@@ -830,7 +858,7 @@ impl<'d> InstWriter<'d> {
             //
             // i'll probably end up trashing this entire struct
             &ir::Instruction::RecordNew(r) => {
-                let r = self.reg_map.map(r.result());
+                let r = self.reg_map.map(r.result);
                 self.instructions.push(Instruction::RecordNew(r));
                 let alloc = self.register_types.insert_alloc();
                 self.register_types.insert(r, ValueType::Record(alloc));
@@ -927,14 +955,6 @@ impl<'d> InstWriter<'d> {
                 } else {
                     panic!("cannot call RecordSet on non record");
                 }
-            }
-            &ir::Instruction::MakeNull(r) => {
-                self.instructions
-                    .push(Instruction::MakeNull(self.reg_map.map(r)));
-            }
-            &ir::Instruction::MakeUndefined(r) => {
-                self.instructions
-                    .push(Instruction::MakeUndefined(self.reg_map.map(r)));
             }
             &ir::Instruction::CompareEqual(res, l, r) => {
                 let res_typ = self.type_info.get_type(res);
@@ -1036,18 +1056,16 @@ impl Instruction {
     pub fn assigned_to(&self) -> Option<RegisterId<AssemblerCtx>> {
         match self {
             Instruction::Call(result, _, _) => *result,
-            Instruction::GetRuntime(result)
-            | Instruction::MakeString(result, _)
+            Instruction::MakeString(result, _)
             | Instruction::MakeNumber(result, _)
             | Instruction::MakeBoolean(result, _)
-            | Instruction::MakeNull(result)
-            | Instruction::MakeUndefined(result)
             | Instruction::Widen { result, .. }
             | Instruction::RecordNew(result)
             | Instruction::RecordGet { result, .. }
             | Instruction::MakeFnPtr(result, _) => Some(*result),
             Instruction::Unreachable | Instruction::Noop | Instruction::RecordSet { .. } => None,
             Instruction::OpLessThan(inst) => inst.declared_register(),
+            Instruction::MakeTrivial(inst) => inst.declared_register(),
         }
     }
 
@@ -1057,8 +1075,7 @@ impl Instruction {
             // Instruction::CompareLessThan(_, lhs, rhs) | Instruction::Add(_, lhs, rhs) => {
             //     vec![*lhs, *rhs]
             // }
-            Instruction::GetRuntime(_)
-            | Instruction::MakeString(_, _)
+            Instruction::MakeString(_, _)
             | Instruction::MakeNumber(_, _)
             | Instruction::MakeBoolean(_, _)
             | Instruction::MakeFnPtr(_, _) => Vec::new(),
@@ -1085,12 +1102,9 @@ impl Instruction {
                 key: RecordKey::InternalSlot(_),
                 value,
             } => vec![*record, *value],
-            Instruction::Unreachable
-            | Instruction::Noop
-            | Instruction::RecordNew(_)
-            | Instruction::MakeNull(_)
-            | Instruction::MakeUndefined(_) => vec![],
+            Instruction::Unreachable | Instruction::Noop | Instruction::RecordNew(_) => vec![],
             Instruction::OpLessThan(inst) => inst.used_registers().to_vec(),
+            Instruction::MakeTrivial(inst) => inst.used_registers().to_vec(),
         }
     }
 
@@ -1100,8 +1114,7 @@ impl Instruction {
             // Instruction::CompareLessThan(_, lhs, rhs) | Instruction::Add(_, lhs, rhs) => {
             //     vec![*lhs, *rhs]
             // }
-            Instruction::GetRuntime(_)
-            | Instruction::MakeString(_, _)
+            Instruction::MakeString(_, _)
             | Instruction::MakeNumber(_, _)
             | Instruction::MakeBoolean(_, _)
             | Instruction::MakeFnPtr(_, _) => Vec::new(),
@@ -1128,12 +1141,9 @@ impl Instruction {
                 key: RecordKey::InternalSlot(_),
                 value,
             } => vec![record, value],
-            Instruction::Unreachable
-            | Instruction::Noop
-            | Instruction::RecordNew(_)
-            | Instruction::MakeNull(_)
-            | Instruction::MakeUndefined(_) => vec![],
+            Instruction::Unreachable | Instruction::Noop | Instruction::RecordNew(_) => vec![],
             Instruction::OpLessThan(inst) => inst.used_registers_mut(),
+            Instruction::MakeTrivial(inst) => inst.used_registers_mut(),
         }
     }
 }

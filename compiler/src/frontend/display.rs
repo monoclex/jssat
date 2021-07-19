@@ -89,9 +89,15 @@ pub fn display(program: &Program) -> String {
                             value,
                         )
                     }
-                    crate::frontend::assembler::Instruction::Call(_, _, _) => todo!(),
-                    crate::frontend::assembler::Instruction::GetRuntime(_) => todo!(),
-                    crate::frontend::assembler::Instruction::MakeFnPtr(_, _) => todo!(),
+                    crate::frontend::assembler::Instruction::Call(_, _, _) => {
+                        iwl!(text, "todo this")
+                    }
+                    crate::frontend::assembler::Instruction::MakeFnPtr(_, _) => {
+                        iwl!(text, "todo this")
+                    }
+                    crate::frontend::assembler::Instruction::MakeTrivial(_) => {
+                        iwl!(text, "todo this")
+                    }
                     crate::frontend::assembler::Instruction::MakeString(r, s) => {
                         iwl!(
                             text,
@@ -117,19 +123,9 @@ pub fn display(program: &Program) -> String {
                         display_vt(f.register_types.get(*r), f),
                         v
                     ),
-                    crate::frontend::assembler::Instruction::MakeNull(r) => iwl!(
-                        text,
-                        "    %{}: {} = MakeNull",
-                        r,
-                        display_vt(f.register_types.get(*r), f)
-                    ),
-                    crate::frontend::assembler::Instruction::MakeUndefined(r) => iwl!(
-                        text,
-                        "    %{}: {} = MakeUndefined",
-                        r,
-                        display_vt(f.register_types.get(*r), f)
-                    ),
-                    crate::frontend::assembler::Instruction::Widen { .. } => todo!(),
+                    crate::frontend::assembler::Instruction::Widen { .. } => {
+                        iwl!(text, "todo wieden")
+                    }
                     crate::frontend::assembler::Instruction::Unreachable => {
                         iwl!(text, "    Unreachable")
                     }

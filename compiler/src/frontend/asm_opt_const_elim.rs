@@ -9,6 +9,7 @@ use crate::{
     frontend::{
         assembler::{BlockJump, Callable, EndInstruction, Instruction},
         ir::RecordKey,
+        isa::MakeTrivial,
     },
     id::*,
 };
@@ -228,10 +229,16 @@ fn stack_alloc_valule(
             }
         }
         ValueType::Null => {
-            prepend.push(Instruction::MakeNull(r));
+            prepend.push(Instruction::MakeTrivial(MakeTrivial {
+                result: r,
+                item: crate::frontend::isa::TrivialItem::Null,
+            }));
         }
         ValueType::Undefined => {
-            prepend.push(Instruction::MakeUndefined(r));
+            prepend.push(Instruction::MakeTrivial(MakeTrivial {
+                result: r,
+                item: crate::frontend::isa::TrivialItem::Undefined,
+            }));
         }
         ValueType::Any
         | ValueType::Runtime
