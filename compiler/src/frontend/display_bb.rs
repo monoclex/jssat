@@ -59,8 +59,8 @@ pub fn display(program: &PureBlocks) -> String {
         }
 
         match &block.end {
-            ControlFlowInstruction::Jmp(_) => iwl!(text, "todo"),
-            ControlFlowInstruction::JmpIf(_) => iwl!(text, "todo"),
+            ControlFlowInstruction::Jmp(inst) => iwl!(text, "    {:?}", inst),
+            ControlFlowInstruction::JmpIf(inst) => iwl!(text, "    {:?}", inst),
             ControlFlowInstruction::Ret(r) => {
                 iwl!(text, "    Ret {:?}", r)
             }

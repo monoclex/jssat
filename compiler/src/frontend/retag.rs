@@ -51,6 +51,16 @@ pub trait RegGenRetagger<C: Tag, C2: Tag>: RegRetagger<C, C2> {
 
 pub struct RegPassRetagger<C: Tag, C2: Tag>(PassRetagger<RegisterId<C>, RegisterId<C2>>);
 
+impl<A: Tag, B: Tag> RegPassRetagger<A, B> {
+    #[cfg(not(debug_assertions))]
+    pub fn ignore_checks(&mut self) {}
+
+    #[cfg(debug_assertions)]
+    pub fn ignore_checks(&mut self) {
+        self.0.ignore_check = true;
+    }
+}
+
 impl<A: Tag, B: Tag> Default for RegPassRetagger<A, B> {
     fn default() -> Self {
         Self(Default::default())
@@ -523,6 +533,8 @@ trait CoreRetagger {
 #[derive(Default, Debug)]
 struct PassRetagger<I1, I2> {
     #[cfg(debug_assertions)]
+    ignore_check: bool,
+    #[cfg(debug_assertions)]
     tagged: FxHashSet<usize>,
     ids: PhantomData<(I1, I2)>,
 }
@@ -546,7 +558,7 @@ impl<I1: IdCompat, I2: IdCompat> CoreRetagger for PassRetagger<I1, I2> {
     #[track_caller]
     #[cfg(debug_assertions)]
     fn core_retag_new(&mut self, id: I1) -> I2 {
-        if !self.tagged.insert(id.raw_value()) {
+        if !self.ignore_check && !self.tagged.insert(id.raw_value()) {
             panic!("attempted to retag new value {}, value was old", id.value());
         }
 
@@ -556,7 +568,7 @@ impl<I1: IdCompat, I2: IdCompat> CoreRetagger for PassRetagger<I1, I2> {
     #[track_caller]
     #[cfg(debug_assertions)]
     fn core_retag_old(&self, id: I1) -> I2 {
-        if !self.tagged.contains(&id.raw_value()) {
+        if !self.ignore_check && !self.tagged.contains(&id.raw_value()) {
             panic!("attempted to retag old value {}, value was new", id.value());
         }
 

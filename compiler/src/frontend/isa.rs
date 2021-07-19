@@ -126,8 +126,12 @@ impl<C: Tag> ISAInstruction<C> for Return<C> {
 
 impl<C: Tag> Return<C> {
     #[track_caller]
+    #[allow(clippy::manual_map)] // can't use closures because then `track_caller` doesn't work
     pub fn retag<C2: Tag>(self, retagger: &impl RegRetagger<C, C2>) -> Return<C2> {
-        Return(self.0.map(|r| retagger.retag_old(r)))
+        Return(match self.0 {
+            Some(r) => Some(retagger.retag_old(r)),
+            None => None,
+        })
     }
 }
 
@@ -489,10 +493,29 @@ impl<C: Tag> RecordKey<C> {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Display)]
 pub enum InternalSlot {
+    RandomDebugSlot,
     // TODO: expand this to all ecmascript internal slot types
     // (should this even be here?)
+    Function,
+    Realm,
+    ScriptOrModule,
+    GlobalObject,
+    GlobalEnv,
+    TemplateMap,
+    Intrinsics,
     Call,
+    ECMAScriptCode,
     HostDefined,
+    VariableEnvironment,
+    LexicalEnvironment,
+    PrivateEnvironment,
+    Base,
+    ReferenceName,
+    Strict,
+    ThisValue,
+    Value,
+    Type,
+    Target,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

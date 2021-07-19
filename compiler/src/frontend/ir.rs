@@ -82,12 +82,6 @@ impl<T: Unifyable> Unifyable for Returns<T> {
 
 pub type FFIReturnType = Returns<FFIValueType>;
 
-// #[derive(Debug, Clone)]
-// pub enum FFIReturnType {
-//     Void,
-//     Value(FFIValueType),
-// }
-
 #[derive(Debug, Clone)]
 pub struct Function {
     pub name: DebugName,
@@ -197,6 +191,7 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
 
 impl<CO: Tag, PO: Tag> ControlFlowInstruction<CO, PO> {
     // this should turn into a no-op lol
+    #[track_caller]
     pub fn retag<CD: Tag, PD: Tag>(
         self,
         retagger: &impl RegRetagger<CO, CD>,

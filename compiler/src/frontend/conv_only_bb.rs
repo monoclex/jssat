@@ -10,7 +10,8 @@ use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
 use std::hash::{BuildHasherDefault, Hash};
 
 use super::retag::{
-    BlkPassRetagger, ExtFnPassRetagger, FnPassRetagger, FnRetagger, RegGenRetagger, RegPassRetagger,
+    BlkMapRetagger, BlkPassRetagger, ExtFnPassRetagger, FnPassRetagger, FnRetagger, RegGenRetagger,
+    RegPassRetagger,
 };
 use crate::frontend::retag::ExtFnRetagger;
 
@@ -348,6 +349,9 @@ where
                     .insert(child_block_register, *replacement)
                     .expect_none("we shouldn't have duplicates, this is just in case");
             } else {
+                // X Description
+                println!("provisional thing: {:?} |-> {:?}", state.replacements, 0);
+
                 // we do not know of this register
                 // declare that we require it, add it as a parameter of this block
                 let this_block_register = self.retagger.gen();
@@ -570,8 +574,13 @@ fn to_rewriting_fn(
     };
 
     let mut retagger = RegPassRetagger::default();
+    // it would be very difficult to properly be concerned about registers being used,
+    // so we don't. it would be very effort to get this working "properly", and slow
+    retagger.ignore_checks();
 
-    let mut blk_retagger = BlkPassRetagger::default();
+    // TODO: we should've gotten a runtime error while mapping things if
+    // using `BlkMapRetagger` instead of `BlkPassRetagger` is the fix
+    let mut blk_retagger = BlkMapRetagger::default();
     for (id, _) in f.blocks.iter() {
         blk_retagger.retag_new(*id);
     }

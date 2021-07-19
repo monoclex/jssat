@@ -278,12 +278,14 @@ impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
         let newContext = self.block.record_new();
         // 3. Set the Function of newContext to null.
         let null = self.block.make_null();
-        self.block.record_set_slot(newContext, "Function", null);
+        self.block
+            .record_set_slot(newContext, InternalSlot::Function, null);
         // 4. Set the Realm of newContext to realm.
-        self.block.record_set_slot(newContext, "Realm", realm);
+        self.block
+            .record_set_slot(newContext, InternalSlot::Realm, realm);
         // 5. Set the ScriptOrModule of newContext to null.
         self.block
-            .record_set_slot(newContext, "ScriptOrModule", null);
+            .record_set_slot(newContext, InternalSlot::ScriptOrModule, null);
         // 6. Push newContext onto the execution context stack; newContext is
         //    now the running execution context.
         // TODO: implement
@@ -325,13 +327,14 @@ impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
         // 3. Set realmRec.[[GlobalObject]] to undefined.
         let undefined = self.block.make_undefined();
         self.block
-            .record_set_slot(realmRec, "GlobalObject", undefined);
+            .record_set_slot(realmRec, InternalSlot::GlobalObject, undefined);
         // 4. Set realmRec.[[GlobalEnv]] to undefined.
-        self.block.record_set_slot(realmRec, "GlobalEnv", undefined);
+        self.block
+            .record_set_slot(realmRec, InternalSlot::GlobalEnv, undefined);
         // 5. Set realmRec.[[TemplateMap]] to a new empty List.
         // TODO: add intrinsics for empty lists
         self.block
-            .record_set_slot(realmRec, "TemplateMap", undefined);
+            .record_set_slot(realmRec, InternalSlot::TemplateMap, undefined);
         // 6. Return realmRec.
         realmRec
     }
@@ -342,7 +345,7 @@ impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
         let intrinsics = self.block.record_new();
         // 2. Set realmRec.[[Intrinsics]] to intrinsics.
         self.block
-            .record_set_slot(realmRec, "Intrinsics", intrinsics);
+            .record_set_slot(realmRec, InternalSlot::Intrinsics, intrinsics);
         // 3. Set fields of intrinsics with the values listed in Table 8.
         //    The field names are the names listed in column one of the table.
         //    The value of each field is a new object value fully and
@@ -390,7 +393,7 @@ impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
         // 3. If thisValue is undefined, set thisValue to globalObj.
         // 4. Set realmRec.[[GlobalObject]] to globalObj.
         self.block
-            .record_set_slot(realmRec, "GlobalObject", globalObj);
+            .record_set_slot(realmRec, InternalSlot::GlobalObject, globalObj);
         // 5. Let newGlobalEnv be NewGlobalEnvironment(globalObj, thisValue).
         // 6. Set realmRec.[[GlobalEnv]] to newGlobalEnv.
         // 7. Return realmRec.
@@ -399,7 +402,9 @@ impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
     /// https://tc39.es/ecma262/#sec-setdefaultglobalbindings
     pub fn SetDefaultGlobalBindings(&mut self, realmRec: RegisterId) -> RegisterId {
         // 1. Let global be realmRec.[[GlobalObject]].
-        let global = self.block.record_get_slot(realmRec, "GlobalObject");
+        let global = self
+            .block
+            .record_get_slot(realmRec, InternalSlot::GlobalObject);
         // 2. For each property of the Global Object specified in clause 19, do
         // TODO: implement global object stuff
         let print_stub = {
@@ -421,11 +426,13 @@ impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
 
         let func_obj = self.block.record_new();
         let fnptr = self.block.make_fnptr(print_stub.id);
-        self.block.record_set_slot(func_obj, "Call", fnptr);
+        self.block
+            .record_set_slot(func_obj, InternalSlot::Call, fnptr);
 
         let print_text = self.bld.constant_str_utf16("", "print".into());
         let key = self.block.make_string(print_text);
-        self.block.record_set_slot(global, "slot", key);
+        self.block
+            .record_set_slot(global, InternalSlot::RandomDebugSlot, key);
         // a. Let name be the String value of the property name.
         // b. Let desc be the fully populated data Property Descriptor for the property, containing the specified attributes for the property. For properties listed in 19.2, 19.3, or 19.4 the value of the [[Value]] attribute is the corresponding intrinsic object from realmRec.
         // c. Perform ? DefinePropertyOrThrow(global, name, desc).
@@ -448,40 +455,49 @@ impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
         // 3. If body is a List of errors, return body.
         // 4. Return Script Record { [[Realm]]: realm, [[ECMAScriptCode]]: body, [[HostDefined]]: hostDefined }.
         let script_record = self.block.record_new();
-        self.block.record_set_slot(script_record, "Realm", realm);
+        self.block
+            .record_set_slot(script_record, InternalSlot::Realm, realm);
         let undefined = self.block.make_undefined();
         self.block
-            .record_set_slot(script_record, "ECMAScriptCode", undefined);
+            .record_set_slot(script_record, InternalSlot::ECMAScriptCode, undefined);
         self.block
-            .record_set_slot(script_record, "HostDefined", undefined);
+            .record_set_slot(script_record, InternalSlot::HostDefined, undefined);
         script_record
     }
 
     /// https://tc39.es/ecma262/#sec-runtime-semantics-scriptevaluation
     pub fn ScriptEvaluation(&mut self, scriptRecord: RegisterId, script: &Script) -> RegisterId {
         // 1. Let globalEnv be scriptRecord.[[Realm]].[[GlobalEnv]].
-        let scriptRecordRealm = self.block.record_get_slot(scriptRecord, "Realm");
-        let globalEnv = self.block.record_get_slot(scriptRecordRealm, "GlobalEnv");
+        let scriptRecordRealm = self
+            .block
+            .record_get_slot(scriptRecord, InternalSlot::Realm);
+        let globalEnv = self
+            .block
+            .record_get_slot(scriptRecordRealm, InternalSlot::GlobalEnv);
         // 2. Let scriptContext be a new ECMAScript code execution context.
         let scriptContext = self.block.record_new();
         // 3. Set the Function of scriptContext to null.
         let null = self.block.make_null();
-        self.block.record_set_slot(scriptContext, "Function", null);
+        self.block
+            .record_set_slot(scriptContext, InternalSlot::Function, null);
         // 4. Set the Realm of scriptContext to scriptRecord.[[Realm]].
         self.block
-            .record_set_slot(scriptContext, "Realm", scriptRecordRealm);
+            .record_set_slot(scriptContext, InternalSlot::Realm, scriptRecordRealm);
         // 5. Set the ScriptOrModule of scriptContext to scriptRecord.
-        self.block
-            .record_set_slot(scriptContext, "ScriptOrModule", scriptRecordRealm);
+        self.block.record_set_slot(
+            scriptContext,
+            InternalSlot::ScriptOrModule,
+            scriptRecordRealm,
+        );
         // 6. Set the VariableEnvironment of scriptContext to globalEnv.
         self.block
-            .record_set_slot(scriptContext, "VariableEnvironment", globalEnv);
+            .record_set_slot(scriptContext, InternalSlot::VariableEnvironment, globalEnv);
         // 7. Set the LexicalEnvironment of scriptContext to globalEnv.
         self.block
-            .record_set_slot(scriptContext, "LexicalEnvironment", globalEnv);
+            .record_set_slot(scriptContext, InternalSlot::LexicalEnvironment, globalEnv);
         // 8. Set the PrivateEnvironment of scriptContext to null.
         self.block
-            .record_set_slot(scriptContext, "PrivateEnvironment", null);
+            .record_set_slot(scriptContext, InternalSlot::PrivateEnvironment, null);
         // 9. Suspend the currently running execution context.
         // TODO: ?
         // 10. Push scriptContext onto the execution context stack; scriptContext is now the running execution context.
@@ -642,14 +658,17 @@ impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
         // a. Return the Reference Record { [[Base]]: env, [[ReferencedName]]: name, [[Strict]]: strict, [[ThisValue]]: empty }.
         // TODO: we assume that we'll always have it
         let record = self.block.record_new();
-        self.block.record_set_slot(record, "Base", env);
-        self.block.record_set_slot(record, "ReferenceName", name);
+        self.block.record_set_slot(record, InternalSlot::Base, env);
+        self.block
+            .record_set_slot(record, InternalSlot::ReferenceName, name);
         // TODO: make boolean
         let strict = self.block.make_undefined();
-        self.block.record_set_slot(record, "Strict", strict);
+        self.block
+            .record_set_slot(record, InternalSlot::Strict, strict);
         // TODO: make `empty`
         let empty = self.block.make_undefined();
-        self.block.record_set_slot(record, "ThisValue", empty);
+        self.block
+            .record_set_slot(record, InternalSlot::ThisValue, empty);
         record
         // 4. Else,
         // a. Let outer be env.[[OuterEnv]].
@@ -666,7 +685,7 @@ impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
     ) -> RegisterId {
         // TODO: actually call the function
         // help this is so much effort just to get `print("hello world")`
-        let virtual_func = self.block.record_get_slot(func, "Call");
+        let virtual_func = self.block.record_get_slot(func, InternalSlot::Call);
         self.block.call_virt(virtual_func, [r#ref]);
         self.block.make_null()
     }
@@ -805,7 +824,8 @@ impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
         // 2. Else if argument is a Completion Record, set argument to argument.[[Value]].
 
         let (mut on_normal_completion, []) = self.bld_fn.start_block();
-        let argument_inner_value = on_normal_completion.record_get_slot(argument, "Value");
+        let argument_inner_value =
+            on_normal_completion.record_get_slot(argument, InternalSlot::Value);
 
         // <== PATCH CONTROL FLOW ==>
 
@@ -838,14 +858,14 @@ impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
             .block
             .make_string(self.bld.constant_str("", "normal".into()));
         self.block
-            .record_set_slot(completion_record, "Type", normal);
+            .record_set_slot(completion_record, InternalSlot::Type, normal);
         self.block
-            .record_set_slot(completion_record, "Value", argument);
+            .record_set_slot(completion_record, InternalSlot::Value, argument);
         let empty = self
             .block
             .make_string(self.bld.constant_str("", "empty".into()));
         self.block
-            .record_set_slot(completion_record, "Target", empty);
+            .record_set_slot(completion_record, InternalSlot::Target, empty);
         completion_record
     }
 
@@ -895,7 +915,7 @@ impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
     }
 
     fn is_normal_completion(&mut self, record: RegisterId) -> RegisterId {
-        let completion_type = self.block.record_get_slot(record, "Type");
+        let completion_type = self.block.record_get_slot(record, InternalSlot::Type);
         let normal_completion = self
             .block
             .make_string(self.bld.constant_str("", "normal".into()));
