@@ -1,4 +1,4 @@
-use crate::frontend::retag::RegRetagger;
+use crate::frontend::retag::{RegGenPassRetagger, RegRetagger};
 use bimap::BiHashMap;
 use petgraph::graph::NodeIndex;
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
@@ -8,7 +8,7 @@ use crate::frontend::ir::{BasicBlockJump, ControlFlowInstruction, Function, Inst
 use crate::id::*;
 use crate::UnwrapNone;
 
-use super::retag::RegPassRetagger;
+use super::retag::{RegGenRetagger, RegPassRetagger};
 
 pub type ControlFlowGraph = petgraph::graph::DiGraph<BlockId<PureBbCtx>, ()>;
 pub type ValueFlowGraph = petgraph::graph::DiGraph<RegisterId<IrCtx>, ()>;
@@ -118,10 +118,10 @@ pub struct RewritingFunctionBlock {
     pub end: ControlFlowInstruction<PureBbCtx, PureBbCtx>,
 }
 
-struct Algo<'duration> {
+struct Algo<'duration, R> {
     flow: &'duration Flow,
     function: &'duration mut RewritingFn,
-    reg_counter: &'duration mut Counter<RegisterId<PureBbCtx>>,
+    retagger: &'duration mut R,
     // block_id_gen: &'duration Counter<BlockId<PureBbCtx>>,
     blocks: FxHashMap<NodeIndex, BlockState>,
 }
@@ -131,17 +131,20 @@ struct BlockState {
     replacements: BiFxHashMap<RegisterId<PureBbCtx>, RegisterId<PureBbCtx>>,
 }
 
-impl<'d> Algo<'d> {
+impl<'d, R> Algo<'d, R>
+where
+    R: RegGenRetagger<IrCtx, PureBbCtx>,
+{
     pub fn new(
         flow: &'d Flow,
         function: &'d mut RewritingFn,
-        reg_counter: &'d mut Counter<RegisterId<PureBbCtx>>,
+        retagger: &'d mut R,
         // block_id_gen: &'d Counter<BlockId<PureBbCtx>>,
     ) -> Self {
         Self {
             flow,
             function,
-            reg_counter,
+            retagger,
             // block_id_gen,
             blocks: Default::default(),
         }
@@ -217,7 +220,7 @@ impl<'d> Algo<'d> {
         let params = &mut block.parameters;
 
         for register in need_to_find.iter().copied() {
-            let replacement_register = self.reg_counter.next();
+            let replacement_register = self.retagger.gen();
 
             replacements
                 .insert(register, replacement_register)
@@ -327,7 +330,7 @@ impl<'d> Algo<'d> {
             } else {
                 // we do not know of this register
                 // declare that we require it, add it as a parameter of this block
-                let this_block_register = self.reg_counter.next();
+                let this_block_register = self.retagger.gen();
                 state // TODO: function to encapsulate this replacing thing
                     .replacements
                     .insert(register_in_original_fn, this_block_register)
@@ -395,19 +398,7 @@ pub fn translate_function(
     block_id_gen: &Counter<BlockId<PureBbCtx>>,
 ) -> FxHashMap<HostBlock, Block> {
     let highest_register = compute_highest_register(func);
-    let mut reg_counter = highest_register
-        // SAFETY: we will be generating registers that belong to the pure blocks
-        // after all IR registers
-        .map(|r| r.map_context::<PureBbCtx>())
-        .map(Counter::after)
-        .unwrap_or_else(Counter::new);
-
-    // we want to guarantee that `reg_counter.next()` will be greater than the
-    // highest register's value
-    // this invariant should be covered, but i'm sanity checking myself ok?!?!?
-    debug_assert!(
-        reg_counter.dup().next().value() > highest_register.map(|r| r.value()).unwrap_or(0)
-    );
+    let mut retagger = RegGenPassRetagger::new(highest_register.unwrap_or(RegisterId::new()));
 
     // we will need to mutate something as we gradually get every basic block
     // into slowly a purer and purer state
@@ -422,7 +413,7 @@ pub fn translate_function(
     let mut algo = Algo::new(
         &flow,
         &mut granular_rewrite,
-        &mut reg_counter,
+        &mut retagger,
         // &block_id_gen,
     );
     algo.solve();

@@ -11,8 +11,19 @@ use std::marker::PhantomData;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::id::IdCompat;
-use crate::id::RegisterId;
 use crate::id::Tag;
+use crate::id::{BlockId, ConstantId, ExternalFunctionId, FunctionId, RegisterId};
+
+// Rust doesn't have HKTs, which makes this a lot of pain.
+// Try to keep things in this layout:
+//
+// trait XRetagger
+// trait XGenRetagger: XRetagger
+// impl XPassRetagger: XRetagger, uses PassRetagger
+// impl XGenPassRetagger: XRetagger, XGenRetagger, uses GenPassRetagger
+// impl XMapRetagger: XRetagger, XGenRetagger, uses MapRetagger
+
+// === REGISTERS ===
 
 /// A retagger specifically for registers.
 pub trait RegRetagger<C: Tag, C2: Tag> {
@@ -25,6 +36,11 @@ pub trait RegRetagger<C: Tag, C2: Tag> {
     /// has never been tagged before, this method may panic.
     #[track_caller]
     fn retag_old(&self, id: RegisterId<C>) -> RegisterId<C2>;
+}
+
+pub trait RegGenRetagger<C: Tag, C2: Tag>: RegRetagger<C, C2> {
+    /// Generates a new register that will not conflict with any other register.
+    fn gen(&mut self) -> RegisterId<C2>;
 }
 
 pub struct RegPassRetagger<C: Tag, C2: Tag>(PassRetagger<RegisterId<C>, RegisterId<C2>>);
@@ -44,6 +60,32 @@ impl<C: Tag, C2: Tag> RegRetagger<C, C2> for RegPassRetagger<C, C2> {
     #[track_caller]
     fn retag_old(&self, id: RegisterId<C>) -> RegisterId<C2> {
         self.0.core_retag_old(id)
+    }
+}
+
+pub struct RegGenPassRetagger<C: Tag, C2: Tag>(GenPassRetagger<RegisterId<C>, RegisterId<C2>>);
+
+impl<A: Tag, B: Tag> RegGenPassRetagger<A, B> {
+    pub fn new(max: RegisterId<A>) -> Self {
+        Self(GenPassRetagger::new(max))
+    }
+}
+
+impl<C: Tag, C2: Tag> RegRetagger<C, C2> for RegGenPassRetagger<C, C2> {
+    #[track_caller]
+    fn retag_new(&mut self, id: RegisterId<C>) -> RegisterId<C2> {
+        self.0.core_retag_new(id)
+    }
+
+    #[track_caller]
+    fn retag_old(&self, id: RegisterId<C>) -> RegisterId<C2> {
+        self.0.core_retag_old(id)
+    }
+}
+
+impl<C: Tag, C2: Tag> RegGenRetagger<C, C2> for RegGenPassRetagger<C, C2> {
+    fn gen(&mut self) -> RegisterId<C2> {
+        self.0.core_gen()
     }
 }
 
@@ -67,11 +109,387 @@ impl<C: Tag, C2: Tag> RegRetagger<C, C2> for RegMapRetagger<C, C2> {
     }
 }
 
-impl<C: Tag, C2: Tag> RegMapRetagger<C, C2> {
-    pub fn gen(&mut self) -> RegisterId<C2> {
+impl<C: Tag, C2: Tag> RegGenRetagger<C, C2> for RegMapRetagger<C, C2> {
+    fn gen(&mut self) -> RegisterId<C2> {
         self.0.core_gen()
     }
 }
+
+// === BLOCKS ===
+
+/// A retagger specifically for registers.
+pub trait BlkRetagger<C: Tag, C2: Tag> {
+    /// Used to retag something for the first time. If an element has been
+    /// tagged before, this method may panic.
+    #[track_caller]
+    fn retag_new(&mut self, id: BlockId<C>) -> BlockId<C2>;
+
+    /// Used to retag something that has already been retagged. If an element
+    /// has never been tagged before, this method may panic.
+    #[track_caller]
+    fn retag_old(&self, id: BlockId<C>) -> BlockId<C2>;
+}
+
+pub trait BlkGenRetagger<C: Tag, C2: Tag>: BlkRetagger<C, C2> {
+    /// Generates a new register that will not conflict with any other register.
+    fn gen(&mut self) -> BlockId<C2>;
+}
+
+pub struct BlkPassRetagger<C: Tag, C2: Tag>(PassRetagger<BlockId<C>, BlockId<C2>>);
+
+impl<A: Tag, B: Tag> Default for BlkPassRetagger<A, B> {
+    fn default() -> Self {
+        Self(Default::default())
+    }
+}
+
+impl<C: Tag, C2: Tag> BlkRetagger<C, C2> for BlkPassRetagger<C, C2> {
+    #[track_caller]
+    fn retag_new(&mut self, id: BlockId<C>) -> BlockId<C2> {
+        self.0.core_retag_new(id)
+    }
+
+    #[track_caller]
+    fn retag_old(&self, id: BlockId<C>) -> BlockId<C2> {
+        self.0.core_retag_old(id)
+    }
+}
+
+pub struct BlkGenPassRetagger<C: Tag, C2: Tag>(GenPassRetagger<BlockId<C>, BlockId<C2>>);
+
+impl<A: Tag, B: Tag> BlkGenPassRetagger<A, B> {
+    pub fn new(max: BlockId<A>) -> Self {
+        Self(GenPassRetagger::new(max))
+    }
+}
+
+impl<C: Tag, C2: Tag> BlkRetagger<C, C2> for BlkGenPassRetagger<C, C2> {
+    #[track_caller]
+    fn retag_new(&mut self, id: BlockId<C>) -> BlockId<C2> {
+        self.0.core_retag_new(id)
+    }
+
+    #[track_caller]
+    fn retag_old(&self, id: BlockId<C>) -> BlockId<C2> {
+        self.0.core_retag_old(id)
+    }
+}
+
+impl<C: Tag, C2: Tag> BlkGenRetagger<C, C2> for BlkGenPassRetagger<C, C2> {
+    fn gen(&mut self) -> BlockId<C2> {
+        self.0.core_gen()
+    }
+}
+
+pub struct BlkMapRetagger<C: Tag, C2: Tag>(MapRetagger<BlockId<C>, BlockId<C2>>);
+
+impl<A: Tag, B: Tag> Default for BlkMapRetagger<A, B> {
+    fn default() -> Self {
+        Self(Default::default())
+    }
+}
+
+impl<C: Tag, C2: Tag> BlkRetagger<C, C2> for BlkMapRetagger<C, C2> {
+    #[track_caller]
+    fn retag_new(&mut self, id: BlockId<C>) -> BlockId<C2> {
+        self.0.core_retag_new(id)
+    }
+
+    #[track_caller]
+    fn retag_old(&self, id: BlockId<C>) -> BlockId<C2> {
+        self.0.core_retag_old(id)
+    }
+}
+
+impl<C: Tag, C2: Tag> BlkGenRetagger<C, C2> for BlkMapRetagger<C, C2> {
+    fn gen(&mut self) -> BlockId<C2> {
+        self.0.core_gen()
+    }
+}
+
+// === EXTERNAL FUNCTIONS ===
+
+/// A retagger specifically for registers.
+pub trait ExtFnRetagger<C: Tag, C2: Tag> {
+    /// Used to retag something for the first time. If an element has been
+    /// tagged before, this method may panic.
+    #[track_caller]
+    fn retag_new(&mut self, id: ExternalFunctionId<C>) -> ExternalFunctionId<C2>;
+
+    /// Used to retag something that has already been retagged. If an element
+    /// has never been tagged before, this method may panic.
+    #[track_caller]
+    fn retag_old(&self, id: ExternalFunctionId<C>) -> ExternalFunctionId<C2>;
+}
+
+pub trait ExtFnGenRetagger<C: Tag, C2: Tag>: ExtFnRetagger<C, C2> {
+    /// Generates a new register that will not conflict with any other register.
+    fn gen(&mut self) -> ExternalFunctionId<C2>;
+}
+
+pub struct ExtFnPassRetagger<C: Tag, C2: Tag>(
+    PassRetagger<ExternalFunctionId<C>, ExternalFunctionId<C2>>,
+);
+
+impl<A: Tag, B: Tag> Default for ExtFnPassRetagger<A, B> {
+    fn default() -> Self {
+        Self(Default::default())
+    }
+}
+
+impl<C: Tag, C2: Tag> ExtFnRetagger<C, C2> for ExtFnPassRetagger<C, C2> {
+    #[track_caller]
+    fn retag_new(&mut self, id: ExternalFunctionId<C>) -> ExternalFunctionId<C2> {
+        self.0.core_retag_new(id)
+    }
+
+    #[track_caller]
+    fn retag_old(&self, id: ExternalFunctionId<C>) -> ExternalFunctionId<C2> {
+        self.0.core_retag_old(id)
+    }
+}
+
+pub struct ExtFnGenPassRetagger<C: Tag, C2: Tag>(
+    GenPassRetagger<ExternalFunctionId<C>, ExternalFunctionId<C2>>,
+);
+
+impl<A: Tag, B: Tag> ExtFnGenPassRetagger<A, B> {
+    pub fn new(max: ExternalFunctionId<A>) -> Self {
+        Self(GenPassRetagger::new(max))
+    }
+}
+
+impl<C: Tag, C2: Tag> ExtFnRetagger<C, C2> for ExtFnGenPassRetagger<C, C2> {
+    #[track_caller]
+    fn retag_new(&mut self, id: ExternalFunctionId<C>) -> ExternalFunctionId<C2> {
+        self.0.core_retag_new(id)
+    }
+
+    #[track_caller]
+    fn retag_old(&self, id: ExternalFunctionId<C>) -> ExternalFunctionId<C2> {
+        self.0.core_retag_old(id)
+    }
+}
+
+impl<C: Tag, C2: Tag> ExtFnGenRetagger<C, C2> for ExtFnGenPassRetagger<C, C2> {
+    fn gen(&mut self) -> ExternalFunctionId<C2> {
+        self.0.core_gen()
+    }
+}
+
+pub struct ExtFnMapRetagger<C: Tag, C2: Tag>(
+    MapRetagger<ExternalFunctionId<C>, ExternalFunctionId<C2>>,
+);
+
+impl<A: Tag, B: Tag> Default for ExtFnMapRetagger<A, B> {
+    fn default() -> Self {
+        Self(Default::default())
+    }
+}
+
+impl<C: Tag, C2: Tag> ExtFnRetagger<C, C2> for ExtFnMapRetagger<C, C2> {
+    #[track_caller]
+    fn retag_new(&mut self, id: ExternalFunctionId<C>) -> ExternalFunctionId<C2> {
+        self.0.core_retag_new(id)
+    }
+
+    #[track_caller]
+    fn retag_old(&self, id: ExternalFunctionId<C>) -> ExternalFunctionId<C2> {
+        self.0.core_retag_old(id)
+    }
+}
+
+impl<C: Tag, C2: Tag> ExtFnGenRetagger<C, C2> for ExtFnMapRetagger<C, C2> {
+    fn gen(&mut self) -> ExternalFunctionId<C2> {
+        self.0.core_gen()
+    }
+}
+
+// === FUNCTIONS ===
+
+/// A retagger specifically for registers.
+pub trait FnRetagger<C: Tag, C2: Tag> {
+    /// Used to retag something for the first time. If an element has been
+    /// tagged before, this method may panic.
+    #[track_caller]
+    fn retag_new(&mut self, id: FunctionId<C>) -> FunctionId<C2>;
+
+    /// Used to retag something that has already been retagged. If an element
+    /// has never been tagged before, this method may panic.
+    #[track_caller]
+    fn retag_old(&self, id: FunctionId<C>) -> FunctionId<C2>;
+}
+
+pub trait FnGenRetagger<C: Tag, C2: Tag>: FnRetagger<C, C2> {
+    /// Generates a new register that will not conflict with any other register.
+    fn gen(&mut self) -> FunctionId<C2>;
+}
+
+pub struct FnPassRetagger<C: Tag, C2: Tag>(PassRetagger<FunctionId<C>, FunctionId<C2>>);
+
+impl<A: Tag, B: Tag> Default for FnPassRetagger<A, B> {
+    fn default() -> Self {
+        Self(Default::default())
+    }
+}
+
+impl<C: Tag, C2: Tag> FnRetagger<C, C2> for FnPassRetagger<C, C2> {
+    #[track_caller]
+    fn retag_new(&mut self, id: FunctionId<C>) -> FunctionId<C2> {
+        self.0.core_retag_new(id)
+    }
+
+    #[track_caller]
+    fn retag_old(&self, id: FunctionId<C>) -> FunctionId<C2> {
+        self.0.core_retag_old(id)
+    }
+}
+
+pub struct FnGenPassRetagger<C: Tag, C2: Tag>(GenPassRetagger<FunctionId<C>, FunctionId<C2>>);
+
+impl<A: Tag, B: Tag> FnGenPassRetagger<A, B> {
+    pub fn new(max: FunctionId<A>) -> Self {
+        Self(GenPassRetagger::new(max))
+    }
+}
+
+impl<C: Tag, C2: Tag> FnRetagger<C, C2> for FnGenPassRetagger<C, C2> {
+    #[track_caller]
+    fn retag_new(&mut self, id: FunctionId<C>) -> FunctionId<C2> {
+        self.0.core_retag_new(id)
+    }
+
+    #[track_caller]
+    fn retag_old(&self, id: FunctionId<C>) -> FunctionId<C2> {
+        self.0.core_retag_old(id)
+    }
+}
+
+impl<C: Tag, C2: Tag> FnGenRetagger<C, C2> for FnGenPassRetagger<C, C2> {
+    fn gen(&mut self) -> FunctionId<C2> {
+        self.0.core_gen()
+    }
+}
+
+pub struct FnMapRetagger<C: Tag, C2: Tag>(MapRetagger<FunctionId<C>, FunctionId<C2>>);
+
+impl<A: Tag, B: Tag> Default for FnMapRetagger<A, B> {
+    fn default() -> Self {
+        Self(Default::default())
+    }
+}
+
+impl<C: Tag, C2: Tag> FnRetagger<C, C2> for FnMapRetagger<C, C2> {
+    #[track_caller]
+    fn retag_new(&mut self, id: FunctionId<C>) -> FunctionId<C2> {
+        self.0.core_retag_new(id)
+    }
+
+    #[track_caller]
+    fn retag_old(&self, id: FunctionId<C>) -> FunctionId<C2> {
+        self.0.core_retag_old(id)
+    }
+}
+
+impl<C: Tag, C2: Tag> FnGenRetagger<C, C2> for FnMapRetagger<C, C2> {
+    fn gen(&mut self) -> FunctionId<C2> {
+        self.0.core_gen()
+    }
+}
+
+// === CONSTANTS ===
+
+/// A retagger specifically for registers.
+pub trait CnstRetagger<C: Tag, C2: Tag> {
+    /// Used to retag something for the first time. If an element has been
+    /// tagged before, this method may panic.
+    #[track_caller]
+    fn retag_new(&mut self, id: ConstantId<C>) -> ConstantId<C2>;
+
+    /// Used to retag something that has already been retagged. If an element
+    /// has never been tagged before, this method may panic.
+    #[track_caller]
+    fn retag_old(&self, id: ConstantId<C>) -> ConstantId<C2>;
+}
+
+pub trait CnstGenRetagger<C: Tag, C2: Tag>: CnstRetagger<C, C2> {
+    /// Generates a new register that will not conflict with any other register.
+    fn gen(&mut self) -> ConstantId<C2>;
+}
+
+pub struct CnstPassRetagger<C: Tag, C2: Tag>(PassRetagger<ConstantId<C>, ConstantId<C2>>);
+
+impl<A: Tag, B: Tag> Default for CnstPassRetagger<A, B> {
+    fn default() -> Self {
+        Self(Default::default())
+    }
+}
+
+impl<C: Tag, C2: Tag> CnstRetagger<C, C2> for CnstPassRetagger<C, C2> {
+    #[track_caller]
+    fn retag_new(&mut self, id: ConstantId<C>) -> ConstantId<C2> {
+        self.0.core_retag_new(id)
+    }
+
+    #[track_caller]
+    fn retag_old(&self, id: ConstantId<C>) -> ConstantId<C2> {
+        self.0.core_retag_old(id)
+    }
+}
+
+pub struct CnstGenPassRetagger<C: Tag, C2: Tag>(GenPassRetagger<ConstantId<C>, ConstantId<C2>>);
+
+impl<A: Tag, B: Tag> CnstGenPassRetagger<A, B> {
+    pub fn new(max: ConstantId<A>) -> Self {
+        Self(GenPassRetagger::new(max))
+    }
+}
+
+impl<C: Tag, C2: Tag> CnstRetagger<C, C2> for CnstGenPassRetagger<C, C2> {
+    #[track_caller]
+    fn retag_new(&mut self, id: ConstantId<C>) -> ConstantId<C2> {
+        self.0.core_retag_new(id)
+    }
+
+    #[track_caller]
+    fn retag_old(&self, id: ConstantId<C>) -> ConstantId<C2> {
+        self.0.core_retag_old(id)
+    }
+}
+
+impl<C: Tag, C2: Tag> CnstGenRetagger<C, C2> for CnstGenPassRetagger<C, C2> {
+    fn gen(&mut self) -> ConstantId<C2> {
+        self.0.core_gen()
+    }
+}
+
+pub struct CnstMapRetagger<C: Tag, C2: Tag>(MapRetagger<ConstantId<C>, ConstantId<C2>>);
+
+impl<A: Tag, B: Tag> Default for CnstMapRetagger<A, B> {
+    fn default() -> Self {
+        Self(Default::default())
+    }
+}
+
+impl<C: Tag, C2: Tag> CnstRetagger<C, C2> for CnstMapRetagger<C, C2> {
+    #[track_caller]
+    fn retag_new(&mut self, id: ConstantId<C>) -> ConstantId<C2> {
+        self.0.core_retag_new(id)
+    }
+
+    #[track_caller]
+    fn retag_old(&self, id: ConstantId<C>) -> ConstantId<C2> {
+        self.0.core_retag_old(id)
+    }
+}
+
+impl<C: Tag, C2: Tag> CnstGenRetagger<C, C2> for CnstMapRetagger<C, C2> {
+    fn gen(&mut self) -> ConstantId<C2> {
+        self.0.core_gen()
+    }
+}
+
+// === IMPLEMENTATION ===
 
 /// Underlying trait used to implement retagging. Additional traits are added
 /// to convert between the various IDs defined. This is used to overcome rust
@@ -135,6 +553,91 @@ impl<I1: IdCompat, I2: IdCompat> CoreRetagger for PassRetagger<I1, I2> {
         }
 
         I2::raw_new_with_value(id.raw_value())
+    }
+}
+
+/// Implements completely transparent retaggings, and allows for ID generation.
+/// In release mode, this will have no performance impact for retagging. In
+/// order to provide transparent retagging and ID generation, the maximum ID to
+/// retag must be specified up-front.
+struct GenPassRetagger<I1, I2> {
+    max: usize,
+    counter: usize,
+    #[cfg(debug_assertions)]
+    tagged: FxHashSet<usize>,
+    ids: PhantomData<(I1, I2)>,
+}
+
+impl<I: IdCompat, I2: IdCompat> GenPassRetagger<I, I2> {
+    pub fn new(max: I) -> Self {
+        Self {
+            max: max.raw_value(),
+            counter: max.raw_value() + 1,
+            #[cfg(debug_assertions)]
+            tagged: Default::default(),
+            ids: Default::default(),
+        }
+    }
+}
+
+impl<I1: IdCompat, I2: IdCompat> CoreRetagger for GenPassRetagger<I1, I2> {
+    type I1 = I1;
+    type I2 = I2;
+
+    #[track_caller]
+    #[cfg(not(debug_assertions))]
+    fn core_retag_new(&mut self, id: I1) -> I2 {
+        I2::raw_new_with_value(id.raw_value())
+    }
+
+    #[track_caller]
+    #[cfg(not(debug_assertions))]
+    fn core_retag_old(&self, id: I1) -> I2 {
+        I2::raw_new_with_value(id.raw_value())
+    }
+
+    #[track_caller]
+    #[cfg(debug_assertions)]
+    fn core_retag_new(&mut self, id: I1) -> I2 {
+        if !self.tagged.insert(id.raw_value()) {
+            panic!("attempted to retag new value {}, value was old", id.value());
+        }
+
+        if id.raw_value() > self.max {
+            panic!(
+                "attempted to retag value above maximum, {} > max {}",
+                id.value(),
+                self.max + 1
+            );
+        }
+
+        I2::raw_new_with_value(id.raw_value())
+    }
+
+    #[track_caller]
+    #[cfg(debug_assertions)]
+    fn core_retag_old(&self, id: I1) -> I2 {
+        if !self.tagged.contains(&id.raw_value()) {
+            panic!("attempted to retag old value {}, value was new", id.value());
+        }
+
+        if id.raw_value() > self.max {
+            panic!(
+                "attempted to retag value above maximum, {} > max {}",
+                id.value(),
+                self.max + 1
+            );
+        }
+
+        I2::raw_new_with_value(id.raw_value())
+    }
+}
+
+impl<I1, I2: IdCompat> GenPassRetagger<I1, I2> {
+    fn core_gen(&mut self) -> I2 {
+        let value = I2::raw_new_with_value(self.counter);
+        self.counter += 1;
+        value
     }
 }
 
