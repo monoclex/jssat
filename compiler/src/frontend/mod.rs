@@ -13,3 +13,4 @@ pub mod old_types;
 pub mod type_annotater;
 // commented out until we test the `isa` design
 // pub mod types;
+pub mod retag;

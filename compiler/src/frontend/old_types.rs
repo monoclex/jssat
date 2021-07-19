@@ -83,7 +83,7 @@ impl ShapeKey {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RegMap<C: ContextTag> {
+pub struct RegMap<C: Tag> {
     registers: FxHashMap<RegisterId<C>, ValueType>,
     allocation_id_gen: AllocationId<NoContext>,
     allocations: FxHashMap<AllocationId<NoContext>, Vec<ShapeId<C>>>,
@@ -91,7 +91,7 @@ pub struct RegMap<C: ContextTag> {
     shapes: FxHashMap<ShapeId<C>, RecordShape>,
 }
 
-impl<C: ContextTag> RegMap<C> {
+impl<C: Tag> RegMap<C> {
     pub fn gen_id(&mut self) -> RegisterId<C> {
         let mut none = RegisterId::default();
         for (k, _) in self.registers.iter() {
@@ -344,7 +344,7 @@ impl<C: ContextTag> RegMap<C> {
             .fold(true, |current, (_, v)| self.is_simple_typ(v) && current)
     }
 
-    pub fn prepare_invocation<C2: ContextTag>(
+    pub fn prepare_invocation<C2: Tag>(
         &self,
         arguments: impl Iterator<Item = (RegisterId<C>, RegisterId<C2>)>,
     ) -> InvocationArgs<C2> {
@@ -361,7 +361,7 @@ impl<C: ContextTag> RegMap<C> {
         InvocationArgs(map)
     }
 
-    fn map_type<C2: ContextTag>(
+    fn map_type<C2: Tag>(
         &self,
         typ: ValueType,
         target: &mut RegMap<C2>,
@@ -403,7 +403,7 @@ impl<C: ContextTag> RegMap<C> {
         }
     }
 
-    pub fn duplicate_with_allocations<C2: ContextTag>(&self) -> RegMap<C2> {
+    pub fn duplicate_with_allocations<C2: Tag>(&self) -> RegMap<C2> {
         RegMap::<C2> {
             allocation_id_gen: self.allocation_id_gen,
             allocations: self
@@ -429,7 +429,7 @@ impl<C: ContextTag> RegMap<C> {
     }
 }
 
-impl<C: ContextTag> Default for RegMap<C> {
+impl<C: Tag> Default for RegMap<C> {
     fn default() -> Self {
         Self {
             registers: Default::default(),

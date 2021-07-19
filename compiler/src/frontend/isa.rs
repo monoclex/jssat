@@ -5,17 +5,17 @@
 use derive_more::Display;
 use tinyvec::{tiny_vec, TinyVec};
 
-use crate::id::ContextTag;
 use crate::id::ExternalFunctionId;
 use crate::id::FunctionId;
 use crate::id::RegisterId;
+use crate::id::Tag;
 
 type ConstantId = crate::id::ConstantId<crate::id::NoContext>;
 type BlockId = crate::id::BlockId<crate::id::NoContext>;
 
 /// The contract provided by any single instruction. Provides methods to make
 /// interfacing with all instructions easy.
-pub trait ISAInstruction<C: ContextTag> {
+pub trait ISAInstruction<C: Tag> {
     /// An instruction is considered `pure` if its removal has no side effects
     /// for the execution of the program.
     ///
@@ -54,13 +54,13 @@ pub trait ISAInstruction<C: ContextTag> {
 }
 
 // TODO: check if this works
-pub trait ISAInstruction2<C: ContextTag> {
+pub trait ISAInstruction2<C: Tag> {
     type ContextMap;
 
     fn map_context(self) -> Self::ContextMap;
 }
 
-impl<C: ContextTag, C2: ContextTag> ISAInstruction2<C2> for Return<C> {
+impl<C: Tag, C2: Tag> ISAInstruction2<C2> for Return<C> {
     type ContextMap = Return<C2>;
 
     fn map_context(self) -> Self::ContextMap {
@@ -70,7 +70,7 @@ impl<C: ContextTag, C2: ContextTag> ISAInstruction2<C2> for Return<C> {
 
 pub struct Noop;
 
-impl<C: ContextTag> ISAInstruction<C> for Noop {
+impl<C: Tag> ISAInstruction<C> for Noop {
     fn declared_register(&self) -> Option<RegisterId<C>> {
         None
     }
@@ -86,7 +86,7 @@ impl<C: ContextTag> ISAInstruction<C> for Noop {
 
 pub struct Unreachable;
 
-impl<C: ContextTag> ISAInstruction<C> for Unreachable {
+impl<C: Tag> ISAInstruction<C> for Unreachable {
     fn is_pure() -> bool {
         // removing this instruction affects program optimization
         false
@@ -105,9 +105,9 @@ impl<C: ContextTag> ISAInstruction<C> for Unreachable {
     }
 }
 
-pub struct Return<C: ContextTag>(pub Option<RegisterId<C>>);
+pub struct Return<C: Tag>(pub Option<RegisterId<C>>);
 
-impl<C: ContextTag> ISAInstruction<C> for Return<C> {
+impl<C: Tag> ISAInstruction<C> for Return<C> {
     fn is_pure() -> bool {
         // purity is only useful in regards to eliminating work,
         // LLVM will optimize control flow
@@ -133,11 +133,11 @@ impl<C: ContextTag> ISAInstruction<C> for Return<C> {
     }
 }
 
-pub struct BlockJump<C: ContextTag>(pub BlockId, pub Vec<RegisterId<C>>);
+pub struct BlockJump<C: Tag>(pub BlockId, pub Vec<RegisterId<C>>);
 
-pub struct Jump<C: ContextTag>(pub BlockJump<C>);
+pub struct Jump<C: Tag>(pub BlockJump<C>);
 
-impl<C: ContextTag> ISAInstruction<C> for Jump<C> {
+impl<C: Tag> ISAInstruction<C> for Jump<C> {
     fn is_pure() -> bool {
         // purity is only useful in regards to eliminating work,
         // LLVM will optimize control flow
@@ -160,11 +160,11 @@ impl<C: ContextTag> ISAInstruction<C> for Jump<C> {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct MakeRecord<C: ContextTag> {
+pub struct MakeRecord<C: Tag> {
     pub result: RegisterId<C>,
 }
 
-impl<C: ContextTag> ISAInstruction<C> for MakeRecord<C> {
+impl<C: Tag> ISAInstruction<C> for MakeRecord<C> {
     fn declared_register(&self) -> Option<RegisterId<C>> {
         Some(self.result)
     }
@@ -178,17 +178,17 @@ impl<C: ContextTag> ISAInstruction<C> for MakeRecord<C> {
     }
 }
 
-impl<C: ContextTag> MakeRecord<C> {
-    pub fn map_context<C2: ContextTag>(self) -> MakeRecord<C2> {
+impl<C: Tag> MakeRecord<C> {
+    pub fn map_context<C2: Tag>(self) -> MakeRecord<C2> {
         MakeRecord {
             result: self.result.map_context(),
         }
     }
 }
 
-pub struct MakeBoolean<C: ContextTag>(pub RegisterId<C>, pub bool);
+pub struct MakeBoolean<C: Tag>(pub RegisterId<C>, pub bool);
 
-impl<C: ContextTag> ISAInstruction<C> for MakeBoolean<C> {
+impl<C: Tag> ISAInstruction<C> for MakeBoolean<C> {
     fn declared_register(&self) -> Option<RegisterId<C>> {
         Some(self.0)
     }
@@ -203,12 +203,12 @@ impl<C: ContextTag> ISAInstruction<C> for MakeBoolean<C> {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct MakeInteger<C: ContextTag> {
+pub struct MakeInteger<C: Tag> {
     pub result: RegisterId<C>,
     pub value: i64,
 }
 
-impl<C: ContextTag> ISAInstruction<C> for MakeInteger<C> {
+impl<C: Tag> ISAInstruction<C> for MakeInteger<C> {
     fn declared_register(&self) -> Option<RegisterId<C>> {
         Some(self.result)
     }
@@ -222,8 +222,8 @@ impl<C: ContextTag> ISAInstruction<C> for MakeInteger<C> {
     }
 }
 
-impl<C: ContextTag> MakeInteger<C> {
-    pub fn map_context<C2: ContextTag>(self) -> MakeInteger<C2> {
+impl<C: Tag> MakeInteger<C> {
+    pub fn map_context<C2: Tag>(self) -> MakeInteger<C2> {
         MakeInteger {
             result: self.result.map_context(),
             value: self.value,
@@ -234,7 +234,7 @@ impl<C: ContextTag> MakeInteger<C> {
 /// [`MakeTrivial`] creates trivial items. Trivial items are elements with a
 /// single possible value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct MakeTrivial<C: ContextTag> {
+pub struct MakeTrivial<C: Tag> {
     pub result: RegisterId<C>,
     pub item: TrivialItem,
 }
@@ -251,7 +251,7 @@ pub enum TrivialItem {
     Empty,
 }
 
-impl<C: ContextTag> ISAInstruction<C> for MakeTrivial<C> {
+impl<C: Tag> ISAInstruction<C> for MakeTrivial<C> {
     fn declared_register(&self) -> Option<RegisterId<C>> {
         Some(self.result)
     }
@@ -265,8 +265,8 @@ impl<C: ContextTag> ISAInstruction<C> for MakeTrivial<C> {
     }
 }
 
-impl<C: ContextTag> MakeTrivial<C> {
-    pub fn map_context<C2: ContextTag>(self) -> MakeTrivial<C2> {
+impl<C: Tag> MakeTrivial<C> {
+    pub fn map_context<C2: Tag>(self) -> MakeTrivial<C2> {
         MakeTrivial {
             result: self.result.map_context(),
             item: self.item,
@@ -274,9 +274,9 @@ impl<C: ContextTag> MakeTrivial<C> {
     }
 }
 
-pub struct MakeBytes<C: ContextTag>(pub RegisterId<C>, pub ConstantId);
+pub struct MakeBytes<C: Tag>(pub RegisterId<C>, pub ConstantId);
 
-impl<C: ContextTag> ISAInstruction<C> for MakeBytes<C> {
+impl<C: Tag> ISAInstruction<C> for MakeBytes<C> {
     fn declared_register(&self) -> Option<RegisterId<C>> {
         Some(self.0)
     }
@@ -291,12 +291,12 @@ impl<C: ContextTag> ISAInstruction<C> for MakeBytes<C> {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct OpNegate<C: ContextTag> {
+pub struct OpNegate<C: Tag> {
     pub result: RegisterId<C>,
     pub operand: RegisterId<C>,
 }
 
-impl<C: ContextTag> ISAInstruction<C> for OpNegate<C> {
+impl<C: Tag> ISAInstruction<C> for OpNegate<C> {
     fn declared_register(&self) -> Option<RegisterId<C>> {
         Some(self.result)
     }
@@ -310,8 +310,8 @@ impl<C: ContextTag> ISAInstruction<C> for OpNegate<C> {
     }
 }
 
-impl<C: ContextTag> OpNegate<C> {
-    pub fn map_context<C2: ContextTag>(self) -> OpNegate<C2> {
+impl<C: Tag> OpNegate<C> {
+    pub fn map_context<C2: Tag>(self) -> OpNegate<C2> {
         OpNegate {
             result: self.result.map_context(),
             operand: self.operand.map_context(),
@@ -320,13 +320,13 @@ impl<C: ContextTag> OpNegate<C> {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct OpAdd<C: ContextTag> {
+pub struct OpAdd<C: Tag> {
     pub result: RegisterId<C>,
     pub lhs: RegisterId<C>,
     pub rhs: RegisterId<C>,
 }
 
-impl<C: ContextTag> ISAInstruction<C> for OpAdd<C> {
+impl<C: Tag> ISAInstruction<C> for OpAdd<C> {
     fn declared_register(&self) -> Option<RegisterId<C>> {
         Some(self.result)
     }
@@ -340,8 +340,8 @@ impl<C: ContextTag> ISAInstruction<C> for OpAdd<C> {
     }
 }
 
-impl<C: ContextTag> OpAdd<C> {
-    pub fn map_context<C2: ContextTag>(self) -> OpAdd<C2> {
+impl<C: Tag> OpAdd<C> {
+    pub fn map_context<C2: Tag>(self) -> OpAdd<C2> {
         OpAdd {
             result: self.result.map_context(),
             lhs: self.lhs.map_context(),
@@ -350,13 +350,13 @@ impl<C: ContextTag> OpAdd<C> {
     }
 }
 
-pub struct OpOr<C: ContextTag> {
+pub struct OpOr<C: Tag> {
     pub result: RegisterId<C>,
     pub lhs: RegisterId<C>,
     pub rhs: RegisterId<C>,
 }
 
-impl<C: ContextTag> ISAInstruction<C> for OpOr<C> {
+impl<C: Tag> ISAInstruction<C> for OpOr<C> {
     fn declared_register(&self) -> Option<RegisterId<C>> {
         Some(self.result)
     }
@@ -371,13 +371,13 @@ impl<C: ContextTag> ISAInstruction<C> for OpOr<C> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct OpLessThan<C: ContextTag> {
+pub struct OpLessThan<C: Tag> {
     pub result: RegisterId<C>,
     pub lhs: RegisterId<C>,
     pub rhs: RegisterId<C>,
 }
 
-impl<C: ContextTag> ISAInstruction<C> for OpLessThan<C> {
+impl<C: Tag> ISAInstruction<C> for OpLessThan<C> {
     fn declared_register(&self) -> Option<RegisterId<C>> {
         Some(self.result)
     }
@@ -391,8 +391,8 @@ impl<C: ContextTag> ISAInstruction<C> for OpLessThan<C> {
     }
 }
 
-impl<C: ContextTag> OpLessThan<C> {
-    pub fn map_context<C2: ContextTag>(self) -> OpLessThan<C2> {
+impl<C: Tag> OpLessThan<C> {
+    pub fn map_context<C2: Tag>(self) -> OpLessThan<C2> {
         OpLessThan {
             result: self.result.map_context(),
             lhs: self.lhs.map_context(),
@@ -402,13 +402,13 @@ impl<C: ContextTag> OpLessThan<C> {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct OpEquals<C: ContextTag> {
+pub struct OpEquals<C: Tag> {
     pub result: RegisterId<C>,
     pub lhs: RegisterId<C>,
     pub rhs: RegisterId<C>,
 }
 
-impl<C: ContextTag> ISAInstruction<C> for OpEquals<C> {
+impl<C: Tag> ISAInstruction<C> for OpEquals<C> {
     fn declared_register(&self) -> Option<RegisterId<C>> {
         Some(self.result)
     }
@@ -422,8 +422,8 @@ impl<C: ContextTag> ISAInstruction<C> for OpEquals<C> {
     }
 }
 
-impl<C: ContextTag> OpEquals<C> {
-    pub fn map_context<C2: ContextTag>(self) -> OpEquals<C2> {
+impl<C: Tag> OpEquals<C> {
+    pub fn map_context<C2: Tag>(self) -> OpEquals<C2> {
         OpEquals {
             result: self.result.map_context(),
             lhs: self.lhs.map_context(),
@@ -433,15 +433,15 @@ impl<C: ContextTag> OpEquals<C> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Display)]
-pub enum RecordKey<C: ContextTag> {
+pub enum RecordKey<C: Tag> {
     #[display(fmt = "%{}", _0)]
     Prop(RegisterId<C>),
     #[display(fmt = "[[{}]]", _0)]
     Slot(InternalSlot),
 }
 
-impl<C: ContextTag> RecordKey<C> {
-    pub fn map_context<C2: ContextTag>(self) -> RecordKey<C2> {
+impl<C: Tag> RecordKey<C> {
+    pub fn map_context<C2: Tag>(self) -> RecordKey<C2> {
         match self {
             RecordKey::Prop(r) => RecordKey::Prop(r.map_context()),
             RecordKey::Slot(s) => RecordKey::Slot(s),
@@ -458,13 +458,13 @@ pub enum InternalSlot {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct RecordGet<C: ContextTag> {
+pub struct RecordGet<C: Tag> {
     pub result: RegisterId<C>,
     pub record: RegisterId<C>,
     pub key: RecordKey<C>,
 }
 
-impl<C: ContextTag> ISAInstruction<C> for RecordGet<C> {
+impl<C: Tag> ISAInstruction<C> for RecordGet<C> {
     fn declared_register(&self) -> Option<RegisterId<C>> {
         Some(self.result)
     }
@@ -486,8 +486,8 @@ impl<C: ContextTag> ISAInstruction<C> for RecordGet<C> {
     }
 }
 
-impl<C: ContextTag> RecordGet<C> {
-    pub fn map_context<C2: ContextTag>(self) -> RecordGet<C2> {
+impl<C: Tag> RecordGet<C> {
+    pub fn map_context<C2: Tag>(self) -> RecordGet<C2> {
         RecordGet {
             result: self.result.map_context(),
             record: self.record.map_context(),
@@ -497,13 +497,13 @@ impl<C: ContextTag> RecordGet<C> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct RecordSet<C: ContextTag> {
+pub struct RecordSet<C: Tag> {
     pub record: RegisterId<C>,
     pub key: RecordKey<C>,
     pub value: RegisterId<C>,
 }
 
-impl<C: ContextTag> ISAInstruction<C> for RecordSet<C> {
+impl<C: Tag> ISAInstruction<C> for RecordSet<C> {
     fn declared_register(&self) -> Option<RegisterId<C>> {
         None
     }
@@ -525,8 +525,8 @@ impl<C: ContextTag> ISAInstruction<C> for RecordSet<C> {
     }
 }
 
-impl<C: ContextTag> RecordSet<C> {
-    pub fn map_context<C2: ContextTag>(self) -> RecordSet<C2> {
+impl<C: Tag> RecordSet<C> {
+    pub fn map_context<C2: Tag>(self) -> RecordSet<C2> {
         RecordSet {
             record: self.record.map_context(),
             key: self.key.map_context(),
@@ -535,13 +535,13 @@ impl<C: ContextTag> RecordSet<C> {
     }
 }
 
-pub struct JumpIf<C: ContextTag> {
+pub struct JumpIf<C: Tag> {
     pub condition: RegisterId<C>,
     pub if_so: BlockJump<C>,
     pub other: BlockJump<C>,
 }
 
-impl<C: ContextTag> ISAInstruction<C> for JumpIf<C> {
+impl<C: Tag> ISAInstruction<C> for JumpIf<C> {
     fn is_pure() -> bool {
         // purity is only useful in regards to eliminating work,
         // LLVM will optimize control flow
@@ -567,14 +567,14 @@ impl<C: ContextTag> ISAInstruction<C> for JumpIf<C> {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct CallStatic<C: ContextTag> {
+pub struct CallStatic<C: Tag> {
     pub result: Option<RegisterId<C>>,
     pub fn_id: FunctionId<C>,
     // TODO: figure out if there's a common size, to use `TinyVec`
     pub args: Vec<RegisterId<C>>,
 }
 
-impl<C: ContextTag> ISAInstruction<C> for CallStatic<C> {
+impl<C: Tag> ISAInstruction<C> for CallStatic<C> {
     fn is_pure() -> bool {
         // inside of the function may be calls to external functions
         false
@@ -593,8 +593,8 @@ impl<C: ContextTag> ISAInstruction<C> for CallStatic<C> {
     }
 }
 
-impl<C: ContextTag> CallStatic<C> {
-    pub fn map_context<C2: ContextTag>(self) -> CallStatic<C2> {
+impl<C: Tag> CallStatic<C> {
+    pub fn map_context<C2: Tag>(self) -> CallStatic<C2> {
         CallStatic {
             result: self.result.map(|r| r.map_context()),
             fn_id: self.fn_id.map_context(),
@@ -604,14 +604,14 @@ impl<C: ContextTag> CallStatic<C> {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct CallVirt<C: ContextTag> {
+pub struct CallVirt<C: Tag> {
     pub result: Option<RegisterId<C>>,
     pub fn_ptr: RegisterId<C>,
     // TODO: figure out if there's a common size, to use `TinyVec`
     pub args: Vec<RegisterId<C>>,
 }
 
-impl<C: ContextTag> ISAInstruction<C> for CallVirt<C> {
+impl<C: Tag> ISAInstruction<C> for CallVirt<C> {
     fn is_pure() -> bool {
         // calling a function that may call external functions is side-effectful
         false
@@ -636,8 +636,8 @@ impl<C: ContextTag> ISAInstruction<C> for CallVirt<C> {
     }
 }
 
-impl<C: ContextTag> CallVirt<C> {
-    pub fn map_context<C2: ContextTag>(self) -> CallVirt<C2> {
+impl<C: Tag> CallVirt<C> {
+    pub fn map_context<C2: Tag>(self) -> CallVirt<C2> {
         CallVirt {
             result: self.result.map(|r| r.map_context()),
             fn_ptr: self.fn_ptr.map_context(),
@@ -647,13 +647,13 @@ impl<C: ContextTag> CallVirt<C> {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct CallExtern<C: ContextTag> {
+pub struct CallExtern<C: Tag> {
     pub result: Option<RegisterId<C>>,
     pub fn_id: ExternalFunctionId<C>,
     pub args: Vec<RegisterId<C>>,
 }
 
-impl<C: ContextTag> ISAInstruction<C> for CallExtern<C> {
+impl<C: Tag> ISAInstruction<C> for CallExtern<C> {
     fn is_pure() -> bool {
         // calling external functions is inherently side-effectful
         false
@@ -672,8 +672,8 @@ impl<C: ContextTag> ISAInstruction<C> for CallExtern<C> {
     }
 }
 
-impl<C: ContextTag> CallExtern<C> {
-    pub fn map_context<C2: ContextTag>(self) -> CallExtern<C2> {
+impl<C: Tag> CallExtern<C> {
+    pub fn map_context<C2: Tag>(self) -> CallExtern<C2> {
         CallExtern {
             result: self.result.map(|r| r.map_context()),
             fn_id: self.fn_id.map_context(),
@@ -683,13 +683,13 @@ impl<C: ContextTag> CallExtern<C> {
 }
 
 // TODO: widen/narrow instructions that operate based on a type
-pub struct Widen<C: ContextTag> {
+pub struct Widen<C: Tag> {
     pub result: RegisterId<C>,
     pub input: RegisterId<C>,
     pub typ: (),
 }
 
-impl<C: ContextTag> ISAInstruction<C> for Widen<C> {
+impl<C: Tag> ISAInstruction<C> for Widen<C> {
     fn declared_register(&self) -> Option<RegisterId<C>> {
         Some(self.result)
     }
@@ -703,13 +703,13 @@ impl<C: ContextTag> ISAInstruction<C> for Widen<C> {
     }
 }
 
-pub struct Narrow<C: ContextTag> {
+pub struct Narrow<C: Tag> {
     pub result: RegisterId<C>,
     pub input: RegisterId<C>,
     pub typ: (),
 }
 
-impl<C: ContextTag> ISAInstruction<C> for Narrow<C> {
+impl<C: Tag> ISAInstruction<C> for Narrow<C> {
     fn declared_register(&self) -> Option<RegisterId<C>> {
         Some(self.result)
     }

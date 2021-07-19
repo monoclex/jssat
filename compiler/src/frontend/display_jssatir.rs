@@ -67,13 +67,6 @@ pub fn display(program: &IR) -> String {
                             display_str(&program.constants.get(s).unwrap().payload)
                         );
                     }
-                    // Instruction::M(r, v) => iwl!(
-                    //     text,
-                    //     "    %{} = MakeBoolean {}",
-                    //     r,
-                    //     display_vt(f.register_types.get(*r), f),
-                    //     v
-                    // ),
                     Instruction::ReferenceOfFunction(r, f) => {
                         iwl!(text, "    %{} = MakeFnPtr @{}", r, f)
                     }

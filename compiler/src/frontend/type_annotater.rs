@@ -70,15 +70,15 @@ impl BlockExecutions {
 
 #[derive(RefCast, PartialEq, Eq, Debug, Clone)]
 #[repr(transparent)]
-pub struct InvocationArgs<C: ContextTag = PureBbCtx>(pub RegMap<C>);
+pub struct InvocationArgs<C: Tag = PureBbCtx>(pub RegMap<C>);
 
-impl<C: ContextTag> Default for InvocationArgs<C> {
+impl<C: Tag> Default for InvocationArgs<C> {
     fn default() -> Self {
         Self(Default::default())
     }
 }
 
-impl<C: ContextTag> InvocationArgs<C> {
+impl<C: Tag> InvocationArgs<C> {
     pub fn into_reg_map(self) -> RegMap<C> {
         self.0
     }

@@ -7,7 +7,7 @@ macro_rules! gen_id {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
         pub struct $name<Ctx>(::std::num::NonZeroUsize, ::std::marker::PhantomData<Ctx>);
 
-        impl<C: ContextTag> $name<C> {
+        impl<C: Tag> $name<C> {
             pub fn new() -> Self {
                 Self::new_const()
             }
@@ -20,6 +20,14 @@ macro_rules! gen_id {
                 debug_assert!(value != usize::MAX);
                 Self(
                     ::std::num::NonZeroUsize::new(value + 1).unwrap(),
+                    ::std::marker::PhantomData,
+                )
+            }
+
+            pub const fn new_with_value_raw(value: usize) -> Self {
+                debug_assert!(value != 0);
+                Self(
+                    ::std::num::NonZeroUsize::new(value).unwrap(),
                     ::std::marker::PhantomData,
                 )
             }
@@ -40,12 +48,12 @@ macro_rules! gen_id {
                 convert::<Self, I>(*self)
             }
 
-            pub fn map_context<C2: ContextTag>(&self) -> $name<C2> {
+            pub fn map_context<C2: Tag>(&self) -> $name<C2> {
                 $name::<C2>::new_with_value_const(self.value())
             }
         }
 
-        impl<C: ContextTag> crate::id::IdCompat for $name<C> {
+        impl<C: Tag> crate::id::IdCompat for $name<C> {
             fn new_with_value(value: usize) -> Self {
                 $name::<C>::new_with_value_const(value)
             }
@@ -53,9 +61,17 @@ macro_rules! gen_id {
             fn value(&self) -> usize {
                 self.0.get() - 1
             }
+
+            fn raw_value(&self) -> usize {
+                self.0.get()
+            }
+
+            fn raw_new_with_value(value: usize) -> Self {
+                $name::<C>::new_with_value_raw(value)
+            }
         }
 
-        impl<C: ContextTag> Default for $name<C> {
+        impl<C: Tag> Default for $name<C> {
             fn default() -> Self {
                 Self::new_with_value(0)
             }
@@ -77,9 +93,15 @@ pub trait IdCompat: PartialEq + Eq + Hash + Sized + Default + Debug + Copy + Clo
     fn new_with_value(value: usize) -> Self;
 
     fn value(&self) -> usize;
+
+    /// don't call! this is an implementation detail
+    fn raw_value(&self) -> usize;
+
+    /// don't call this either! this is used for retagging
+    fn raw_new_with_value(value: usize) -> Self;
 }
 
-pub trait ContextTag: PartialEq + Eq + Hash + Sized + Copy + Clone + Debug {}
+pub trait Tag: PartialEq + Eq + Hash + Sized + Copy + Clone + Debug {}
 
 pub fn convert<A, B>(a: A) -> B
 where
@@ -99,7 +121,7 @@ macro_rules! gen_id_ctx {
         #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
         pub enum $name {}
 
-        impl ContextTag for $name {}
+        impl Tag for $name {}
     };
 }
 
@@ -195,8 +217,8 @@ pub struct RegIdMap<T, U> {
 
 impl<T, U> RegIdMap<T, U>
 where
-    T: ContextTag,
-    U: ContextTag,
+    T: Tag,
+    U: Tag,
 {
     pub fn new() -> Self {
         Self {
@@ -219,8 +241,8 @@ where
 
 impl<T, U> Default for RegIdMap<T, U>
 where
-    T: ContextTag,
-    U: ContextTag,
+    T: Tag,
+    U: Tag,
 {
     fn default() -> Self {
         Self::new()
@@ -234,8 +256,8 @@ pub struct BlockIdMap<T, U> {
 
 impl<T, U> BlockIdMap<T, U>
 where
-    T: ContextTag,
-    U: ContextTag,
+    T: Tag,
+    U: Tag,
 {
     pub fn new() -> Self {
         Self {
@@ -254,8 +276,8 @@ where
 
 impl<T, U> Default for BlockIdMap<T, U>
 where
-    T: ContextTag,
-    U: ContextTag,
+    T: Tag,
+    U: Tag,
 {
     fn default() -> Self {
         Self::new()
@@ -269,8 +291,8 @@ pub struct AllocIdMap<T, U> {
 
 impl<T, U> AllocIdMap<T, U>
 where
-    T: ContextTag,
-    U: ContextTag,
+    T: Tag,
+    U: Tag,
 {
     pub fn new() -> Self {
         Self {
@@ -301,8 +323,8 @@ where
 
 impl<T, U> Default for AllocIdMap<T, U>
 where
-    T: ContextTag,
-    U: ContextTag,
+    T: Tag,
+    U: Tag,
 {
     fn default() -> Self {
         Self::new()

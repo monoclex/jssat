@@ -4,7 +4,7 @@ use rustc_hash::FxHashMap;
 
 use crate::name::DebugName;
 
-use crate::id::{ContextTag, IrCtx};
+use crate::id::{IrCtx, Tag};
 type BlockId = crate::id::BlockId<IrCtx>;
 type FunctionId = crate::id::FunctionId<IrCtx>;
 type ConstantId = crate::id::ConstantId<IrCtx>;
@@ -112,7 +112,7 @@ pub struct FunctionBlock {
 }
 
 #[derive(Debug, Clone)]
-pub enum Instruction<C: ContextTag = crate::id::IrCtx, C2: ContextTag = crate::id::IrCtx> {
+pub enum Instruction<C: Tag = crate::id::IrCtx, C2: Tag = crate::id::IrCtx> {
     RecordNew(MakeRecord<C>),
     RecordGet(RecordGet<C>),
     RecordSet(RecordSet<C>),
@@ -166,9 +166,9 @@ pub enum ControlFlowInstruction<Ctx = IrCtx, Path = IrCtx> {
     Ret(Option<RegisterId<Ctx>>),
 }
 
-impl<C: ContextTag> Instruction<C> {
+impl<C: Tag> Instruction<C> {
     // this should turn into a no-op lol
-    pub fn map_context<C2: ContextTag>(self) -> Instruction<C2> {
+    pub fn map_context<C2: Tag>(self) -> Instruction<C2> {
         match self {
             Instruction::MakeString(r, s) => Instruction::MakeString(r.map_context::<C2>(), s),
             Instruction::CompareLessThan(inst) => Instruction::CompareLessThan(inst.map_context()),
@@ -190,9 +190,9 @@ impl<C: ContextTag> Instruction<C> {
     }
 }
 
-impl<CO: ContextTag, PO: ContextTag> ControlFlowInstruction<CO, PO> {
+impl<CO: Tag, PO: Tag> ControlFlowInstruction<CO, PO> {
     // this should turn into a no-op lol
-    pub fn map_context<CD: ContextTag, PD: ContextTag>(self) -> ControlFlowInstruction<CD, PD> {
+    pub fn map_context<CD: Tag, PD: Tag>(self) -> ControlFlowInstruction<CD, PD> {
         match self {
             ControlFlowInstruction::Jmp(BasicBlockJump(p, a)) => {
                 ControlFlowInstruction::Jmp(BasicBlockJump(
@@ -230,7 +230,7 @@ impl<CO: ContextTag, PO: ContextTag> ControlFlowInstruction<CO, PO> {
     }
 }
 
-impl<C: ContextTag> Instruction<C> {
+impl<C: Tag> Instruction<C> {
     pub fn assigned_to(&self) -> Option<RegisterId<C>> {
         match self {
             Instruction::MakeString(result, _) | Instruction::ReferenceOfFunction(result, _) => {
