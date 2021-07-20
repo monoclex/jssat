@@ -93,6 +93,7 @@ fn opt_blk(regs: &mut RegMap<AssemblerCtx>, cnsts: &Cnsts, b: &mut Block) {
     // because when we modify the params of all blocks, we modify the params of the entry block,
     // and the params of the entry block are the params of the function
     for i in b.instructions.iter_mut() {
+        let i2 = i.clone();
         match i {
             Instruction::Call(_, Callable::Static(_), args) => {
                 let mut new_args = vec![];
@@ -115,7 +116,7 @@ fn opt_blk(regs: &mut RegMap<AssemblerCtx>, cnsts: &Cnsts, b: &mut Block) {
                 // we can just noop this
 
                 if let ValueType::Record(alloc) = *regs.get(*record) {
-                    let total_shape = regs.get_shape(alloc);
+                    let total_shape = regs.get_shape_by_id(shape_id);
                     let key = match key {
                         RecordKey::Prop(v) => match regs.get(*v) {
                             ValueType::ExactString(s) => ShapeKey::Str(s.clone()),
@@ -133,6 +134,10 @@ fn opt_blk(regs: &mut RegMap<AssemblerCtx>, cnsts: &Cnsts, b: &mut Block) {
                         },
                         RecordKey::Slot(s) => ShapeKey::InternalSlot(*s),
                     };
+                    println!("key: {:?}", key);
+                    println!("shape: {:?}", total_shape);
+                    println!("final shape: {:?}", regs.get_shape(alloc));
+                    println!("inst: {:?}", i2);
                     let k = total_shape.type_at_key(&key);
 
                     if regs.is_const_typ(k) && regs.is_const(*value) {

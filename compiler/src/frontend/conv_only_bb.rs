@@ -103,7 +103,7 @@ pub fn translate(ir: &IR) -> PureBlocks {
         ext_fn_retagger.retag_new(*id);
     }
 
-    let mut blk_retagger = BlkMapRetagger::default();
+    let mut counter = 0;
 
     for (id, function) in ir.functions.iter() {
         // UNIQUENESS GUARANTEE:
@@ -114,6 +114,7 @@ pub fn translate(ir: &IR) -> PureBlocks {
         // a unique mapping of { fn id |-> func } pairing
         // the block ids are guaranteed to be unique by the assertion inside
         // thus, we can safely extend `blocks` and know nothing is being overwritten
+        let mut blk_retagger = BlkMapRetagger::new_with_counter(counter);
         let results = translate_function(
             *id,
             function,
@@ -121,6 +122,7 @@ pub fn translate(ir: &IR) -> PureBlocks {
             &fn_retagger,
             &mut blk_retagger,
         );
+        counter = blk_retagger.counter();
         println!(
             "we are converting pure {:?}, {:?} :: {:?}",
             id, function, results
@@ -540,7 +542,7 @@ fn compute_highest_register(f: &Function) -> Option<RegisterId<IrCtx>> {
 
 fn to_rewriting_fn(
     f: &Function,
-    blk_retagger: &mut BlkMapRetagger<IrCtx, PureBbCtx>,
+    blk_retagger: &mut impl BlkRetagger<IrCtx, PureBbCtx>,
     ext_fn_retagger: &ExtFnPassRetagger<IrCtx, IrCtx>,
     fn_retagger: &impl FnRetagger<IrCtx, IrCtx>,
 ) -> RewritingFn {

@@ -201,6 +201,18 @@ impl<C: Tag, C2: Tag> BlkGenRetagger<C, C2> for BlkGenPassRetagger<C, C2> {
 
 pub struct BlkMapRetagger<C: Tag, C2: Tag>(MapRetagger<BlockId<C>, BlockId<C2>>);
 
+impl<B: Tag, B2: Tag> BlkMapRetagger<B, B2> {
+    pub fn counter(&self) -> usize {
+        self.0.counter
+    }
+
+    pub fn new_with_counter(counter: usize) -> Self {
+        let mut me = Self::default();
+        me.0.counter = counter;
+        me
+    }
+}
+
 impl<A: Tag, B: Tag> Default for BlkMapRetagger<A, B> {
     fn default() -> Self {
         Self(Default::default())
@@ -698,11 +710,11 @@ impl<I1: IdCompat, I2: IdCompat> CoreRetagger for MapRetagger<I1, I2> {
             .insert(id.raw_value(), (self.counter, Location::caller()));
 
         if let Some((_, location)) = old_value {
-            // panic!(
-            //     "attempted to retag new value {}, value was old. initial retag: {}",
-            //     id.value(),
-            //     location
-            // );
+            panic!(
+                "attempted to retag new value {}, value was old. initial retag: {}",
+                id.value(),
+                location
+            );
         }
 
         I2::raw_new_with_value(self.counter)
@@ -735,6 +747,8 @@ impl<I1, I2: IdCompat> MapRetagger<I1, I2> {
             // TODO: i can't imagine this actually doing anything
             if self.map.get(&self.counter).is_none() {
                 break;
+            } else {
+                println!("wtf we shouldnt run into this");
             }
         }
 

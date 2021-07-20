@@ -634,8 +634,10 @@ where
                     (self.fn_assembler.assembler.pure_bocks).get_block_id_by_host(func, entry_blk);
                 self.instructions
                     .push(Instruction::MakeFnPtr(fnptr, pure_bb_id));
-                self.register_types
-                    .insert(fnptr, ValueType::FnPtr(pure_bb_id));
+
+                // TODO: aren't we suppose to insert types??????????????????/ wtf??????????????????????////////
+                // self.register_types
+                //     .insert(fnptr, ValueType::FnPtr(pure_bb_id));
             }
             &ir::Instruction::MakeTrivial(inst) => {
                 let inst = inst.retag(self.retagger);
@@ -644,15 +646,16 @@ where
                         result: inst.result,
                         item: inst.item,
                     }));
-                self.register_types.insert(
-                    inst.result,
-                    match inst.item {
-                        super::isa::TrivialItem::Runtime => ValueType::Runtime,
-                        super::isa::TrivialItem::Null => ValueType::Null,
-                        super::isa::TrivialItem::Undefined => ValueType::Undefined,
-                        super::isa::TrivialItem::Empty => todo!(), // ValueType::Empty,
-                    },
-                );
+                // TODO: aren't we suppose to insert types??????????????????/ wtf??????????????????????////////
+                // self.register_types.insert(
+                //     inst.result,
+                //     match inst.item {
+                //         super::isa::TrivialItem::Runtime => ValueType::Runtime,
+                //         super::isa::TrivialItem::Null => ValueType::Null,
+                //         super::isa::TrivialItem::Undefined => ValueType::Undefined,
+                //         super::isa::TrivialItem::Empty => todo!(), // ValueType::Empty,
+                //     },
+                // );
             }
             &ir::Instruction::MakeString(str, val) => {
                 let constant = self.fn_assembler.assembler.ir.constants.get(&val).unwrap();
@@ -665,15 +668,19 @@ where
 
                 self.instructions
                     .push(Instruction::MakeString(str_reg, const_id));
-                self.register_types
-                    .insert(str_reg, ValueType::ExactString(constant.payload.clone()));
+
+                // TODO: aren't we suppose to insert types??????????????????/ wtf??????????????????????////////
+                // self.register_types
+                //     .insert(str_reg, ValueType::ExactString(constant.payload.clone()));
             }
             &ir::Instruction::MakeInteger(inst) => {
                 let inst = inst.retag(self.retagger);
                 self.instructions
                     .push(Instruction::MakeNumber(inst.result, inst.value));
-                self.register_types
-                    .insert(inst.result, ValueType::ExactInteger(inst.value));
+
+                // TODO: aren't we suppose to insert types??????????????????/ wtf??????????????????????////////
+                // self.register_types
+                //     .insert(inst.result, ValueType::ExactInteger(inst.value));
             }
             &ir::Instruction::CompareLessThan(inst) => {
                 let cmp_typ = self.type_info.get_type(inst.result);
@@ -686,7 +693,9 @@ where
                 if let ValueType::Bool(b) = *cmp_typ {
                     self.instructions
                         .push(Instruction::MakeBoolean(inst.result, b));
-                    self.register_types.insert(inst.result, ValueType::Bool(b));
+
+                // TODO: aren't we suppose to insert types??????????????????/ wtf??????????????????????////////
+                // self.register_types.insert(inst.result, ValueType::Bool(b));
                 } else {
                     todo!(
                         "support non const comparison via {:?} {:?}",
@@ -704,8 +713,10 @@ where
                 if let ValueType::ExactInteger(i) = *res_typ {
                     self.instructions
                         .push(Instruction::MakeNumber(inst.result, i));
-                    self.register_types
-                        .insert(inst.result, ValueType::ExactInteger(i));
+
+                // TODO: aren't we suppose to insert types??????????????????/ wtf??????????????????????////////
+                // self.register_types
+                //     .insert(inst.result, ValueType::ExactInteger(i));
                 } else {
                     todo!("suport non const math via {:?} {:?}", inst.lhs, inst.rhs);
                 }
@@ -741,7 +752,8 @@ where
 
                 if let Some(reg) = inst.result {
                     if let ir::Returns::Value(v) = ext_fn.return_type.clone() {
-                        self.register_types.insert(reg, v.into_value_type());
+                        // TODO: aren't we suppose to insert types??????????????????/ wtf??????????????????????////////
+                        // self.register_types.insert(reg, v.into_value_type());
                     } else {
                         panic!("expected assignment to a register to be non void");
                     }
@@ -808,8 +820,9 @@ where
                 if let (Some(reg), Some(orig_reg)) = (inst.result, original_res) {
                     // TODO: handle never type
 
-                    self.register_types
-                        .insert(reg, self.type_info.get_type(orig_reg).clone());
+                    // TODO: aren't we suppose to insert types??????????????????/ wtf??????????????????????////////
+                    // self.register_types
+                    //     .insert(reg, self.type_info.get_type(orig_reg).clone());
                 } else if inst.result.is_some() {
                     panic!("didnt assign return type");
                 }
@@ -882,9 +895,10 @@ where
             &ir::Instruction::RecordNew(inst) => {
                 let inst = inst.retag(self.retagger);
                 self.instructions.push(Instruction::RecordNew(inst.result));
-                let alloc = self.register_types.insert_alloc();
-                self.register_types
-                    .insert(inst.result, ValueType::Record(alloc));
+                // TODO: aren't we suppose to insert types??????????????????/ wtf??????????????????????////////
+                // let alloc = self.register_types.insert_alloc();
+                // self.register_types
+                //     .insert(inst.result, ValueType::Record(alloc));
             }
             &ir::Instruction::RecordGet(inst) => {
                 let inst = inst.retag(self.retagger);
@@ -915,7 +929,9 @@ where
                     println!("record shape is {:?}", shape);
                     let prop_value_typ = shape.type_at_key(&key).clone();
                     println!("prop typ {:?}", prop_value_typ);
-                    self.register_types.insert(inst.result, prop_value_typ);
+
+                    // TODO: aren't we suppose to insert types??????????????????/ wtf??????????????????????////////
+                    // self.register_types.insert(inst.result, prop_value_typ);
 
                     self.instructions.push(Instruction::RecordGet {
                         result: inst.result,
@@ -975,7 +991,9 @@ where
                 if let ValueType::Bool(b) = *res_typ {
                     self.instructions
                         .push(Instruction::MakeBoolean(inst.result, b));
-                    self.register_types.insert(inst.result, ValueType::Bool(b));
+
+                // TODO: aren't we suppose to insert types??????????????????/ wtf??????????????????????////////
+                // self.register_types.insert(inst.result, ValueType::Bool(b));
                 } else {
                     todo!(
                         "suport non const comparison via {:?} {:?}",
@@ -993,7 +1011,9 @@ where
                 if let ValueType::Bool(b) = *res_typ {
                     self.instructions
                         .push(Instruction::MakeBoolean(inst.result, b));
-                    self.register_types.insert(inst.result, ValueType::Bool(b));
+
+                // TODO: aren't we suppose to insert types??????????????????/ wtf??????????????????????////////
+                // self.register_types.insert(inst.result, ValueType::Bool(b));
                 } else {
                     todo!(
                         "suport non const comparison via {:?} {:?}",
@@ -1013,6 +1033,7 @@ where
         HaltStatus::Continue
     }
 
+    #[track_caller]
     fn map_bbjump(
         &mut self,
         bbjump: &crate::frontend::isa::BlockJump<PureBbCtx, PureBbCtx>,

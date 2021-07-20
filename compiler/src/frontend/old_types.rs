@@ -112,7 +112,12 @@ impl<C: Tag> RegMap<C> {
             );
         }
 
-        self.registers.insert(register, typ);
+        println!(
+            "currently: {:?} <-| {:?}",
+            self.registers.get(&register),
+            typ
+        );
+        self.registers.insert(register, typ).expect_free();
     }
 
     pub fn insert_alloc(&mut self) -> AllocationId<NoContext> {
@@ -154,6 +159,9 @@ impl<C: Tag> RegMap<C> {
     }
 
     pub fn extend(&mut self, other: RegMap<C>) {
+        for (other, _) in other.registers.iter() {
+            debug_assert!(!self.registers.contains_key(other));
+        }
         self.registers.extend(other.registers);
 
         for (k, v) in other.allocations {
@@ -163,11 +171,14 @@ impl<C: Tag> RegMap<C> {
                 .extend(v);
         }
 
+        for (other, _) in other.shapes.iter() {
+            debug_assert!(self.shapes.contains_key(other));
+        }
         self.shapes.extend(other.shapes);
     }
 
     pub fn remove_alloc(&mut self, id: AllocationId<NoContext>) {
-        self.allocations.remove(&id);
+        self.allocations.remove(&id).unwrap();
         // not having an allocation is really bad
         // an empty reord is better
         let empty_rec_shape = self.insert_shape(RecordShape::default());

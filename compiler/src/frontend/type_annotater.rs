@@ -66,9 +66,9 @@ impl BlockExecutions {
         &self,
         invocation_args: &InvocationArgs,
     ) -> &TypeInformation {
-        // println!("===");
-        // println!("typ info; {:#?}", invocation_args);
-        // println!("_our runs_; {:#?}", self.runs);
+        println!("===");
+        println!("typ info; {:#?}", invocation_args);
+        println!("_our runs_; {:#?}", self.runs);
         self.runs.get(invocation_args).unwrap()
     }
 }
