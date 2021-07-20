@@ -227,27 +227,23 @@ where
         }
     }
 
-    pub fn map(&mut self, source: AllocationId<T>) -> AllocationId<U> {
-        let (id, _) = self.map_is_new(source);
-        id
-    }
-
     pub fn map_is_new(&mut self, source: AllocationId<T>) -> (AllocationId<U>, bool) {
         let reg_counter = &self.reg_counter;
         let mut is_new = false;
+        let tmp = self.registers.clone();
         let alloc = *(self.registers).entry(source).or_insert_with(|| {
             is_new = true;
             // TODO: this is a hack just to test if it's reg allocation being weird
-            // for i in 0..100 {
-            //     reg_counter.next();
-            // }
-            reg_counter.next()
+            for i in 0..=0 {
+                // reg_counter.next();
+            }
+            let id = reg_counter.next();
+            if tmp.values().any(|v| v == &id) {
+                panic!("giong to insert already inserted key");
+            }
+            id
         });
         (alloc, is_new)
-    }
-
-    pub fn gen(&mut self) -> AllocationId<U> {
-        self.reg_counter.next()
     }
 }
 

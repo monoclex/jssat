@@ -66,6 +66,9 @@ impl BlockExecutions {
         &self,
         invocation_args: &InvocationArgs,
     ) -> &TypeInformation {
+        // println!("===");
+        // println!("typ info; {:#?}", invocation_args);
+        // println!("_our runs_; {:#?}", self.runs);
         self.runs.get(invocation_args).unwrap()
     }
 }
@@ -117,7 +120,7 @@ struct SymbolicExecutionEngine<'duration> {
     execution_map: ExecutionMap,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct ExecutionResult {
     registers: RegMap<PureBbCtx>,
     returns: ReturnType,
@@ -324,6 +327,14 @@ impl<'d> SymbolicExecutionEngine<'d> {
                         .collect::<Vec<_>>();
                     debug_assert_eq!(src_regs.len(), dest_regs.len());
 
+                    println!("beginning call: {:?} |-> {:?}", src_regs, dest_regs);
+                    println!(
+                        "beginning call: {:?} |->",
+                        src_regs
+                            .iter()
+                            .map(|a| registers.get(*a))
+                            .collect::<Vec<_>>()
+                    );
                     let invocation_args = registers
                         .prepare_invocation(src_regs.into_iter().zip(dest_regs.into_iter()));
 

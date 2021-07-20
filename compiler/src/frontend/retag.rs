@@ -49,6 +49,7 @@ pub trait RegGenRetagger<C: Tag, C2: Tag>: RegRetagger<C, C2> {
     fn gen(&mut self) -> RegisterId<C2>;
 }
 
+#[derive(Debug)]
 pub struct RegPassRetagger<C: Tag, C2: Tag>(PassRetagger<RegisterId<C>, RegisterId<C2>>);
 
 impl<A: Tag, B: Tag> RegPassRetagger<A, B> {

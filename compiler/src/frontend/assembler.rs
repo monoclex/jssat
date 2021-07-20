@@ -9,11 +9,11 @@ use super::{
     ir::{FFIValueType, IR},
     isa::{CallExtern, CallStatic, CallVirt, ISAInstruction, MakeTrivial, OpLessThan, RecordKey},
     old_types::{RegMap, ShapeKey},
-    retag::{ExtFnPassRetagger, RegGenRetagger, RegMapRetagger},
+    retag::{ExtFnPassRetagger, RegGenRetagger, RegMapRetagger, RegRetagger},
     type_annotater::{self, InvocationArgs, TypeAnnotations, TypeInformation, ValueType},
 };
-use crate::frontend::retag::BlkRetagger;
 use crate::frontend::retag::{BlkPassRetagger, FnRetagger};
+use crate::frontend::retag::{BlkRetagger, RegPassRetagger};
 use crate::frontend::retag::{ExtFnRetagger, FnPassRetagger};
 use crate::id::*;
 use rustc_hash::FxHashMap;
@@ -523,6 +523,10 @@ where
         let type_info = fn_assembler.type_info_for_assembler_block(block_id);
         let bb = (fn_assembler.assembler.pure_bocks).get_block(type_info.pure_id);
 
+        println!(
+            "we are clling this block wti hreg typs: {:#?}",
+            bb_register_types
+        );
         let register_types = bb_register_types.duplicate_with_allocations();
 
         Self {
@@ -547,10 +551,6 @@ where
         );
 
         println!("params: {:?}", self.bb.parameters);
-        println!(
-            "blocks: {}",
-            crate::frontend::display_bb::display(&self.fn_assembler.assembler.pure_bocks)
-        );
 
         let parameters = self
             .bb
@@ -561,6 +561,13 @@ where
                     typ: self.type_info.register_types.get(*r).clone(),
                     register: self.retagger.retag_new(*r),
                 };
+                println!(
+                    "{:?} |-> {:?} : {:?}",
+                    *r, parameter.register, parameter.typ
+                );
+                if let ValueType::Record(a) = &parameter.typ {
+                    println!(":: {:?}", self.register_types.get_shape(*a));
+                }
                 self.register_types
                     .insert(parameter.register, parameter.typ.clone());
                 parameter
@@ -580,6 +587,7 @@ where
                 EndInstruction::Jump(self.map_bbjump(&bbjump.0))
             }
             ir::ControlFlowInstruction::JmpIf(inst) => {
+                println!("the condition in {:?}", inst);
                 let condition = self.retagger.retag_old(inst.condition);
                 match self.register_types.get(condition) {
                     ValueType::Bool(true) => EndInstruction::Jump(self.map_bbjump(&inst.if_so)),
@@ -609,6 +617,13 @@ where
     }
 
     fn write_inst(&mut self, inst: &ir::Instruction<PureBbCtx>) -> HaltStatus {
+        println!("writing inst {:?}", inst);
+        for u in inst.used_registers() {
+            let r = self.retagger.retag_old(u);
+            let t = self.register_types.get(r);
+            println!("%{}: {:?}", r, t);
+        }
+
         match inst {
             ir::Instruction::Comment(_, _) => {}
             &ir::Instruction::ReferenceOfFunction(result, func) => {
@@ -795,6 +810,8 @@ where
 
                     self.register_types
                         .insert(reg, self.type_info.get_type(orig_reg).clone());
+                } else if inst.result.is_some() {
+                    panic!("didnt assign return type");
                 }
 
                 self.to_assemble.push(annotated_blk_id);
@@ -852,6 +869,8 @@ where
 
                     self.register_types
                         .insert(reg, self.type_info.get_type(orig_reg).clone());
+                } else if inst.result.is_some() {
+                    panic!("didnt assign return type");
                 }
 
                 self.to_assemble.push(annotated_blk_id);
@@ -891,8 +910,11 @@ where
                 };
 
                 if let ValueType::Record(alloc) = *self.register_types.get(inst.record) {
+                    println!("record type is {:?}", alloc);
                     let shape = self.register_types.get_shape(alloc);
+                    println!("record shape is {:?}", shape);
                     let prop_value_typ = shape.type_at_key(&key).clone();
+                    println!("prop typ {:?}", prop_value_typ);
                     self.register_types.insert(inst.result, prop_value_typ);
 
                     self.instructions.push(Instruction::RecordGet {
@@ -981,6 +1003,13 @@ where
                 }
             }
         };
+
+        if let Some(u) = inst.assigned_to() {
+            let r = self.retagger.retag_old(u);
+            let t = self.register_types.get(r);
+            println!("%{} = {:?}", r, t);
+        }
+
         HaltStatus::Continue
     }
 
@@ -1009,6 +1038,9 @@ where
         let invocation_args = self
             .register_types
             .prepare_invocation(src_regs.into_iter().zip(dest_regs.into_iter()));
+
+        println!("calling in {:?}", bbjump);
+        println!("because {}", std::panic::Location::caller());
 
         let typ_info = self
             .fn_assembler

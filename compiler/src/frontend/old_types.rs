@@ -1,6 +1,6 @@
 use std::{collections::VecDeque, iter::FromIterator};
 
-use crate::id::*;
+use crate::{id::*, UnwrapNone};
 use petgraph::{visit::EdgeRef, EdgeDirection};
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -118,18 +118,34 @@ impl<C: Tag> RegMap<C> {
     pub fn insert_alloc(&mut self) -> AllocationId<NoContext> {
         let shape = self.insert_shape(RecordShape::default());
 
-        let alloc_id = self.allocation_id_gen.next_and_mut();
-        self.allocations.insert(alloc_id, vec![shape]);
+        let mut alloc_id;
+        loop {
+            alloc_id = self.allocation_id_gen.next_and_mut();
+            if self.allocations.contains_key(&alloc_id) {
+                println!("wtf why are we generating an allocation taht alreadyu exists???????????????????????????");
+                continue;
+            }
+            break;
+        }
+        self.allocations.insert(alloc_id, vec![shape]).expect_free();
         alloc_id
     }
 
     pub fn alloc_alloc(&mut self, alloc_id: AllocationId<NoContext>) {
-        self.allocations.insert(alloc_id, vec![]);
+        self.allocations.insert(alloc_id, vec![]).expect_free();
     }
 
     pub fn insert_shape(&mut self, shape: RecordShape) -> ShapeId<C> {
-        let shape_id = self.shape_id_gen.next_and_mut();
-        self.shapes.insert(shape_id, shape);
+        let mut shape_id;
+        loop {
+            shape_id = self.shape_id_gen.next_and_mut();
+            if self.shapes.contains_key(&shape_id) {
+                println!("wtf why are we generating a shape that already exists??????????");
+                continue;
+            }
+            break;
+        }
+        self.shapes.insert(shape_id, shape).expect_free();
         shape_id
     }
 
@@ -398,17 +414,19 @@ impl<C: Tag> RegMap<C> {
                 if is_new {
                     // if the type is new, we need to make a shape and allocation things
                     target.alloc_alloc(alloc_id);
-                    let current_shape = self.get_shape(orig_alloc_id);
-                    let mut new_shape = RecordShape::default();
+                    for shp in self.get_shapes(orig_alloc_id) {
+                        let current_shape = self.get_shape_by_id(shp);
+                        let mut new_shape = RecordShape::default();
 
-                    for (k, v) in current_shape.fields() {
-                        // TODO: this is a pitfall
-                        new_shape = new_shape
-                            .add_prop(k.clone(), self.map_type(v.clone(), target, alloc_map));
+                        for (k, v) in current_shape.fields() {
+                            // TODO: this is a pitfall
+                            new_shape = new_shape
+                                .add_prop(k.clone(), self.map_type(v.clone(), target, alloc_map));
+                        }
+
+                        let shape_id = target.insert_shape(new_shape);
+                        target.assign_new_shape(alloc_id, shape_id);
                     }
-
-                    let shape_id = target.insert_shape(new_shape);
-                    target.assign_new_shape(alloc_id, shape_id);
                 }
 
                 ValueType::Record(alloc_id)
@@ -437,7 +455,11 @@ impl<C: Tag> RegMap<C> {
                 .into_iter()
                 .map(|(k, v)| (k.map_context(), v))
                 .collect(),
-            ..Default::default()
+            registers: self
+                .registers
+                .iter()
+                .map(|(k, v)| (k.map_context(), v.clone()))
+                .collect::<FxHashMap<_, _>>(),
         }
     }
 }

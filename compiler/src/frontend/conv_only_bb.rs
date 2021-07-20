@@ -51,7 +51,9 @@ impl PureBlocks {
         let mut map_id = FxHashMap::default();
 
         for (key, block) in map.into_iter() {
+            println!("iserting ito map-to-host: {:?} |-> {:?}", key, block.id);
             map_to_host.insert(key, block.id);
+            println!("curr map-to-host: {:?}", &map_to_host);
             map_id.insert(block.id, block);
         }
 
@@ -112,14 +114,21 @@ pub fn translate(ir: &IR) -> PureBlocks {
         // a unique mapping of { fn id |-> func } pairing
         // the block ids are guaranteed to be unique by the assertion inside
         // thus, we can safely extend `blocks` and know nothing is being overwritten
-        blocks.extend(translate_function(
+        let results = translate_function(
             *id,
             function,
             &ext_fn_retagger,
             &fn_retagger,
-        ));
+            &mut blk_retagger,
+        );
+        println!(
+            "we are converting pure {:?}, {:?} :: {:?}",
+            id, function, results
+        );
+        blocks.extend(results);
     }
 
+    println!("done pureblocks, got: {:?}", blocks);
     PureBlocks::new(blocks)
 }
 

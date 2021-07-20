@@ -34,6 +34,7 @@ pub trait UnwrapNone {
 }
 
 impl<T> UnwrapNone for Option<T> {
+    #[track_caller]
     fn expect_none(self, msg: &str) {
         assert!(matches!(self, None), "{}", msg);
     }
@@ -42,6 +43,7 @@ impl<T> UnwrapNone for Option<T> {
         assert!(matches!(self, None))
     }
 
+    #[track_caller]
     fn expect_free(self) {
         self.expect_none("must be free insertion slot");
     }
@@ -170,7 +172,7 @@ fn main() {
     let mut program = program;
 
     // this will probably run our opts enough
-    for _ in 0..2 {
+    for _ in 0..4 {
         program = frontend::asm_opt_const_elim::opt_constant_elimination(program);
         // eprintln!("{:#?}", program);
         println!("=== MID OPT1 ===");
