@@ -40,9 +40,7 @@ pub fn display(program: &PureBlocks) -> String {
                 Instruction::CallExtern(t) => iwl!(text, "    {:?}", t),
                 Instruction::CallStatic(t) => iwl!(text, "    {:?}", t),
                 Instruction::MakeTrivial(t) => iwl!(text, "    {:?}", t),
-                Instruction::MakeString(r, s) => {
-                    iwl!(text, "    %{} = MakeString {}", r, s);
-                }
+                Instruction::MakeString(inst) => iwl!(text, "    {:?}", inst),
                 Instruction::ReferenceOfFunction(r, f) => {
                     iwl!(text, "    %{} = MakeFnPtr @{}", r, f)
                 }

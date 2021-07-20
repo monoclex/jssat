@@ -6,17 +6,17 @@ use derive_more::Display;
 use tinyvec::{tiny_vec, TinyVec};
 
 use crate::id::BlockId;
+use crate::id::ConstantId;
 use crate::id::ExternalFunctionId;
 use crate::id::FunctionId;
 use crate::id::RegisterId;
 use crate::id::Tag;
 
 use super::retag::BlkRetagger;
+use super::retag::CnstRetagger;
 use super::retag::ExtFnRetagger;
 use super::retag::FnRetagger;
 use super::retag::RegRetagger;
-
-type ConstantId = crate::id::ConstantId<crate::id::NoContext>;
 
 /// The contract provided by any single instruction. Provides methods to make
 /// interfacing with all instructions easy.
@@ -311,19 +311,37 @@ impl<C: Tag> MakeTrivial<C> {
     }
 }
 
-pub struct MakeBytes<C: Tag>(pub RegisterId<C>, pub ConstantId);
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct MakeBytes<R: Tag, C: Tag> {
+    pub result: RegisterId<R>,
+    pub constant: ConstantId<C>,
+}
 
-impl<C: Tag> ISAInstruction<C> for MakeBytes<C> {
-    fn declared_register(&self) -> Option<RegisterId<C>> {
-        Some(self.0)
+impl<R: Tag, C: Tag> ISAInstruction<R> for MakeBytes<R, C> {
+    fn declared_register(&self) -> Option<RegisterId<R>> {
+        Some(self.result)
     }
 
-    fn used_registers(&self) -> TinyVec<[RegisterId<C>; 3]> {
+    fn used_registers(&self) -> TinyVec<[RegisterId<R>; 3]> {
         TinyVec::new()
     }
 
-    fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
+    fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<R>> {
         Vec::new()
+    }
+}
+
+impl<R: Tag, C: Tag> MakeBytes<R, C> {
+    #[track_caller]
+    pub fn retag<R2: Tag, C2: Tag>(
+        self,
+        reg_retagger: &mut impl RegRetagger<R, R2>,
+        const_retagger: &impl CnstRetagger<C, C2>,
+    ) -> MakeBytes<R2, C2> {
+        MakeBytes {
+            result: reg_retagger.retag_new(self.result),
+            constant: const_retagger.retag_old(self.constant),
+        }
     }
 }
 

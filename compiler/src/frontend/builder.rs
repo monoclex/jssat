@@ -9,9 +9,9 @@ use crate::name::DebugName;
 use crate::UnwrapNone;
 
 use super::isa::{
-    BlockJump, CallExtern, CallStatic, CallVirt, InternalSlot, Jump, JumpIf, MakeInteger,
-    MakeRecord, MakeTrivial, OpAdd, OpEquals, OpLessThan, OpNegate, RecordGet, RecordKey,
-    RecordSet, Return, TrivialItem,
+    BlockJump, CallExtern, CallStatic, CallVirt, InternalSlot, Jump, JumpIf, MakeBytes,
+    MakeInteger, MakeRecord, MakeTrivial, OpAdd, OpEquals, OpLessThan, OpNegate, RecordGet,
+    RecordKey, RecordSet, Return, TrivialItem,
 };
 
 pub type BlockId = crate::id::BlockId<crate::id::IrCtx>;
@@ -455,10 +455,10 @@ impl DynBlockBuilder {
         result
     }
 
-    pub fn make_string(&mut self, constant_id: ConstantId) -> RegisterId {
+    pub fn make_string(&mut self, constant: ConstantId) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions
-            .push(Instruction::MakeString(result, constant_id));
+            .push(Instruction::MakeString(MakeBytes { result, constant }));
         result
     }
 

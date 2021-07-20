@@ -1,6 +1,6 @@
 use crate::frontend::ir::{ControlFlowInstruction, Function, Instruction, IR};
 use crate::frontend::isa::BlockJump;
-use crate::frontend::retag::BlkRetagger;
+use crate::frontend::retag::{BlkRetagger, CnstPassRetagger};
 use crate::frontend::retag::{RegGenPassRetagger, RegRetagger};
 use crate::id::*;
 use crate::UnwrapNone;
@@ -10,8 +10,8 @@ use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
 use std::hash::{BuildHasherDefault, Hash};
 
 use super::retag::{
-    BlkMapRetagger, BlkPassRetagger, ExtFnPassRetagger, FnPassRetagger, FnRetagger, RegGenRetagger,
-    RegPassRetagger,
+    BlkMapRetagger, BlkPassRetagger, CnstRetagger, ExtFnPassRetagger, FnPassRetagger, FnRetagger,
+    RegGenRetagger, RegPassRetagger,
 };
 use crate::frontend::retag::ExtFnRetagger;
 
@@ -103,6 +103,11 @@ pub fn translate(ir: &IR) -> PureBlocks {
         ext_fn_retagger.retag_new(*id);
     }
 
+    let mut const_retagger = CnstPassRetagger::default();
+    for (id, _) in ir.constants.iter() {
+        const_retagger.retag_new(*id);
+    }
+
     let mut counter = 0;
 
     for (id, function) in ir.functions.iter() {
@@ -121,6 +126,7 @@ pub fn translate(ir: &IR) -> PureBlocks {
             &ext_fn_retagger,
             &fn_retagger,
             &mut blk_retagger,
+            &const_retagger,
         );
         counter = blk_retagger.counter();
         println!(
@@ -404,13 +410,20 @@ pub fn translate_function(
     ext_fn_retagger: &ExtFnPassRetagger<IrCtx, IrCtx>,
     fn_retagger: &impl FnRetagger<IrCtx, IrCtx>,
     blk_retagger: &mut BlkMapRetagger<IrCtx, PureBbCtx>,
+    const_retagger: &impl CnstRetagger<IrCtx, IrCtx>,
 ) -> FxHashMap<HostBlock, Block> {
     let highest_register = compute_highest_register(func);
     let mut retagger = RegGenPassRetagger::new(highest_register.unwrap_or_default());
 
     // we will need to mutate something as we gradually get every basic block
     // into slowly a purer and purer state
-    let mut granular_rewrite = to_rewriting_fn(func, blk_retagger, ext_fn_retagger, fn_retagger);
+    let mut granular_rewrite = to_rewriting_fn(
+        func,
+        blk_retagger,
+        ext_fn_retagger,
+        fn_retagger,
+        const_retagger,
+    );
 
     let flow = compute_flow(&granular_rewrite);
     println!("the flow: {:?}", flow);
@@ -545,6 +558,7 @@ fn to_rewriting_fn(
     blk_retagger: &mut impl BlkRetagger<IrCtx, PureBbCtx>,
     ext_fn_retagger: &ExtFnPassRetagger<IrCtx, IrCtx>,
     fn_retagger: &impl FnRetagger<IrCtx, IrCtx>,
+    const_retagger: &impl CnstRetagger<IrCtx, IrCtx>,
 ) -> RewritingFn {
     // TODO: we should've gotten a runtime error while mapping things if
     // using `BlkMapRetagger` instead of `BlkPassRetagger` is the fix (fix for what??????)
@@ -586,7 +600,10 @@ fn to_rewriting_fn(
         let instructions = block
             .instructions
             .iter()
-            .map(|i| i.clone().retag(&mut retagger, ext_fn_retagger, fn_retagger))
+            .map(|i| {
+                i.clone()
+                    .retag(&mut retagger, ext_fn_retagger, fn_retagger, const_retagger)
+            })
             .collect();
 
         let end = block.end.clone().retag(&retagger, blk_retagger);

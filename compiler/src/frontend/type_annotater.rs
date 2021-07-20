@@ -207,9 +207,12 @@ impl<'d> SymbolicExecutionEngine<'d> {
                         super::isa::TrivialItem::Empty => todo!(), // ValueType::Empty,
                     },
                 ),
-                &Instruction::MakeString(r, c) => {
-                    let constant = self.ir.constants.get(&c).unwrap();
-                    registers.insert(r, ValueType::ExactString(constant.payload.clone()));
+                &Instruction::MakeString(inst) => {
+                    let constant = self.ir.constants.get(&inst.constant).unwrap();
+                    registers.insert(
+                        inst.result,
+                        ValueType::ExactString(constant.payload.clone()),
+                    );
                 }
                 &Instruction::MakeInteger(inst) => {
                     registers.insert(inst.result, ValueType::ExactInteger(inst.value));

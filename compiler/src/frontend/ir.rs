@@ -11,10 +11,11 @@ type ConstantId = crate::id::ConstantId<IrCtx>;
 use crate::id::RegisterId;
 
 use super::isa::{
-    BlockJump, CallExtern, CallStatic, CallVirt, ISAInstruction, Jump, JumpIf, MakeInteger,
-    MakeRecord, MakeTrivial, OpAdd, OpEquals, OpLessThan, OpNegate, RecordGet, RecordSet, Return,
+    BlockJump, CallExtern, CallStatic, CallVirt, ISAInstruction, Jump, JumpIf, MakeBytes,
+    MakeInteger, MakeRecord, MakeTrivial, OpAdd, OpEquals, OpLessThan, OpNegate, RecordGet,
+    RecordSet, Return,
 };
-use super::retag::{BlkRetagger, ExtFnRetagger, FnRetagger, RegRetagger};
+use super::retag::{BlkRetagger, CnstRetagger, ExtFnRetagger, FnRetagger, RegRetagger};
 type PlainRegisterId = RegisterId<IrCtx>;
 type ExternalFunctionId = crate::id::ExternalFunctionId<IrCtx>;
 
@@ -130,7 +131,7 @@ pub enum Instruction<C: Tag = crate::id::IrCtx, F: Tag = crate::id::IrCtx> {
     /// the constant referenced is a valid UTF-16 string.
     // TODO: the conv_bb_block phase doesn't mutate constants, so they're still
     // in the old constant phase. is this valid?
-    MakeString(RegisterId<C>, crate::id::ConstantId<F>),
+    MakeString(MakeBytes<C, F>),
     // /// # [`Instruction::Unreachable`]
     // ///
     // /// Indicates that the executing code path will never reach this instruction.
@@ -160,11 +161,12 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
         retagger: &mut impl RegRetagger<C, C2>,
         ext_fn_retagger: &impl ExtFnRetagger<F, F2>,
         fn_retagger: &impl FnRetagger<F, F2>,
+        const_retagger: &impl CnstRetagger<F, F2>,
     ) -> Instruction<C2, F2> {
         match self {
             Instruction::Comment(c, l) => Instruction::Comment(c, l),
-            Instruction::MakeString(r, s) => {
-                Instruction::MakeString(retagger.retag_new(r), s.map_context())
+            Instruction::MakeString(inst) => {
+                Instruction::MakeString(inst.retag(retagger, const_retagger))
             }
             Instruction::CompareLessThan(inst) => {
                 Instruction::CompareLessThan(inst.retag(retagger))
@@ -215,9 +217,8 @@ impl<C: Tag> Instruction<C> {
     pub fn assigned_to(&self) -> Option<RegisterId<C>> {
         match self {
             Instruction::Comment(c, _) => None,
-            Instruction::MakeString(result, _) | Instruction::ReferenceOfFunction(result, _) => {
-                Some(*result)
-            }
+            Instruction::ReferenceOfFunction(result, _) => Some(*result),
+            Instruction::MakeString(inst) => inst.declared_register(),
             Instruction::RecordNew(isa) => isa.declared_register(),
             Instruction::CompareLessThan(inst) => inst.declared_register(),
             Instruction::CallStatic(inst) => inst.declared_register(),
@@ -235,9 +236,8 @@ impl<C: Tag> Instruction<C> {
 
     pub fn used_registers(&self) -> Vec<RegisterId<C>> {
         match self {
-            Instruction::Comment(_, _)
-            | Instruction::MakeString(_, _)
-            | Instruction::ReferenceOfFunction(_, _) => Vec::new(),
+            Instruction::Comment(_, _) | Instruction::ReferenceOfFunction(_, _) => Vec::new(),
+            Instruction::MakeString(inst) => inst.used_registers().to_vec(),
             Instruction::RecordNew(inst) => inst.used_registers().to_vec(),
             Instruction::CompareLessThan(inst) => inst.used_registers().to_vec(),
             Instruction::CallStatic(inst) => inst.used_registers().to_vec(),
@@ -255,9 +255,8 @@ impl<C: Tag> Instruction<C> {
 
     pub fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
         match self {
-            Instruction::Comment(_, _)
-            | Instruction::MakeString(_, _)
-            | Instruction::ReferenceOfFunction(_, _) => Vec::new(),
+            Instruction::Comment(_, _) | Instruction::ReferenceOfFunction(_, _) => Vec::new(),
+            Instruction::MakeString(inst) => inst.used_registers_mut(),
             Instruction::RecordNew(inst) => inst.used_registers_mut(),
             Instruction::CompareLessThan(inst) => inst.used_registers_mut(),
             Instruction::CallStatic(inst) => inst.used_registers_mut(),

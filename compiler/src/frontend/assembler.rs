@@ -657,10 +657,16 @@ where
                 //     },
                 // );
             }
-            &ir::Instruction::MakeString(str, val) => {
-                let constant = self.fn_assembler.assembler.ir.constants.get(&val).unwrap();
+            &ir::Instruction::MakeString(inst) => {
+                let constant = self
+                    .fn_assembler
+                    .assembler
+                    .ir
+                    .constants
+                    .get(&inst.constant)
+                    .unwrap();
 
-                let str_reg = self.retagger.retag_new(str);
+                let str_reg = self.retagger.retag_new(inst.result);
                 let const_id = self
                     .fn_assembler
                     .assembler

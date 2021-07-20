@@ -60,14 +60,7 @@ pub fn display(program: &IR) -> String {
                     Instruction::CallExtern(t) => iwl!(text, "    CallExtern {:?}", t),
                     Instruction::CallStatic(t) => iwl!(text, "    CallStatic {:?}", t),
                     Instruction::MakeTrivial(t) => iwl!(text, "    MakeTrivial {:?}", t),
-                    Instruction::MakeString(r, s) => {
-                        iwl!(
-                            text,
-                            "    %{} = MakeString {}",
-                            r,
-                            display_str(&program.constants.get(s).unwrap().payload)
-                        );
-                    }
+                    Instruction::MakeString(instt) => iwl!(text, "    MakeString {:?}", instt),
                     Instruction::ReferenceOfFunction(r, f) => {
                         iwl!(text, "    %{} = MakeFnPtr @{}", r, f)
                     }
