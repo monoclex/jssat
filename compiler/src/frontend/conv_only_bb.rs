@@ -101,6 +101,8 @@ pub fn translate(ir: &IR) -> PureBlocks {
         ext_fn_retagger.retag_new(*id);
     }
 
+    let mut blk_retagger = BlkMapRetagger::default();
+
     for (id, function) in ir.functions.iter() {
         // UNIQUENESS GUARANTEE:
         // every block is a { (fn id, blk id) |-> blk } pairing
@@ -390,15 +392,14 @@ pub fn translate_function(
     func: &Function,
     ext_fn_retagger: &ExtFnPassRetagger<IrCtx, IrCtx>,
     fn_retagger: &impl FnRetagger<IrCtx, IrCtx>,
+    blk_retagger: &mut BlkMapRetagger<IrCtx, PureBbCtx>,
 ) -> FxHashMap<HostBlock, Block> {
     let highest_register = compute_highest_register(func);
     let mut retagger = RegGenPassRetagger::new(highest_register.unwrap_or_default());
-    let mut blk_retagger = BlkMapRetagger::default();
 
     // we will need to mutate something as we gradually get every basic block
     // into slowly a purer and purer state
-    let mut granular_rewrite =
-        to_rewriting_fn(func, &mut blk_retagger, ext_fn_retagger, fn_retagger);
+    let mut granular_rewrite = to_rewriting_fn(func, blk_retagger, ext_fn_retagger, fn_retagger);
 
     let flow = compute_flow(&granular_rewrite);
     println!("the flow: {:?}", flow);

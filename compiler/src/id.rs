@@ -238,9 +238,9 @@ where
         let alloc = *(self.registers).entry(source).or_insert_with(|| {
             is_new = true;
             // TODO: this is a hack just to test if it's reg allocation being weird
-            for i in 0..100 {
-                reg_counter.next();
-            }
+            // for i in 0..100 {
+            //     reg_counter.next();
+            // }
             reg_counter.next()
         });
         (alloc, is_new)
