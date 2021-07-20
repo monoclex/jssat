@@ -27,7 +27,9 @@ pub fn can_lift_registers_in_near_blocks() {
     program.end_function(main);
 
     let ir = program.finish();
+    println!("{}", crate::frontend::display_jssatir::display(&ir));
     let pure_blocks = conv_only_bb::translate(&ir);
+    println!("{}", crate::frontend::display_bb::display(&pure_blocks));
 
     let entrypoint = pure_blocks.get_block_id_by_host(main_id, block1_id);
 

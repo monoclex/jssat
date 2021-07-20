@@ -33,12 +33,12 @@ pub fn display(program: &PureBlocks) -> String {
                 Instruction::RecordNew(r) => {
                     iwl!(text, "    %{} = RecordNew", r.result,)
                 }
-                Instruction::RecordGet(_) => iwl!(text, "todo"),
-                Instruction::RecordSet(_) => iwl!(text, "todo"),
-                Instruction::CallVirt(t) => iwl!(text, "todo"),
-                Instruction::CallExtern(t) => iwl!(text, "todo"),
-                Instruction::CallStatic(t) => iwl!(text, "todo"),
-                Instruction::MakeTrivial(t) => iwl!(text, "todo"),
+                Instruction::RecordGet(t) => iwl!(text, "    {:?}", t),
+                Instruction::RecordSet(t) => iwl!(text, "    {:?}", t),
+                Instruction::CallVirt(t) => iwl!(text, "    {:?}", t),
+                Instruction::CallExtern(t) => iwl!(text, "    {:?}", t),
+                Instruction::CallStatic(t) => iwl!(text, "    {:?}", t),
+                Instruction::MakeTrivial(t) => iwl!(text, "    {:?}", t),
                 Instruction::MakeString(r, s) => {
                     iwl!(text, "    %{} = MakeString {}", r, s);
                 }
@@ -59,7 +59,9 @@ pub fn display(program: &PureBlocks) -> String {
         }
 
         match &block.end {
-            ControlFlowInstruction::Jmp(inst) => iwl!(text, "    {:?}", inst),
+            ControlFlowInstruction::Jmp(inst) => {
+                iwl!(text, "    Jump ${}({:?})", inst.0 .0, inst)
+            }
             ControlFlowInstruction::JmpIf(inst) => iwl!(text, "    {:?}", inst),
             ControlFlowInstruction::Ret(r) => {
                 iwl!(text, "    Ret {:?}", r)
