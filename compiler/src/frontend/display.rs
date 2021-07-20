@@ -55,8 +55,11 @@ pub fn display(program: &Program) -> String {
                             *r,
                             display_vt(f.register_types.get(*r), f),
                             match f.register_types.get(*r) {
-                                ValueType::Record(a) => a,
-                                _ => unreachable!(),
+                                ValueType::Record(a) => format!("{}", a),
+                                x => format!(
+                                    "????????????????????????{:?}????????????????????????",
+                                    x
+                                ),
                             }
                         )
                     }
@@ -89,14 +92,14 @@ pub fn display(program: &Program) -> String {
                             value,
                         )
                     }
-                    crate::frontend::assembler::Instruction::Call(_, _, _) => {
-                        iwl!(text, "todo this")
+                    crate::frontend::assembler::Instruction::Call(a, x, y) => {
+                        iwl!(text, "    todo {:?} {:?} {:?}", a, x, y);
                     }
-                    crate::frontend::assembler::Instruction::MakeFnPtr(_, _) => {
-                        iwl!(text, "todo this")
+                    crate::frontend::assembler::Instruction::MakeFnPtr(x, y) => {
+                        iwl!(text, "    todo {:?} {:?}", x, y)
                     }
-                    crate::frontend::assembler::Instruction::MakeTrivial(_) => {
-                        iwl!(text, "todo this")
+                    crate::frontend::assembler::Instruction::MakeTrivial(a) => {
+                        iwl!(text, "    todo {:?}", a)
                     }
                     crate::frontend::assembler::Instruction::MakeString(r, s) => {
                         iwl!(

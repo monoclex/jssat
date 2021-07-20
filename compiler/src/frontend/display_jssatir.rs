@@ -50,6 +50,7 @@ pub fn display(program: &IR) -> String {
 
             for inst in block.instructions.iter() {
                 match inst {
+                    Instruction::Comment(s, l) => iwl!(text, "    -- {}, {}", s, l),
                     Instruction::RecordNew(r) => {
                         iwl!(text, "    %{} = RecordNew", r.result,)
                     }

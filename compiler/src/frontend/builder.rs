@@ -435,6 +435,14 @@ impl DynBlockBuilder {
         }
     }
 
+    #[track_caller]
+    pub fn comment(&mut self, comment: &'static str) {
+        self.instructions.push(Instruction::Comment(
+            comment,
+            std::panic::Location::caller(),
+        ));
+    }
+
     pub fn get_runtime(&mut self) -> RegisterId {
         let result = self.gen_register_id.next();
 

@@ -30,6 +30,7 @@ pub fn display(program: &PureBlocks) -> String {
 
         for inst in block.instructions.iter() {
             match inst {
+                Instruction::Comment(s, l) => iwl!(text, "    -- {}, {}", s, l),
                 Instruction::RecordNew(r) => {
                     iwl!(text, "    %{} = RecordNew", r.result,)
                 }
@@ -51,10 +52,10 @@ pub fn display(program: &PureBlocks) -> String {
                     let rr = inst.rhs;
                     iwl!(text, "    %{} = CompareLessThan %{}, %{}", r, l, rr)
                 }
-                Instruction::MakeInteger(_) => iwl!(text, "todo"),
-                Instruction::CompareEqual(_) => iwl!(text, "todo"),
-                Instruction::Negate(_) => iwl!(text, "todo"),
-                Instruction::Add(_) => iwl!(text, "todo"),
+                Instruction::MakeInteger(inst) => iwl!(text, "    {:?}", inst),
+                Instruction::CompareEqual(inst) => iwl!(text, "    {:?}", inst),
+                Instruction::Negate(inst) => iwl!(text, "    {:?}", inst),
+                Instruction::Add(inst) => iwl!(text, "    {:?}", inst),
             }
         }
 

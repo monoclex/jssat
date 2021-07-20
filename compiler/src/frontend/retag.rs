@@ -697,11 +697,11 @@ impl<I1: IdCompat, I2: IdCompat> CoreRetagger for MapRetagger<I1, I2> {
             .insert(id.raw_value(), (self.counter, Location::caller()));
 
         if let Some((_, location)) = old_value {
-            panic!(
-                "attempted to retag new value {}, value was old. initial retag: {}",
-                id.value(),
-                location
-            );
+            // panic!(
+            //     "attempted to retag new value {}, value was old. initial retag: {}",
+            //     id.value(),
+            //     location
+            // );
         }
 
         I2::raw_new_with_value(self.counter)
@@ -728,7 +728,15 @@ impl<I1: IdCompat, I2: IdCompat> CoreRetagger for MapRetagger<I1, I2> {
 
 impl<I1, I2: IdCompat> MapRetagger<I1, I2> {
     fn core_gen(&mut self) -> I2 {
-        self.counter += 1;
+        loop {
+            self.counter += 1;
+
+            // TODO: i can't imagine this actually doing anything
+            if self.map.get(&self.counter).is_none() {
+                break;
+            }
+        }
+
         I2::raw_new_with_value(self.counter)
     }
 }
@@ -752,7 +760,7 @@ impl DebugHelper {
 
     #[track_caller]
     fn retag_old(&self, id: usize) {
-        if let None = self.locations.get(&id) {
+        if self.locations.get(&id).is_none() {
             panic!("attempted to retag old value {}, value was new", id);
         }
     }

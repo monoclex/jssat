@@ -89,7 +89,6 @@ impl PureBlocks {
 }
 
 pub fn translate(ir: &IR) -> PureBlocks {
-    let block_id_gen = Counter::new();
     let mut blocks = FxHashMap::default();
 
     let mut fn_retagger = FnPassRetagger::default();
@@ -114,7 +113,6 @@ pub fn translate(ir: &IR) -> PureBlocks {
         blocks.extend(translate_function(
             *id,
             function,
-            &block_id_gen,
             &ext_fn_retagger,
             &fn_retagger,
         ));
@@ -207,39 +205,8 @@ where
             .collect::<Vec<_>>();
         println!("patching order: {:?} |-> {:?}", stack, blk_ids);
 
-        // now, it may be helpful to visualize this process as a tree:
-        // A -> B -> C -> D
-        // ^ step 1: patch A
-        //      ^ step 2: patch B
-        // ^ step 2.5: if B was patched, re-patch A
-        //           ^ step 3: patch C
-        //      ^ step 3.33: if C was patched, re-patch C
-        // ^ step 3.67: if B was patched, re-patch A
-        //                ^ step 4: patch D
-        //           ^ step 4.25: if D was patched, re-patch C
-        //      ^ step 4.5: if C was patched, re-patch B
-        // ^ step 4.75: if B was patched, re-patch A
-        // done!
-        // for forward in 0..stack.len() {
-        //     let node = stack[forward];
-        //
-        //     let _did_patch = self.patch_arguments_to_children(node);
-        //     // TODO: uncomment `did_patch` stuff if it works, but there might
-        //     // be a correctness issue regarding the entire thought process behind
-        //     // it
-        //     // if did_patch {
-        //     for backward in (0..=forward).rev() {
-        //         let node = stack[backward];
-        //         let _did_patch = self.patch_arguments_to_children(node);
-        //         // if !did_patch {
-        //         // break;
-        //         // }
-        //     }
-        //     // }
-        // }
-
-        // that didn't work.
         // just going to keep patching until it works.
+        // TODO: think about a better algo
         loop {
             let mut patched_any = false;
             for node in stack.iter() {
@@ -395,25 +362,6 @@ where
             }
 
             add_params_to_child.insert(child_idx, insert_params);
-
-            // // we want to: `jmp Child(a)`
-            // // but our child: `Child(a, b, c)`
-            // // thus, we need to map `b, c` to registers
-            // // during this algo, parameters are added IFF there's a replacement
-            // // so, we know x -> b, y -> c where x, y are registers in another block
-            // debug_assert!(child_block.parameters.len() > params.len());
-            // for i in params.len()..child_block.parameters.len() {
-            //     // i: 1
-            //     // in `Child(a, b, c)`, params = [a, b, c], params[i] -> b
-            //     let param_register = child_block.parameters[i];
-            //     // replacements | { x -> b }, thus find x via <- b
-            //     let find_register = *child_state
-            //         .replacements
-            //         .get_by_right(&param_register)
-            //         .unwrap();
-            //     // note: find `b` by using `x`
-            //     deps_needed.push((param_register, find_register));
-            // }
         }
 
         let block = self.function.blocks.get_mut(block_id).unwrap();
@@ -422,121 +370,24 @@ where
         // it makes the code harder to understand but /shrug
 
         // patch up our parameters
-        let mut did_patch = new_params.len() > 0;
+        let mut did_patch = !new_params.is_empty();
         block.parameters.extend(new_params);
 
         // add the params to every child
         for (child_idx, BlockJump(id, params)) in block.end.children_mut().into_iter().enumerate() {
             if let Some(add_to_child) = add_params_to_child.remove(&child_idx) {
-                did_patch = did_patch || add_to_child.len() > 0;
+                did_patch = did_patch || !add_to_child.is_empty();
                 params.extend(add_to_child);
             }
         }
 
         did_patch
-
-        // let are_deps = deps_needed.len();
-
-        // // now, we know all dependencies children need
-        // // var: map of { child block register <-> register in this block }
-        // let mut provision_plan = FxHashMap::default();
-
-        // // first, figure out dependencies that can be provided
-        // let block = self.function.blocks.get_mut(block_id).unwrap();
-        // let state = self.blocks.get_mut(&node).unwrap();
-        // let declared_registers = block.declared_registers();
-        // for (child_block_register, register_in_original_fn) in deps_needed.into_iter() {
-        //     // does this block own the register?
-        //     if declared_registers.contains(&register_in_original_fn) {
-        //         // we can provision it
-        //         provision_plan
-        //             .insert(child_block_register, register_in_original_fn)
-        //             .expect_none("we shouldn't have duplicates, this is just in case")
-        //     } else if let Some(replacement) =
-        //         state.replacements.get_by_left(&register_in_original_fn)
-        //     {
-        //         // ^^^
-        //         // let x = reg in orig fn, a = replacement reg (in this block's params)
-        //         // replacements | { x -> a },
-        //         // ^^^
-
-        //         // we can provision this register
-        //         provision_plan
-        //             .insert(child_block_register, *replacement)
-        //             .expect_none("we shouldn't have duplicates, this is just in case");
-        //     } else {
-        //         // X Description
-        //         println!("provisional thing: {:?} |-> {:?}", state.replacements, 0);
-
-        //         // we do not know of this register
-        //         // declare that we require it, add it as a parameter of this block
-        //         let this_block_register = self.retagger.gen();
-        //         state // TODO: function to encapsulate this replacing thing
-        //             .replacements
-        //             .insert(register_in_original_fn, this_block_register)
-        //             .expect_free();
-        //         block.parameters.push(this_block_register);
-
-        //         // now that we know of this register, we can provision it
-        //         provision_plan
-        //             .insert(child_block_register, this_block_register)
-        //             .expect_none("we shouldn't have duplicates, this is just in case");
-        //     }
-        // }
-
-        // let are_provisions = provision_plan.len();
-
-        // let block = self.function.blocks.get(block_id).unwrap();
-
-        // // provision parameters accordingly
-        // let mut final_provision_plan = FxHashMap::default();
-
-        // for BlockJump(child_id, params) in block.end.children() {
-        //     let child_block = self.function.blocks.get(child_id).unwrap();
-
-        //     if child_block.parameters.len() == params.len() {
-        //         continue;
-        //     }
-
-        //     debug_assert!(child_block.parameters.len() > params.len());
-
-        //     // we can't actually modify the params here because of rust lifetime rules
-        //     let mut extend_params_with = Vec::new();
-        //     for i in params.len()..child_block.parameters.len() {
-        //         let register_to_pass = *provision_plan.get(&child_block.parameters[i]).unwrap();
-        //         extend_params_with.push(register_to_pass);
-        //     }
-
-        //     final_provision_plan
-        //         .insert(*child_id, extend_params_with)
-        //         .expect_free();
-        // }
-
-        // let will_rewrite_any_children = !final_provision_plan.is_empty();
-        // debug_assert_eq!(are_deps, are_provisions);
-        // debug_assert_eq!(will_rewrite_any_children, are_provisions > 0);
-
-        // let block = self.function.blocks.get_mut(block_id).unwrap();
-
-        // let mut did_extend_params = false;
-        // for BlockJump(child_id, params) in block.end.children_mut() {
-        //     if let Some(plan) = final_provision_plan.remove(child_id) {
-        //         params.extend(plan);
-        //         did_extend_params = true;
-        //     }
-        // }
-
-        // debug_assert_eq!(did_extend_params, will_rewrite_any_children);
-
-        // will_rewrite_any_children
-        // false
     }
 }
 
 pub fn translate_function(
     fn_id: FunctionId<IrCtx>,
     func: &Function,
-    block_id_gen: &Counter<BlockId<PureBbCtx>>,
     ext_fn_retagger: &ExtFnPassRetagger<IrCtx, IrCtx>,
     fn_retagger: &impl FnRetagger<IrCtx, IrCtx>,
 ) -> FxHashMap<HostBlock, Block> {

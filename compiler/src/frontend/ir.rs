@@ -108,6 +108,7 @@ pub struct FunctionBlock {
 
 #[derive(Debug, Clone)]
 pub enum Instruction<C: Tag = crate::id::IrCtx, F: Tag = crate::id::IrCtx> {
+    Comment(&'static str, &'static std::panic::Location<'static>),
     RecordNew(MakeRecord<C>),
     RecordGet(RecordGet<C>),
     RecordSet(RecordSet<C>),
@@ -161,6 +162,7 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
         fn_retagger: &impl FnRetagger<F, F2>,
     ) -> Instruction<C2, F2> {
         match self {
+            Instruction::Comment(c, l) => Instruction::Comment(c, l),
             Instruction::MakeString(r, s) => {
                 Instruction::MakeString(retagger.retag_new(r), s.map_context())
             }
@@ -212,6 +214,7 @@ impl<CO: Tag, PO: Tag> ControlFlowInstruction<CO, PO> {
 impl<C: Tag> Instruction<C> {
     pub fn assigned_to(&self) -> Option<RegisterId<C>> {
         match self {
+            Instruction::Comment(c, _) => None,
             Instruction::MakeString(result, _) | Instruction::ReferenceOfFunction(result, _) => {
                 Some(*result)
             }
@@ -232,7 +235,9 @@ impl<C: Tag> Instruction<C> {
 
     pub fn used_registers(&self) -> Vec<RegisterId<C>> {
         match self {
-            Instruction::MakeString(_, _) | Instruction::ReferenceOfFunction(_, _) => Vec::new(),
+            Instruction::Comment(_, _)
+            | Instruction::MakeString(_, _)
+            | Instruction::ReferenceOfFunction(_, _) => Vec::new(),
             Instruction::RecordNew(inst) => inst.used_registers().to_vec(),
             Instruction::CompareLessThan(inst) => inst.used_registers().to_vec(),
             Instruction::CallStatic(inst) => inst.used_registers().to_vec(),
@@ -250,7 +255,9 @@ impl<C: Tag> Instruction<C> {
 
     pub fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
         match self {
-            Instruction::MakeString(_, _) | Instruction::ReferenceOfFunction(_, _) => Vec::new(),
+            Instruction::Comment(_, _)
+            | Instruction::MakeString(_, _)
+            | Instruction::ReferenceOfFunction(_, _) => Vec::new(),
             Instruction::RecordNew(inst) => inst.used_registers_mut(),
             Instruction::CompareLessThan(inst) => inst.used_registers_mut(),
             Instruction::CallStatic(inst) => inst.used_registers_mut(),

@@ -247,9 +247,9 @@ pub fn traverse(source: String) -> IR {
         running_execution_context_lexical_environment: RegisterId::default(),
     };
 
-    frontend.InitializeHostDefinedRealm();
+    let (_, realm) = frontend.InitializeHostDefinedRealm();
     let undefined = frontend.block.make_undefined();
-    let script_record = frontend.ParseScript((), undefined, undefined);
+    let script_record = frontend.ParseScript((), realm, undefined);
     frontend.ScriptEvaluation(script_record, &script);
 
     let block = frontend.block.ret(None);
@@ -271,7 +271,9 @@ struct JsWriter<'builder, 'name, const PARAMETERS: usize> {
 #[allow(non_snake_case)]
 impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
     /// https://tc39.es/ecma262/#sec-initializehostdefinedrealm
-    pub fn InitializeHostDefinedRealm(&mut self) -> RegisterId {
+    pub fn InitializeHostDefinedRealm(&mut self) -> (RegisterId, RegisterId) {
+        self.block.comment("InitializeHostDefinedRealm");
+
         // 1. Let realm be CreateRealm().
         let realm = self.CreateRealm();
         // 2. Let newContext be a new execution context.
@@ -315,11 +317,13 @@ impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
         let empty = self
             .block
             .make_string(self.bld.constant_str("", "empty".into()));
-        self.NormalCompletion(empty)
+        (self.NormalCompletion(empty), realm)
     }
 
     /// https://tc39.es/ecma262/#sec-createrealm
     pub fn CreateRealm(&mut self) -> RegisterId {
+        self.block.comment("CreateRealm");
+
         // 1. Let realmRec be a new Realm Record.
         let realmRec = self.block.record_new();
         // 2. Perform CreateIntrinsics(realmRec).
@@ -341,6 +345,8 @@ impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
 
     /// https://tc39.es/ecma262/#sec-createintrinsics
     pub fn CreateIntrinsics(&mut self, realmRec: RegisterId) -> RegisterId {
+        self.block.comment("CreateIntrinsics");
+
         // 1. Let intrinsics be a new Record.
         let intrinsics = self.block.record_new();
         // 2. Set realmRec.[[Intrinsics]] to intrinsics.
@@ -375,6 +381,7 @@ impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
 
     /// https://tc39.es/ecma262/#sec-addrestrictedfunctionproperties
     pub fn AddRestrictedFunctionProperties(&mut self, F: RegisterId, realm: RegisterId) {
+        self.block.comment("AddRestrictedFunctionProperties");
         // TODO: implement this
     }
 
@@ -385,6 +392,8 @@ impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
         globalObj: RegisterId,
         thisValue: RegisterId,
     ) {
+        self.block.comment("SetRealmGlobalObject");
+
         // TODO: implement this
         // 1. If globalObj is undefined, then
         // a. Let intrinsics be realmRec.[[Intrinsics]].
@@ -401,6 +410,8 @@ impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
 
     /// https://tc39.es/ecma262/#sec-setdefaultglobalbindings
     pub fn SetDefaultGlobalBindings(&mut self, realmRec: RegisterId) -> RegisterId {
+        self.block.comment("SetDefaultGlobalBindings");
+
         // 1. Let global be realmRec.[[GlobalObject]].
         let global = self
             .block
@@ -431,8 +442,7 @@ impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
 
         let print_text = self.bld.constant_str_utf16("", "print".into());
         let key = self.block.make_string(print_text);
-        self.block
-            .record_set_slot(global, InternalSlot::RandomDebugSlot, key);
+        self.block.record_set_prop(global, key, func_obj);
         // a. Let name be the String value of the property name.
         // b. Let desc be the fully populated data Property Descriptor for the property, containing the specified attributes for the property. For properties listed in 19.2, 19.3, or 19.4 the value of the [[Value]] attribute is the corresponding intrinsic object from realmRec.
         // c. Perform ? DefinePropertyOrThrow(global, name, desc).
@@ -450,6 +460,8 @@ impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
         realm: RegisterId,
         hostDefined: RegisterId,
     ) -> RegisterId {
+        self.block.comment("ParseScript");
+
         // 1. Assert: sourceText is an ECMAScript source text (see clause 11).
         // 2. Let body be ParseText(sourceText, Script).
         // 3. If body is a List of errors, return body.
@@ -467,6 +479,8 @@ impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
 
     /// https://tc39.es/ecma262/#sec-runtime-semantics-scriptevaluation
     pub fn ScriptEvaluation(&mut self, scriptRecord: RegisterId, script: &Script) -> RegisterId {
+        self.block.comment("ScriptEvaluation");
+
         // 1. Let globalEnv be scriptRecord.[[Realm]].[[GlobalEnv]].
         let scriptRecordRealm = self
             .block
@@ -502,8 +516,12 @@ impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
         // TODO: ?
         // 10. Push scriptContext onto the execution context stack; scriptContext is now the running execution context.
         // TODO: this is a hack, should be using proepr execution context stack things
-        self.running_execution_context_lexical_environment = globalEnv;
-        println!("!!! RUNNING EXEC CTX: {}", globalEnv);
+        // NOTE: `globalEnv` is NOT THE GLOBAL OBJECT.
+        let theActualGlobalObject = self
+            .block
+            .record_get_slot(scriptRecordRealm, InternalSlot::GlobalObject);
+        self.running_execution_context_lexical_environment = theActualGlobalObject;
+        println!("!!! RUNNING EXEC CTX: {}", theActualGlobalObject);
         // 11. Let scriptBody be scriptRecord.[[ECMAScriptCode]].
         let scriptBody = script;
         // 12. Let result be GlobalDeclarationInstantiation(scriptBody, globalEnv).
@@ -515,7 +533,7 @@ impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
             result = me.evaluate_script(script);
         });
         // 14. If result.[[Type]] is normal and result.[[Value]] is empty, then
-        let is_normal = self.is_normal_completion(result);
+        // let is_normal = self.is_normal_completion(result);
         // TODO: figure out if we can implement this part
         // a. Set result to NormalCompletion(undefined).
         // 15. Suspend scriptContext and remove it from the execution context stack.
@@ -536,6 +554,8 @@ impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
         script: &Script,
         env: RegisterId,
     ) -> RegisterId {
+        self.block.comment("GlobalDeclarationInstantiation");
+
         // 1. Assert: env is a global Environment Record.
         // 2. Let lexNames be the LexicallyDeclaredNames of script.
         let lexNames = ECMA262Script(script).LexicallyDeclaredNames();
@@ -594,6 +614,8 @@ impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
     }
 
     pub fn GetValue(&mut self, V: RegisterId) -> RegisterId {
+        self.block.comment("GetValue");
+
         // 1. ReturnIfAbrupt(V).
         let value = self.ReturnIfAbrupt(V);
         // 2. If V is not a Reference Record, return V.
@@ -613,12 +635,15 @@ impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
     }
 
     pub fn ResolveBinding(&mut self, name: RegisterId, env: Option<RegisterId>) -> RegisterId {
+        self.block.comment("ResolveBinding");
+
         let env_value;
         // 1. If env is not present or if env is undefined, then
         if env.is_none() {
             // a. Set env to the running execution context's LexicalEnvironment.
             env_value = self.running_execution_context_lexical_environment;
         } else {
+            panic!("what");
             // unidiomatic, idc
             env_value = match env {
                 Some(it) => it,
@@ -635,7 +660,9 @@ impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
         let strict = true;
         // 4. Return ? GetIdentifierReference(env, name, strict).
         let completion_record = self.GetIdentifierReference(env, name, strict);
-        self.ReturnIfAbrupt(completion_record)
+        let result = self.ReturnIfAbrupt(completion_record);
+        // TODO: is this the right thing to do?
+        self.NormalCompletion(result)
     }
 
     pub fn GetIdentifierReference(
@@ -644,6 +671,16 @@ impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
         name: RegisterId,
         strict: bool,
     ) -> RegisterId {
+        let k = self.running_execution_context_lexical_environment;
+        self.block.comment("GetIdentifierReference");
+        self.block
+            .comment(Box::leak(Box::new(format!("ok we are calling GetIdentifierRef with {:?}, {:?}, {:?} and globalEnv should be {:?}", env, name, strict, k))).as_str());
+
+        // TODO: properly do stuff
+        // for now, just always return `env[name]`
+        let func = self.block.record_get_prop(env, name);
+        return self.NormalCompletion(func);
+
         // 1. If env is the value null, then
         let null = self.block.make_null();
         let condition = self.block.compare_equal(env, null);
@@ -669,7 +706,9 @@ impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
         let empty = self.block.make_undefined();
         self.block
             .record_set_slot(record, InternalSlot::ThisValue, empty);
-        record
+        // TODO: the `NormalCompletion` was added becuase code was wrong
+        // are we wrong or is the spec wrong idk, maybe ill find out l8r
+        self.NormalCompletion(record)
         // 4. Else,
         // a. Let outer be env.[[OuterEnv]].
         // b. Return ? GetIdentifierReference(outer, name, strict).
@@ -683,15 +722,20 @@ impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
         arguments: &Vec<ExprOrSpread>,
         tailPosition: (),
     ) -> RegisterId {
+        self.block.comment("EvaluateCall");
+
         // TODO: actually call the function
         // help this is so much effort just to get `print("hello world")`
         let virtual_func = self.block.record_get_slot(func, InternalSlot::Call);
         self.block.call_virt(virtual_func, [r#ref]);
-        self.block.make_null()
+        let result = self.block.make_null();
+        self.NormalCompletion(result)
     }
 
     // RUNTIME SEMANTICS OF SCRIPT
     pub fn evaluate_script(&mut self, script: &Script) -> RegisterId {
+        self.block.comment("evaluate_script");
+
         // StatementList : StatementList StatementListItem
         let undefined = self.block.make_undefined();
         let mut s = self.NormalCompletion(undefined);
@@ -709,6 +753,8 @@ impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
     }
 
     pub fn evaluate_stmt(&mut self, stmt: &Stmt) -> RegisterId {
+        self.block.comment("evaluate_stmt");
+
         match stmt {
             Stmt::Block(_) => todo!(),
             Stmt::Empty(_) => todo!(),
@@ -733,6 +779,8 @@ impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
     }
 
     pub fn evaluate_expr(&mut self, expr: &Expr) -> RegisterId {
+        self.block.comment("evaluate_expr");
+
         match expr {
             swc_ecmascript::ast::Expr::This(_) => todo!(),
             swc_ecmascript::ast::Expr::Array(_) => todo!(),
@@ -782,7 +830,8 @@ impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
                 let string_value = self.bld.constant_str_utf16("", string_value);
                 let name = self.block.make_string(string_value);
                 let resolve_binding = self.ResolveBinding(name, None);
-                self.ReturnIfAbrupt(resolve_binding)
+                let inner_value = self.ReturnIfAbrupt(resolve_binding);
+                self.NormalCompletion(inner_value)
             }
             swc_ecmascript::ast::Expr::Lit(_) => todo!(),
             swc_ecmascript::ast::Expr::Tpl(_) => todo!(),
@@ -812,6 +861,8 @@ impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
 
     /// https://tc39.es/ecma262/#sec-returnifabrupt
     pub fn ReturnIfAbrupt(&mut self, argument: RegisterId) -> RegisterId {
+        self.block.comment("ReturnIfAbrupt");
+
         // 1. If argument is an abrupt completion, return argument.
         let is_abrupt_completion = self.is_abrupt_completion(argument);
 
@@ -852,6 +903,8 @@ impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
 
     /// https://tc39.es/ecma262/#sec-normalcompletion
     pub fn NormalCompletion(&mut self, argument: RegisterId) -> RegisterId {
+        self.block.comment("NormalCompletion");
+
         // 1. Return Completion { [[Type]]: normal, [[Value]]: argument, [[Target]]: empty }.
         let completion_record = self.block.record_new();
         let normal = self
@@ -915,6 +968,8 @@ impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
     }
 
     fn is_normal_completion(&mut self, record: RegisterId) -> RegisterId {
+        self.block.comment("is_normal_completion");
+
         let completion_type = self.block.record_get_slot(record, InternalSlot::Type);
         let normal_completion = self
             .block
@@ -923,6 +978,8 @@ impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
     }
 
     fn is_abrupt_completion(&mut self, record: RegisterId) -> RegisterId {
+        self.block.comment("is_abrupt_completion");
+
         let is_normal_completion = self.is_normal_completion(record);
         self.block.negate(is_normal_completion)
     }

@@ -143,6 +143,8 @@ impl<'d> SymbolicExecutionEngine<'d> {
         block_id: BlockId<PureBbCtx>,
         invocation_args: InvocationArgs,
     ) -> &ExecutionResult {
+        println!("is executing {:?}!:", block_id);
+
         let block = self.blocks.get_block(block_id);
 
         let mut execution = self
@@ -186,6 +188,7 @@ impl<'d> SymbolicExecutionEngine<'d> {
         let mut never_infected = false;
         for instruction in block.instructions.iter() {
             match instruction {
+                Instruction::Comment(_, _) => {}
                 &Instruction::ReferenceOfFunction(r, fn_id) => {
                     let func = self.ir.functions.get(&fn_id).unwrap();
                     let blk_id = self.blocks.get_block_id_by_host(fn_id, func.entry_block);
@@ -346,7 +349,10 @@ impl<'d> SymbolicExecutionEngine<'d> {
                     let key = match inst.key {
                         RecordKey::Prop(r) => match registers.get(r) {
                             ValueType::String => ShapeKey::String,
-                            ValueType::ExactString(str) => ShapeKey::Str(str.clone()),
+                            ValueType::ExactString(str) => {
+                                println!("they key is: {:?}", str);
+                                ShapeKey::Str(str.clone())
+                            }
                             ValueType::Any
                             | ValueType::Number
                             | ValueType::ExactInteger(_)
@@ -365,10 +371,35 @@ impl<'d> SymbolicExecutionEngine<'d> {
 
                     if let ValueType::Record(alloc) = *registers.get(inst.record) {
                         let shape = registers.get_shape(alloc);
+
+                        println!(
+                            "getting prop shape: {:?} |-> {:?} at inst {:?}",
+                            key, shape, inst
+                        );
+
+                        println!(
+                            "the shapes history: {:#?}",
+                            registers
+                                .get_shapes(alloc)
+                                .iter()
+                                .map(|s| registers.get_shape_by_id(s))
+                                .collect::<Vec<_>>()
+                        );
+
                         let prop_value_typ = shape.type_at_key(&key).clone();
+
+                        // if inst.result.raw_value() == 31 && inst.record.raw_value() == 27 {
+                        //     if let ValueType::Record(a) = prop_value_typ {
+                        //         let shp = registers.get_shape(a);
+                        //         panic!("ok, type of this {:?} is {:?}", a, shp);
+                        //     } else {
+                        //         unreachable!();
+                        //     }
+                        // }
+
                         registers.insert(inst.result, prop_value_typ);
                     } else {
-                        panic!("cannot call RecordGet on non record");
+                        panic!("cannot call RecordGet on non record - inst: {:?}", inst);
                     }
                 }
                 &Instruction::RecordSet(inst) => {
@@ -440,6 +471,12 @@ impl<'d> SymbolicExecutionEngine<'d> {
                         (&ValueType::ExactInteger(l), &ValueType::ExactInteger(r)) => {
                             ValueType::Bool(l == r)
                         }
+                        // TODO: have better instructions for this?
+                        // i *really* don't like having equality comparison work
+                        // for two different trivials
+                        // this is really just a hack to get the `js` frontend working/printing something
+                        (ValueType::Undefined, ValueType::Null) => ValueType::Bool(false),
+                        // (ValueType::Null, ValueType::Undefined) => ValueType::Bool(false),
                         (l, r) => panic!("unsupported `==` of types {:?} and {:?}", l, r),
                     };
 
@@ -458,6 +495,8 @@ impl<'d> SymbolicExecutionEngine<'d> {
                 }
                 ControlFlowInstruction::JmpIf(inst) => {
                     let condition = inst.condition;
+                    let k = condition.clone();
+
                     let true_path = &inst.if_so;
                     let false_path = &inst.other;
                     let condition = registers.get(condition);
@@ -470,6 +509,21 @@ impl<'d> SymbolicExecutionEngine<'d> {
                             true_path.return_type().unify(&false_path.return_type())
                         }
                         ValueType::Bool(true) => {
+                            if k.raw_value() == 38 {
+                                let t = registers.get(inst.if_so.1[0]);
+                                println!("t is: {:?}", t);
+                                let k = if let ValueType::Record(a) = t {
+                                    a
+                                } else {
+                                    panic!("uno.")
+                                };
+
+                                println!(
+                                    "=====================++> ok the reg it wants {:?} we have the type for that as {:?}",
+                                    inst.if_so.1[0],
+                                    registers.get_shape(*k)
+                                );
+                            }
                             let true_path = self.execute_jmp(true_path, &registers);
                             true_path.return_type()
                         }

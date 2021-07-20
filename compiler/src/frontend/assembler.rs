@@ -355,7 +355,9 @@ impl<'d> Assembler<'d> {
             let fn_id = self.fn_id_gen.map(type_info.annotated_id);
 
             // let assembled = FnAssembler::new(&self, fn_id, type_info, bb_id, args).assemble();
+            println!("=== assembling new function ===");
             let (assembled, to_assemble) = FnAssembler::new(&self, type_info).assemble();
+            println!("=== done assembling new function ===");
             fns.extend(to_assemble);
 
             functions.insert(fn_id, assembled);
@@ -422,8 +424,8 @@ impl<'d> FnAssembler<'d> {
 
         let mut blocks = FxHashMap::default();
         let mut register_types = RegMap::default();
-        let mut reg_map = RegMapRetagger::default();
         let mut to_assemble = Vec::new();
+        let mut reg_map = RegMapRetagger::default();
 
         let mut ext_fn_retagger = ExtFnPassRetagger::default();
         for (id, _) in self.assembler.ir.external_functions.iter() {
@@ -434,6 +436,8 @@ impl<'d> FnAssembler<'d> {
         block_queue.push_back(entry_block);
 
         while let Some(block_id) = block_queue.pop_front() {
+            eprintln!("=======================> blk {:?}", block_id);
+
             if blocks.contains_key(&block_id) {
                 continue;
             }
@@ -452,15 +456,18 @@ impl<'d> FnAssembler<'d> {
                 &ext_fn_retagger,
             )
             .write();
+            println!("completed writing block, left: {:?}", block_queue);
             blocks.insert(block_id, block);
 
             register_types.extend(reg_types);
 
             block_queue.extend(to_visit);
+            println!("completed writing block, left++: {:?}", block_queue);
         }
 
         let return_type = self.type_info.return_type.clone().into_type();
 
+        println!("done");
         (
             Function {
                 register_types,
@@ -482,6 +489,7 @@ impl<'d> FnAssembler<'d> {
 
 #[derive(Debug)]
 struct InstWriter<'duration, R, RF> {
+    assembler_block_id: BlockId<AssemblerCtx>,
     fn_assembler: &'duration FnAssembler<'duration>,
     retagger: &'duration mut R,
     ext_fn_retagger: &'duration RF,
@@ -518,6 +526,7 @@ where
         let register_types = bb_register_types.duplicate_with_allocations();
 
         Self {
+            assembler_block_id: block_id,
             fn_assembler,
             retagger,
             type_info,
@@ -532,7 +541,17 @@ where
     }
 
     pub fn write(mut self) -> (Block, Vec<BlockId<AssemblerCtx>>, RegMap<AssemblerCtx>) {
-        println!("writing: {:?}", &self);
+        println!(
+            "\n\n\n\n\n\n\n\n\n\n\nwriting: {:?} ({:?}) || {:?}",
+            self.bb.id, self.type_info.annotated_id, self.assembler_block_id
+        );
+
+        println!("params: {:?}", self.bb.parameters);
+        println!(
+            "blocks: {}",
+            crate::frontend::display_bb::display(&self.fn_assembler.assembler.pure_bocks)
+        );
+
         let parameters = self
             .bb
             .parameters
@@ -549,6 +568,7 @@ where
             .collect();
 
         for inst in self.bb.instructions.iter() {
+            println!("writing inst: {:?}", inst);
             match self.write_inst(inst) {
                 HaltStatus::Continue => continue,
                 // _ => break,
@@ -590,6 +610,7 @@ where
 
     fn write_inst(&mut self, inst: &ir::Instruction<PureBbCtx>) -> HaltStatus {
         match inst {
+            ir::Instruction::Comment(_, _) => {}
             &ir::Instruction::ReferenceOfFunction(result, func) => {
                 let fnptr = self.retagger.retag_new(result);
                 let static_fn = self.fn_assembler.assembler.ir.functions.get(&func).unwrap();
@@ -602,14 +623,14 @@ where
                     .insert(fnptr, ValueType::FnPtr(pure_bb_id));
             }
             &ir::Instruction::MakeTrivial(inst) => {
-                let rt = self.retagger.retag_new(inst.result);
+                let inst = inst.retag(self.retagger);
                 self.instructions
                     .push(Instruction::MakeTrivial(MakeTrivial {
-                        result: rt,
+                        result: inst.result,
                         item: inst.item,
                     }));
                 self.register_types.insert(
-                    rt,
+                    inst.result,
                     match inst.item {
                         super::isa::TrivialItem::Runtime => ValueType::Runtime,
                         super::isa::TrivialItem::Null => ValueType::Null,
@@ -932,6 +953,7 @@ where
                 if let ValueType::Bool(b) = *res_typ {
                     self.instructions
                         .push(Instruction::MakeBoolean(inst.result, b));
+                    self.register_types.insert(inst.result, ValueType::Bool(b));
                 } else {
                     todo!(
                         "suport non const comparison via {:?} {:?}",
@@ -949,6 +971,7 @@ where
                 if let ValueType::Bool(b) = *res_typ {
                     self.instructions
                         .push(Instruction::MakeBoolean(inst.result, b));
+                    self.register_types.insert(inst.result, ValueType::Bool(b));
                 } else {
                     todo!(
                         "suport non const comparison via {:?} {:?}",

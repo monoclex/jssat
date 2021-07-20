@@ -29,6 +29,7 @@ impl RecordShape {
         self.map.remove(key);
     }
 
+    #[track_caller]
     pub fn type_at_key<'me>(&'me self, key: &ShapeKey) -> &'me ValueType {
         self.map.get(key).unwrap()
     }
@@ -355,8 +356,17 @@ impl<C: Tag> RegMap<C> {
         let mut alloc_map = AllocIdMap::default();
 
         for (argument, target) in arguments {
+            println!("1preparing - arg {:?} |-> {:?}", argument, target);
             let typ = self.get(argument).clone();
+            println!("2preparing - arg {:?} |-> {:?}", target, typ);
+            if let ValueType::Record(a) = &typ {
+                println!("2.preparing - aloc {:?} |-> {:?}", a, self.get_shape(*a));
+            }
             let typ = self.map_type(typ, &mut map, &mut alloc_map);
+            println!("3preparing - arg {:?} |-> {:?}", target, typ);
+            if let ValueType::Record(a) = &typ {
+                println!("3.preparing - aloc {:?} |-> {:?}", a, map.get_shape(*a));
+            }
 
             map.insert(target, typ);
         }
