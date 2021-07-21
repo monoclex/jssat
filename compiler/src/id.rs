@@ -207,14 +207,21 @@ impl<I: IdCompat> Counter<I> {
         )
     }
 
+    #[deprecated]
     pub fn dup(&self) -> Self {
-        Self::new_with_value(self.current.load(std::sync::atomic::Ordering::Relaxed))
+        self.clone()
     }
 }
 
 impl<I: IdCompat> Default for Counter<I> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl<I: IdCompat> Clone for Counter<I> {
+    fn clone(&self) -> Self {
+        Self::new_with_value(self.current.load(std::sync::atomic::Ordering::Relaxed))
     }
 }
 

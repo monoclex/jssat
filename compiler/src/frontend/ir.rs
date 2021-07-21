@@ -19,7 +19,7 @@ use crate::retag::{BlkRetagger, CnstRetagger, ExtFnRetagger, FnRetagger, RegReta
 type PlainRegisterId = RegisterId<IrCtx>;
 type ExternalFunctionId = crate::id::ExternalFunctionId<IrCtx>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct IR {
     pub entrypoint: FunctionId,
     pub constants: FxHashMap<ConstantId, Constant>,
@@ -33,7 +33,7 @@ impl IR {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Constant {
     pub name: DebugName,
     pub payload: Vec<u8>,

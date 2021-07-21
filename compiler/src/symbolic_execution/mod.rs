@@ -8,6 +8,7 @@ use crate::id::*;
 use crate::lifted::LiftedProgram;
 
 use self::graph_system::{Bogusable, GraphSystem, System, Worker, WorkerFactory};
+use self::types::ReturnType;
 use self::types::TypeBag;
 use self::unique_id::{UniqueFnId, UniqueFnIdShared};
 use self::worker::SymbWorker;
@@ -19,11 +20,11 @@ pub mod worker;
 
 pub fn execute(program: &LiftedProgram) {
     let mut fn_ids = UniqueFnId::default();
-    let entry_fn_id = fn_ids.id_of(program.entrypoint, &TypeBag::default());
+    let entry_fn_id = fn_ids.id_of(program.entrypoint, TypeBag::default());
 
     let factory = SymbFactory {
         program,
-        fn_ids: Arc::new(Mutex::new(fn_ids)),
+        fn_ids: UniqueFnIdShared(Arc::new(Mutex::new(fn_ids))),
     };
 
     let system = GraphSystem::new(factory);
@@ -38,17 +39,23 @@ pub fn execute(program: &LiftedProgram) {
 
 struct SymbFactory<'program> {
     program: &'program LiftedProgram,
-    fn_ids: Arc<Mutex<UniqueFnId>>,
+    fn_ids: UniqueFnIdShared,
 }
 
 impl<'p> WorkerFactory for SymbFactory<'p> {
     type Worker = SymbWorker<'p>;
 
     fn make(&mut self, id: <Self::Worker as Worker>::Id) -> Self::Worker {
+        let (lifted_id, types) = self.fn_ids.types_of(id);
+
         Self::Worker {
             program: self.program,
+            func: self.program.functions.get(&lifted_id).unwrap(),
             id,
-            fn_ids: UniqueFnIdShared(self.fn_ids.clone()),
+            fn_ids: self.fn_ids.clone(),
+            types,
+            // placeholder value
+            return_type: ReturnType::Never,
         }
     }
 }

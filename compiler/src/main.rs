@@ -161,10 +161,12 @@ fn main() {
     println!("{}", display_jssatir::display(&ir));
 
     let as_only_blocks = frontend::conv_only_bb::translate(&ir);
+    let lifted = lifted::lift(ir.clone());
     eprintln!("{:#?}", as_only_blocks);
     println!("{}", display_bb::display(&as_only_blocks));
 
     let annotations = frontend::type_annotater::annotate(&ir, &as_only_blocks);
+    let symb_execd = symbolic_execution::execute(&lifted);
     eprintln!("{:#?}", annotations);
 
     let program = frontend::assembler::assemble(&ir, &as_only_blocks, annotations);
