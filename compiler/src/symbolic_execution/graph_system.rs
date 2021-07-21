@@ -23,7 +23,7 @@ pub trait Worker {
 
     /// Performs the work required of this worker node. The node is given a
     /// reference to a system to use to make requests to other worker nodes.
-    fn work(&mut self, system: &impl System<Self>) -> Self::Result;
+    fn work(self, system: &impl System<Self>) -> Self::Result;
 }
 
 /// Contract that a system provides. This is used for the [`Worker::work`]
@@ -43,6 +43,8 @@ where
 /// reached, a bogus value is produced by the system. This bogus value can then
 /// work through the system until a result is produced. In addition, the system
 /// may re-execute nodes in order to refine the value produced.
+// TODO: remove Bogusable in favor of having `System::spawn`
+// return an `Option<Arc<Result>>`
 pub trait Bogusable {
     /// Produces the a bogus value.
     fn bogus() -> Self;
@@ -58,6 +60,13 @@ pub trait WorkerFactory {
 #[derive(Clone)]
 pub struct GraphSystem<W: Worker, F>(Arc<GraphSystemInner<W, W::Id, F>>);
 
+#[derive(Debug)]
+pub enum ResultsError {
+    ReferencesToSystem,
+    LockHeldOnWorkers,
+    ReferencesToWorkerResults,
+}
+
 impl<W, F> GraphSystem<W, F>
 where
     W: Worker,
@@ -68,6 +77,27 @@ where
             workers: Mutex::default(),
             factory: Mutex::new(factory),
         }))
+    }
+
+    pub fn try_into_results(self) -> Result<FxHashMap<W::Id, W::Result>, ResultsError> {
+        let system_inner = Arc::try_unwrap(self.0).map_err(|_| ResultsError::ReferencesToSystem)?;
+        let workers =
+            Mutex::into_inner(system_inner.workers).map_err(|_| ResultsError::LockHeldOnWorkers)?;
+
+        let mut results = FxHashMap::default();
+        for (id, state) in workers {
+            let result = match state.status {
+                WorkStatus::Working => {
+                    panic!("system should be in finished state, yet workers remain working")
+                }
+                WorkStatus::Completed(r) => r,
+            };
+
+            let result =
+                Arc::try_unwrap(result).map_err(|_| ResultsError::ReferencesToWorkerResults)?;
+            results.insert(id, result);
+        }
+        Ok(results)
     }
 }
 
@@ -114,7 +144,7 @@ where
         // we've never executed a worker with this id
         // produce a new one
         let mut factory = me.factory.try_lock().expect("should be contentionless");
-        let mut worker = factory.make(id);
+        let worker = factory.make(id);
         drop(factory);
 
         // record this worker as working

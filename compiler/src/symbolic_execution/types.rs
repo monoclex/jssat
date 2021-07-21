@@ -12,7 +12,7 @@ type ShapeId = crate::id::ShapeId<SymbolicCtx>;
 /// The ID of a function whose argument types are not yet known.
 type DynFnId = crate::id::FunctionId<LiftedCtx>;
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum RegisterType {
     Any,
     Trivial(TrivialItem),
@@ -23,6 +23,7 @@ pub enum RegisterType {
     Record(AllocationId),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ShapeKey {
     Str(ConstantId),
     Slot(InternalSlot),
@@ -42,10 +43,12 @@ pub type ShapeValueType = RegisterType;
 //     Record(AllocationId),
 // }
 
+#[derive(Clone)]
 pub struct Shape {
     fields: FxHashMap<ShapeKey, ShapeValueType>,
 }
 
+#[derive(Clone)]
 pub struct TypeBag {
     registers: FxHashMap<RegisterId, RegisterType>,
     shapes: FxHashMap<ShapeId, Shape>,
@@ -65,5 +68,11 @@ impl Default for TypeBag {
             registers: Default::default(),
             shapes: Default::default(),
         }
+    }
+}
+
+impl PartialEq for TypeBag {
+    fn eq(&self, other: &Self) -> bool {
+        todo!()
     }
 }

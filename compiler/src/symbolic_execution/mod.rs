@@ -6,59 +6,54 @@ use rustc_hash::FxHashSet;
 
 use crate::id::*;
 use crate::lifted::LiftedProgram;
-use crate::symbolic_execution::graph_system::GraphSystem;
-use crate::symbolic_execution::graph_system::System;
 
-use self::graph_system::Bogusable;
-use self::graph_system::Worker;
-use self::graph_system::WorkerFactory;
+use self::graph_system::{Bogusable, GraphSystem, System, Worker, WorkerFactory};
 use self::types::TypeBag;
+use self::unique_id::{UniqueFnId, UniqueFnIdShared};
+use self::worker::SymbWorker;
 
 pub mod graph_system;
 pub mod types;
-
-#[test]
-fn awesome() {
-    let system = GraphSystem::new(SymbFactory);
-    let k = system.spawn(0);
-    println!("result: {}", *k);
-    panic!();
-}
+pub mod unique_id;
+pub mod worker;
 
 pub fn execute(program: &LiftedProgram) {
+    let mut fn_ids = UniqueFnId::default();
+    let entry_fn_id = fn_ids.id_of(program.entrypoint, &TypeBag::default());
+
+    let factory = SymbFactory {
+        program,
+        fn_ids: Arc::new(Mutex::new(fn_ids)),
+    };
+
+    let system = GraphSystem::new(factory);
+    {
+        system.spawn(entry_fn_id);
+    }
+
+    let results = system.try_into_results().expect("system should be dead");
+
     todo!()
 }
 
-struct SymbFactory;
-
-impl WorkerFactory for SymbFactory {
-    type Worker = SymbWorker;
-
-    fn make(&mut self, id: usize) -> Self::Worker {
-        println!("making worker {}", id);
-        SymbWorker(id)
-    }
+struct SymbFactory<'program> {
+    program: &'program LiftedProgram,
+    fn_ids: Arc<Mutex<UniqueFnId>>,
 }
 
-struct SymbWorker(usize);
+impl<'p> WorkerFactory for SymbFactory<'p> {
+    type Worker = SymbWorker<'p>;
 
-impl Worker for SymbWorker {
-    type Id = usize;
-
-    type Result = usize;
-
-    fn work(&mut self, system: &impl graph_system::System<Self>) -> Self::Result {
-        println!("worker {} is working", self.0);
-
-        if self.0 == 9 {
-            return 60;
+    fn make(&mut self, id: <Self::Worker as Worker>::Id) -> Self::Worker {
+        Self::Worker {
+            program: self.program,
+            id,
+            fn_ids: UniqueFnIdShared(self.fn_ids.clone()),
         }
-
-        *system.spawn(self.0 + 1) + 1
     }
 }
 
-impl Bogusable for usize {
+impl Bogusable for SymbWorker<'_> {
     fn bogus() -> Self {
         panic!()
     }
