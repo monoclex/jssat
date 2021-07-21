@@ -10,12 +10,12 @@ type FunctionId = crate::id::FunctionId<IrCtx>;
 type ConstantId = crate::id::ConstantId<IrCtx>;
 use crate::id::RegisterId;
 
-use super::isa::{
+use crate::isa::{
     BlockJump, CallExtern, CallStatic, CallVirt, GetFnPtr, ISAInstruction, Jump, JumpIf, MakeBytes,
     MakeInteger, MakeRecord, MakeTrivial, OpAdd, OpEquals, OpLessThan, OpNegate, RecordGet,
     RecordSet, Return,
 };
-use super::retag::{BlkRetagger, CnstRetagger, ExtFnRetagger, FnRetagger, RegRetagger};
+use crate::retag::{BlkRetagger, CnstRetagger, ExtFnRetagger, FnRetagger, RegRetagger};
 type PlainRegisterId = RegisterId<IrCtx>;
 type ExternalFunctionId = crate::id::ExternalFunctionId<IrCtx>;
 

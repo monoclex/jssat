@@ -1,19 +1,19 @@
 use crate::frontend::ir::{ControlFlowInstruction, Function, Instruction, IR};
-use crate::frontend::isa::BlockJump;
-use crate::frontend::retag::{BlkRetagger, CnstPassRetagger};
-use crate::frontend::retag::{RegGenPassRetagger, RegRetagger};
 use crate::id::*;
+use crate::isa::BlockJump;
+use crate::retag::{BlkRetagger, CnstPassRetagger};
+use crate::retag::{RegGenPassRetagger, RegRetagger};
 use crate::UnwrapNone;
 use bimap::BiHashMap;
 use petgraph::graph::NodeIndex;
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
 use std::hash::{BuildHasherDefault, Hash};
 
-use super::retag::{
+use crate::retag::ExtFnRetagger;
+use crate::retag::{
     BlkMapRetagger, BlkPassRetagger, CnstRetagger, ExtFnPassRetagger, FnPassRetagger, FnRetagger,
     RegGenRetagger, RegPassRetagger,
 };
-use crate::frontend::retag::ExtFnRetagger;
 
 pub type ControlFlowGraph = petgraph::graph::DiGraph<BlockId<PureBbCtx>, ()>;
 pub type ValueFlowGraph = petgraph::graph::DiGraph<RegisterId<IrCtx>, ()>;

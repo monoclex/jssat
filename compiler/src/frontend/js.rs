@@ -17,7 +17,7 @@ use swc_ecmascript::{
 
 use crate::frontend::{builder::*, ir::*};
 
-use super::isa::InternalSlot;
+use crate::isa::InternalSlot;
 
 #[cfg(not(feature = "link-swc"))]
 fn to_script(_source: String) {}

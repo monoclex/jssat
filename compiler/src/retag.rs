@@ -11,9 +11,7 @@ use std::panic::Location;
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::id::IdCompat;
-use crate::id::Tag;
-use crate::id::{BlockId, ConstantId, ExternalFunctionId, FunctionId, RegisterId};
+use crate::id::{BlockId, ConstantId, ExternalFunctionId, FunctionId, IdCompat, RegisterId, Tag};
 
 // Rust doesn't have HKTs, which makes this a lot of pain.
 // Try to keep things in this layout:

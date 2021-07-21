@@ -12,11 +12,7 @@ use crate::id::FunctionId;
 use crate::id::RegisterId;
 use crate::id::Tag;
 
-use super::retag::BlkRetagger;
-use super::retag::CnstRetagger;
-use super::retag::ExtFnRetagger;
-use super::retag::FnRetagger;
-use super::retag::RegRetagger;
+use crate::retag::{BlkRetagger, CnstRetagger, ExtFnRetagger, FnRetagger, RegRetagger};
 
 /// The contract provided by any single instruction. Provides methods to make
 /// interfacing with all instructions easy.

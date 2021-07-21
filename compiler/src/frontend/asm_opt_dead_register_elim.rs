@@ -4,7 +4,8 @@ use super::{
     assembler::{Function, Program},
     type_annotater::ValueType,
 };
-use crate::frontend::{assembler::Instruction, isa::RecordKey, old_types::ShapeKey};
+use crate::frontend::{assembler::Instruction, old_types::ShapeKey};
+use crate::isa::RecordKey;
 
 /// This optimization pass is necessary to eliminate instructions that generate LLVM IR
 /// that uses runtime machinery - meaning LLVM cannot optimize it away.

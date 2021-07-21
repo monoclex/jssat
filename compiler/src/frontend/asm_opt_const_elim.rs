@@ -6,11 +6,9 @@ use super::{
     type_annotater::ValueType,
 };
 use crate::{
-    frontend::{
-        assembler::{BlockJump, Callable, EndInstruction, Instruction},
-        isa::{MakeTrivial, RecordKey},
-    },
+    frontend::assembler::{BlockJump, Callable, EndInstruction, Instruction},
     id::*,
+    isa::{MakeTrivial, RecordKey},
 };
 
 pub fn opt_constant_elimination(program: Program) -> Program {
@@ -235,13 +233,13 @@ fn stack_alloc_valule(
         ValueType::Null => {
             prepend.push(Instruction::MakeTrivial(MakeTrivial {
                 result: r,
-                item: crate::frontend::isa::TrivialItem::Null,
+                item: crate::isa::TrivialItem::Null,
             }));
         }
         ValueType::Undefined => {
             prepend.push(Instruction::MakeTrivial(MakeTrivial {
                 result: r,
-                item: crate::frontend::isa::TrivialItem::Undefined,
+                item: crate::isa::TrivialItem::Undefined,
             }));
         }
         ValueType::Any

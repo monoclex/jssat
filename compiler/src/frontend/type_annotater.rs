@@ -3,18 +3,19 @@ use rustc_hash::FxHashMap;
 use std::hash::Hash;
 
 use crate::frontend::ir::*;
-use crate::frontend::isa::RecordKey;
 use crate::frontend::old_types::ShapeKey;
 use crate::id::*;
+use crate::isa::RecordKey;
+use crate::isa::TrivialItem;
 use crate::poor_hashmap::PoorMap;
 
 use super::conv_only_bb::PureBlocks;
-use super::isa::BlockJump;
-use super::isa::CallExtern;
-use super::isa::CallStatic;
-use super::isa::CallVirt;
-use super::isa::Jump;
 use super::old_types::RegMap;
+use crate::isa::BlockJump;
+use crate::isa::CallExtern;
+use crate::isa::CallStatic;
+use crate::isa::CallVirt;
+use crate::isa::Jump;
 
 /// Type annotation mechanism in JSSAT.
 ///
@@ -203,10 +204,10 @@ impl<'d> SymbolicExecutionEngine<'d> {
                 &Instruction::MakeTrivial(r) => registers.insert(
                     r.result,
                     match r.item {
-                        super::isa::TrivialItem::Runtime => ValueType::Runtime,
-                        super::isa::TrivialItem::Null => ValueType::Null,
-                        super::isa::TrivialItem::Undefined => ValueType::Undefined,
-                        super::isa::TrivialItem::Empty => todo!(), // ValueType::Empty,
+                        TrivialItem::Runtime => ValueType::Runtime,
+                        TrivialItem::Null => ValueType::Null,
+                        TrivialItem::Undefined => ValueType::Undefined,
+                        TrivialItem::Empty => todo!(), // ValueType::Empty,
                     },
                 ),
                 &Instruction::MakeString(inst) => {

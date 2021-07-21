@@ -4,10 +4,8 @@ use crate::{id::*, UnwrapNone};
 use petgraph::{visit::EdgeRef, EdgeDirection};
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use super::{
-    isa::InternalSlot,
-    type_annotater::{InvocationArgs, ValueType},
-};
+use super::type_annotater::{InvocationArgs, ValueType};
+use crate::isa::InternalSlot;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RecordShape {

@@ -3,19 +3,22 @@
 
 use std::{collections::VecDeque, fmt::Debug, sync::Mutex};
 
+use crate::isa::{
+    CallExtern, CallStatic, CallVirt, ISAInstruction, MakeTrivial, OpLessThan, RecordKey,
+};
+use crate::retag::{ExtFnPassRetagger, RegGenRetagger, RegMapRetagger, RegRetagger};
+
 use super::{
     conv_only_bb::{self, PureBlocks},
     ir,
     ir::{FFIValueType, IR},
-    isa::{CallExtern, CallStatic, CallVirt, ISAInstruction, MakeTrivial, OpLessThan, RecordKey},
     old_types::{RegMap, ShapeKey},
-    retag::{ExtFnPassRetagger, RegGenRetagger, RegMapRetagger, RegRetagger},
     type_annotater::{self, InvocationArgs, TypeAnnotations, TypeInformation, ValueType},
 };
-use crate::frontend::retag::{BlkPassRetagger, FnRetagger};
-use crate::frontend::retag::{BlkRetagger, RegPassRetagger};
-use crate::frontend::retag::{ExtFnRetagger, FnPassRetagger};
 use crate::id::*;
+use crate::retag::{BlkPassRetagger, FnRetagger};
+use crate::retag::{BlkRetagger, RegPassRetagger};
+use crate::retag::{ExtFnRetagger, FnPassRetagger};
 use rustc_hash::FxHashMap;
 
 #[derive(Clone, Debug)]
@@ -1050,11 +1053,8 @@ where
     }
 
     #[track_caller]
-    fn map_bbjump(
-        &mut self,
-        bbjump: &crate::frontend::isa::BlockJump<PureBbCtx, PureBbCtx>,
-    ) -> BlockJump {
-        let crate::frontend::isa::BlockJump(id, args) = bbjump;
+    fn map_bbjump(&mut self, bbjump: &crate::isa::BlockJump<PureBbCtx, PureBbCtx>) -> BlockJump {
+        let crate::isa::BlockJump(id, args) = bbjump;
 
         // TODO: use `zip_eq`
         println!("!!!! preparing cal2l!!!!!!!!!!!!");

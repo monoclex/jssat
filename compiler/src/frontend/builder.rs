@@ -8,7 +8,7 @@ use crate::id::{Counter, IdCompat};
 use crate::name::DebugName;
 use crate::UnwrapNone;
 
-use super::isa::{
+use crate::isa::{
     BlockJump, CallExtern, CallStatic, CallVirt, GetFnPtr, InternalSlot, Jump, JumpIf, MakeBytes,
     MakeInteger, MakeRecord, MakeTrivial, OpAdd, OpEquals, OpLessThan, OpNegate, RecordGet,
     RecordKey, RecordSet, Return, TrivialItem,

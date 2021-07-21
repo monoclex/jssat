@@ -23,7 +23,7 @@ use inkwell::{
     AddressSpace, IntPredicate, OptimizationLevel,
 };
 
-use crate::frontend::isa::OpLessThan;
+use crate::isa::OpLessThan;
 
 #[cfg(feature = "link-llvm")]
 use crate::UnwrapNone;
