@@ -148,8 +148,8 @@ pub enum Instruction<C: Tag = crate::id::IrCtx, F: Tag = crate::id::IrCtx> {
 
 #[derive(Debug, Clone)]
 pub enum ControlFlowInstruction<Ctx: Tag = IrCtx, Path: Tag = IrCtx> {
-    Jmp(Jump<Path, Ctx>),
-    JmpIf(JumpIf<Path, Ctx>),
+    Jmp(Jump<crate::id::BlockId<Path>, Ctx>),
+    JmpIf(JumpIf<crate::id::BlockId<Path>, Ctx>),
     Ret(Return<Ctx>),
 }
 
@@ -209,7 +209,7 @@ impl<CO: Tag, PO: Tag> ControlFlowInstruction<CO, PO> {
     }
 }
 
-impl<C: Tag> Instruction<C> {
+impl<C: Tag, F: Tag> Instruction<C, F> {
     pub fn assigned_to(&self) -> Option<RegisterId<C>> {
         match self {
             Instruction::Comment(c, _) => None,
@@ -288,7 +288,7 @@ impl<C: Tag, P: Tag> ControlFlowInstruction<C, P> {
         }
     }
 
-    pub fn children(&self) -> Vec<&BlockJump<P, C>> {
+    pub fn children(&self) -> Vec<&BlockJump<crate::id::BlockId<P>, C>> {
         match self {
             ControlFlowInstruction::Jmp(inst) => inst.paths(),
             ControlFlowInstruction::JmpIf(inst) => inst.paths(),
@@ -296,7 +296,7 @@ impl<C: Tag, P: Tag> ControlFlowInstruction<C, P> {
         }
     }
 
-    pub fn children_mut(&mut self) -> Vec<&mut BlockJump<P, C>> {
+    pub fn children_mut(&mut self) -> Vec<&mut BlockJump<crate::id::BlockId<P>, C>> {
         match self {
             ControlFlowInstruction::Jmp(inst) => inst.paths_mut(),
             ControlFlowInstruction::JmpIf(inst) => inst.paths_mut(),

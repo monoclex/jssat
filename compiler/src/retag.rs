@@ -400,7 +400,24 @@ impl<C: Tag, C2: Tag> FnGenRetagger<C, C2> for FnGenPassRetagger<C, C2> {
     }
 }
 
+#[derive(Clone)]
 pub struct FnMapRetagger<C: Tag, C2: Tag>(MapRetagger<FunctionId<C>, FunctionId<C2>>);
+
+impl<C: Tag, C2: Tag> FnMapRetagger<C, C2> {
+    pub fn counter(&self) -> usize {
+        self.0.counter
+    }
+
+    pub fn new_with_counter(counter: usize) -> Self {
+        let mut me = Self::default();
+        me.0.counter = counter;
+        me
+    }
+
+    pub fn free(&self) -> FunctionId<C> {
+        self.0.core_free()
+    }
+}
 
 impl<A: Tag, B: Tag> Default for FnMapRetagger<A, B> {
     fn default() -> Self {
@@ -423,6 +440,21 @@ impl<C: Tag, C2: Tag> FnRetagger<C, C2> for FnMapRetagger<C, C2> {
 impl<C: Tag, C2: Tag> FnGenRetagger<C, C2> for FnMapRetagger<C, C2> {
     fn gen(&mut self) -> FunctionId<C2> {
         self.0.core_gen()
+    }
+}
+
+// = not really functions not really retagger =
+
+pub trait BlkToFn<T1: Tag, T2: Tag> {
+    fn retag(&self, block: BlockId<T1>) -> FunctionId<T2>;
+}
+
+impl<T1: Tag, T2: Tag> BlkToFn<T1, T2> for FxHashMap<BlockId<T1>, FunctionId<T2>> {
+    #[track_caller]
+    fn retag(&self, block: BlockId<T1>) -> FunctionId<T2> {
+        *self
+            .get(&block)
+            .expect("expected BlkToFn to map block to function")
     }
 }
 
@@ -672,7 +704,7 @@ impl<I1, I2: IdCompat> GenPassRetagger<I1, I2> {
 /// what values. This gives it the ability to generate new IDs that have not
 /// been mapped while mapping old values, but is not as fast as
 /// [`TransparentRetagger`].
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 struct MapRetagger<I1, I2> {
     counter: usize,
     #[cfg(debug_assertions)]
@@ -737,20 +769,27 @@ impl<I1: IdCompat, I2: IdCompat> CoreRetagger for MapRetagger<I1, I2> {
     }
 }
 
-impl<I1, I2: IdCompat> MapRetagger<I1, I2> {
+impl<I1: IdCompat, I2: IdCompat> MapRetagger<I1, I2> {
     fn core_gen(&mut self) -> I2 {
-        loop {
-            self.counter += 1;
+        self.counter += 1;
 
-            // TODO: i can't imagine this actually doing anything
-            if self.map.get(&self.counter).is_none() {
-                break;
-            } else {
-                println!("wtf we shouldnt run into this");
-            }
+        if cfg!(debug_assertions) {
+            assert!(
+                self.map.get(&self.counter).is_none(),
+                "`core_gen` should never generate duplicate id"
+            );
         }
 
         I2::raw_new_with_value(self.counter)
+    }
+
+    fn core_free(&self) -> I1 {
+        let mut counter = 0;
+        while self.map.get(&counter).is_some() {
+            counter += 1
+        }
+
+        I1::raw_new_with_value(counter)
     }
 }
 

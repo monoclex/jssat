@@ -1053,7 +1053,10 @@ where
     }
 
     #[track_caller]
-    fn map_bbjump(&mut self, bbjump: &crate::isa::BlockJump<PureBbCtx, PureBbCtx>) -> BlockJump {
+    fn map_bbjump(
+        &mut self,
+        bbjump: &crate::isa::BlockJump<crate::id::BlockId<PureBbCtx>, PureBbCtx>,
+    ) -> BlockJump {
         let crate::isa::BlockJump(id, args) = bbjump;
 
         // TODO: use `zip_eq`

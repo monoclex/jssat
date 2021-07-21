@@ -151,6 +151,10 @@ gen_id_ctx!(
     /// Context used by [`crate::backend::llvm`]
     LlvmCtx
 );
+gen_id_ctx!(
+    /// Context used by [`crate::lifted`]
+    LiftedCtx
+);
 
 gen_id!(TypeId);
 gen_id!(TopLevelId);
@@ -233,10 +237,6 @@ where
         let tmp = self.registers.clone();
         let alloc = *(self.registers).entry(source).or_insert_with(|| {
             is_new = true;
-            // TODO: this is a hack just to test if it's reg allocation being weird
-            for i in 0..=0 {
-                // reg_counter.next();
-            }
             let id = reg_counter.next();
             if tmp.values().any(|v| v == &id) {
                 panic!("giong to insert already inserted key");

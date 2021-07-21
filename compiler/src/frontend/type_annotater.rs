@@ -581,7 +581,7 @@ impl<'d> SymbolicExecutionEngine<'d> {
 
     fn execute_jmp(
         &mut self,
-        jump: &BlockJump<PureBbCtx, PureBbCtx>,
+        jump: &BlockJump<BlockId<PureBbCtx>, PureBbCtx>,
         registers: &RegMap<PureBbCtx>,
     ) -> &ExecutionResult {
         let BlockJump(blk_id, args) = jump;

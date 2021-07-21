@@ -21,6 +21,7 @@ pub mod frontend;
 pub mod id;
 pub mod interner;
 pub mod isa;
+pub mod lifted;
 pub mod my_tests;
 pub mod name;
 pub mod poor_hashmap;
