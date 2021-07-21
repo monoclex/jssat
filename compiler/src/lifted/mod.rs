@@ -3,24 +3,21 @@ use tinyvec::TinyVec;
 
 use crate::{
     frontend::ir::{self, ControlFlowInstruction, FFIValueType, Instruction, IR},
-    id::{BlockId, Counter, IrCtx, LiftedCtx},
-    isa::{BlockJump, Jump, JumpIf, Return},
+    id::{Counter, IrCtx, LiftedCtx},
+    isa::{BlockJump, ISAInstruction, Jump, JumpIf, Return},
     retag::{
-        BlkToFn, CnstPassRetagger, ExtFnPassRetagger, FnMapRetagger, RegPassRetagger, RegRetagger,
+        BlkToFn, CnstPassRetagger, CnstRetagger, ExtFnPassRetagger, ExtFnRetagger, FnMapRetagger,
+        FnRetagger, RegPassRetagger, RegRetagger,
     },
+    UnwrapNone,
 };
-
-use crate::isa::ISAInstruction;
-use crate::retag::CnstRetagger;
-use crate::retag::ExtFnRetagger;
-use crate::retag::FnRetagger;
-use crate::UnwrapNone;
 
 type ExternalFunctionId = crate::id::ExternalFunctionId<LiftedCtx>;
 type FunctionId = crate::id::FunctionId<LiftedCtx>;
 type ConstantId = crate::id::ConstantId<LiftedCtx>;
 type RegisterId = crate::id::RegisterId<LiftedCtx>;
 
+#[derive(Debug, Clone)]
 pub struct LiftedProgram {
     pub entrypoint: FunctionId,
     pub constants: FxHashMap<ConstantId, Constant>,
@@ -28,15 +25,17 @@ pub struct LiftedProgram {
     pub functions: FxHashMap<FunctionId, Function>,
 }
 
+#[derive(Debug, Clone)]
 pub struct Constant {
     pub payload: Vec<u8>,
 }
 
+#[derive(Debug, Clone)]
 pub struct ExternalFunction {
     pub parameters: Vec<FFIValueType>,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Function {
     pub parameters: Vec<RegisterId>,
     pub instructions: Vec<Instruction<LiftedCtx, LiftedCtx>>,
@@ -184,6 +183,11 @@ fn lift_function(
     }
 
     let mut reg_retagger = RegPassRetagger::default();
+    // SAFETY: we are ignoring checks because every block does not have full
+    // register awareness. there may be registers used-but-not-declared, so we
+    // must ignore those
+    reg_retagger.ignore_checks();
+
     let mut lifted = FxHashMap::default();
 
     for (id, blk) in function.blocks.into_iter() {
@@ -206,8 +210,9 @@ fn lift_function(
     loop {
         let mut any_patched = false;
         let view = lifted.clone();
-        for (_, function) in lifted.iter_mut() {
-            any_patched = patch_child_flow(function, &view) || any_patched;
+        for (id, function) in lifted.iter_mut() {
+            let is_entrypoint = *id == fn_id;
+            any_patched = patch_child_flow(function, &view, is_entrypoint) || any_patched;
         }
 
         if !any_patched {
@@ -268,16 +273,16 @@ fn lift_used_but_not_declared(function: &mut Function) {
 
     for inst in function.instructions.iter() {
         if let Some(reg) = inst.assigned_to() {
-            let is_new = declared.insert(reg);
-            debug_assert!(!is_new, "should never re-declare registers");
+            let register_exists = declared.insert(reg);
+            debug_assert!(register_exists, "should never re-declare registers");
         }
 
         used.extend(inst.used_registers());
     }
 
     if let Some(reg) = function.end.declared_register() {
-        let is_new = declared.insert(reg);
-        debug_assert!(!is_new, "should never re-declare registers");
+        let register_exists = declared.insert(reg);
+        debug_assert!(register_exists, "should never re-declare registers");
     }
 
     used.extend(function.end.used_registers());
@@ -294,7 +299,11 @@ fn lift_used_but_not_declared(function: &mut Function) {
 /// If any children were patched, `true` is returned.
 ///
 /// If no children were patched, `false` is returned.
-fn patch_child_flow(function: &mut Function, functions: &FxHashMap<FunctionId, Function>) -> bool {
+fn patch_child_flow(
+    function: &mut Function,
+    functions: &FxHashMap<FunctionId, Function>,
+    is_entrypoint: bool,
+) -> bool {
     let mut fn_params_modified = false;
 
     // TODO: put this in a function?
@@ -307,13 +316,13 @@ fn patch_child_flow(function: &mut Function, functions: &FxHashMap<FunctionId, F
         .iter()
         .filter_map(|inst| inst.assigned_to())
     {
-        let is_new = declared.insert(reg);
-        debug_assert!(!is_new, "should never re-declare registers");
+        let register_exists = declared.insert(reg);
+        debug_assert!(register_exists, "should never re-declare registers");
     }
 
     if let Some(reg) = function.end.declared_register() {
-        let is_new = declared.insert(reg);
-        debug_assert!(!is_new, "should never re-declare registers");
+        let register_exists = declared.insert(reg);
+        debug_assert!(register_exists, "should never re-declare registers");
     }
 
     for path in function.end.paths_mut() {
@@ -336,6 +345,13 @@ fn patch_child_flow(function: &mut Function, functions: &FxHashMap<FunctionId, F
             if declared.contains(&unpassed_register) {
                 passed_registers.push(unpassed_register);
             } else {
+                // if we're modifying the params of the entrypoint function,
+                // something is wrong; if registers have crept up to the entry
+                // block, we have somehow used a register but never declared it.
+                if is_entrypoint {
+                    panic!("error: used-but-not-declared register reached entrypoint of function but found no declaration.");
+                }
+
                 fn_params_modified = true;
                 function.parameters.push(unpassed_register);
             }

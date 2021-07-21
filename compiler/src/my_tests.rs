@@ -1,5 +1,6 @@
 //! Because this is all in one binary, i can't use a `tests` folder
 
+use crate::lifted::EndInstruction;
 #[cfg(test)]
 use crate::{
     frontend::{builder::ProgramBuilder, conv_only_bb, ir::ControlFlowInstruction},
@@ -26,17 +27,16 @@ pub fn can_lift_registers_in_near_blocks() {
 
     let ir = program.finish();
     println!("{}", crate::frontend::display_jssatir::display(&ir));
-    let pure_blocks = conv_only_bb::translate(&ir);
-    println!("{}", crate::frontend::display_bb::display(&pure_blocks));
+    let lifted = crate::lifted::lift(ir);
+    println!("{:#?}", lifted);
 
-    let entrypoint = pure_blocks.get_block_id_by_host(main_id, block1_id);
+    let entrypoint = lifted.functions.get(&lifted.entrypoint).unwrap();
 
     // the main block shall have no parameters
-    let entry_block = pure_blocks.get_block(entrypoint);
-    assert_eq!(entry_block.parameters.len(), 0);
+    assert_eq!(entrypoint.parameters.len(), 0);
 
     // the main block shall jump to the next block with the parameter
-    if let ControlFlowInstruction::Jmp(Jump(BlockJump(_, args))) = &entry_block.end {
+    if let EndInstruction::Jump(Jump(BlockJump(_, args))) = &entrypoint.end {
         // we shall jump with one argument: the undefined value
         assert_eq!(args.len(), 1);
     } else {
@@ -72,17 +72,16 @@ pub fn can_lift_registers_in_far_blocks() {
 
     let ir = program.finish();
     println!("{}", crate::frontend::display_jssatir::display(&ir));
-    let pure_blocks = conv_only_bb::translate(&ir);
-    println!("{}", crate::frontend::display_bb::display(&pure_blocks));
+    let lifted = crate::lifted::lift(ir);
+    println!("{:#?}", lifted);
 
-    let entrypoint = pure_blocks.get_block_id_by_host(main_id, block1_id);
+    let entrypoint = lifted.functions.get(&lifted.entrypoint).unwrap();
 
     // the main block shall have no parameters
-    let entry_block = pure_blocks.get_block(entrypoint);
-    assert_eq!(entry_block.parameters.len(), 0);
+    assert_eq!(entrypoint.parameters.len(), 0);
 
     // the main block shall jump to the next block with the parameter
-    let to = if let ControlFlowInstruction::Jmp(Jump(BlockJump(to, args))) = &entry_block.end {
+    let to = if let EndInstruction::Jump(Jump(BlockJump(to, args))) = &entrypoint.end {
         // we shall jump with one argument: the undefined value
         assert_eq!(args.len(), 1);
         *to
@@ -93,18 +92,17 @@ pub fn can_lift_registers_in_far_blocks() {
     println!("entry jumped to {:?}", to);
 
     // the second block shall have one parameter
-    let block = pure_blocks.get_block(to);
-    println!("jumped to {:?}", block);
+    let block = lifted.functions.get(&to).unwrap();
+    // println!("jumped to {:?}", block);
     assert_eq!(block.parameters.len(), 1);
 
     // that parameter shall be used to jump to another block
     let param = block.parameters[0];
     println!("got: {:?}", &block.end);
-    if let ControlFlowInstruction::Jmp(Jump(BlockJump(to, args))) = &block.end {
+    if let EndInstruction::Jump(Jump(BlockJump(to, args))) = &block.end {
         assert_eq!(args.len(), 1);
         assert_eq!(param, args[0]);
-        *to
     } else {
         panic!("block must end in jump")
-    };
+    }
 }

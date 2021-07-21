@@ -784,7 +784,7 @@ impl<I1: IdCompat, I2: IdCompat> MapRetagger<I1, I2> {
     }
 
     fn core_free(&self) -> I1 {
-        let mut counter = 0;
+        let mut counter = 1;
         while self.map.get(&counter).is_some() {
             counter += 1
         }

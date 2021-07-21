@@ -139,7 +139,7 @@ impl<C: Tag> ISAInstruction<C> for Return<C> {
     }
 
     fn declared_register(&self) -> Option<RegisterId<C>> {
-        self.0
+        None
     }
 
     fn used_registers(&self) -> TinyVec<[RegisterId<C>; 3]> {
