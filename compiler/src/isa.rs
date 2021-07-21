@@ -730,13 +730,14 @@ pub enum InternalSlot {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct RecordGet<C: Tag> {
+pub struct RecordGet<C: Tag, S = ()> {
     pub result: RegisterId<C>,
+    pub shape: S,
     pub record: RegisterId<C>,
     pub key: RecordKey<C>,
 }
 
-impl<C: Tag> ISAInstruction<C> for RecordGet<C> {
+impl<C: Tag, S> ISAInstruction<C> for RecordGet<C, S> {
     fn declared_register(&self) -> Option<RegisterId<C>> {
         Some(self.result)
     }
@@ -766,10 +767,11 @@ impl<C: Tag> ISAInstruction<C> for RecordGet<C> {
     }
 }
 
-impl<C: Tag> RecordGet<C> {
+impl<C: Tag, S> RecordGet<C, S> {
     #[track_caller]
-    pub fn retag<C2: Tag>(self, retagger: &mut impl RegRetagger<C, C2>) -> RecordGet<C2> {
+    pub fn retag<C2: Tag>(self, retagger: &mut impl RegRetagger<C, C2>) -> RecordGet<C2, S> {
         RecordGet {
+            shape: self.shape,
             result: retagger.retag_new(self.result),
             record: retagger.retag_old(self.record),
             key: self.key.retag(retagger),
@@ -778,13 +780,14 @@ impl<C: Tag> RecordGet<C> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct RecordSet<C: Tag> {
+pub struct RecordSet<C: Tag, S = ()> {
+    pub shape: S,
     pub record: RegisterId<C>,
     pub key: RecordKey<C>,
     pub value: RegisterId<C>,
 }
 
-impl<C: Tag> ISAInstruction<C> for RecordSet<C> {
+impl<C: Tag, S> ISAInstruction<C> for RecordSet<C, S> {
     fn declared_register(&self) -> Option<RegisterId<C>> {
         None
     }
@@ -814,10 +817,11 @@ impl<C: Tag> ISAInstruction<C> for RecordSet<C> {
     }
 }
 
-impl<C: Tag> RecordSet<C> {
+impl<C: Tag, S> RecordSet<C, S> {
     #[track_caller]
-    pub fn retag<C2: Tag>(self, retagger: &mut impl RegRetagger<C, C2>) -> RecordSet<C2> {
+    pub fn retag<C2: Tag>(self, retagger: &mut impl RegRetagger<C, C2>) -> RecordSet<C2, S> {
         RecordSet {
+            shape: self.shape,
             record: retagger.retag_old(self.record),
             key: self.key.retag(retagger),
             value: retagger.retag_old(self.value),

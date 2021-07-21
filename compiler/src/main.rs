@@ -26,6 +26,7 @@ pub mod my_tests;
 pub mod name;
 pub mod poor_hashmap;
 pub mod retag;
+pub mod symbolic_execution;
 
 /// can't have nice things :'( https://github.com/rust-lang/rust/issues/62633
 pub trait UnwrapNone {

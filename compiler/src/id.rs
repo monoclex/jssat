@@ -155,6 +155,10 @@ gen_id_ctx!(
     /// Context used by [`crate::lifted`]
     LiftedCtx
 );
+gen_id_ctx!(
+    /// Context used by [`crate::symbolic_execution`]
+    SymbolicCtx
+);
 
 gen_id!(TypeId);
 gen_id!(TopLevelId);

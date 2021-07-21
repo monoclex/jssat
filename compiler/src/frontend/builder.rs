@@ -507,6 +507,7 @@ impl DynBlockBuilder {
         let result = self.gen_register_id.next();
         self.instructions.push(Instruction::RecordGet(RecordGet {
             result,
+            shape: (),
             record,
             key: RecordKey::Prop(property),
         }));
@@ -517,6 +518,7 @@ impl DynBlockBuilder {
         let result = self.gen_register_id.next();
         self.instructions.push(Instruction::RecordGet(RecordGet {
             result,
+            shape: (),
             record,
             key: RecordKey::Slot(slot),
         }));
@@ -525,6 +527,7 @@ impl DynBlockBuilder {
 
     pub fn record_set_prop(&mut self, record: RegisterId, property: RegisterId, value: RegisterId) {
         self.instructions.push(Instruction::RecordSet(RecordSet {
+            shape: (),
             record,
             key: RecordKey::Prop(property),
             value,
@@ -533,6 +536,7 @@ impl DynBlockBuilder {
 
     pub fn record_set_slot(&mut self, record: RegisterId, slot: InternalSlot, value: RegisterId) {
         self.instructions.push(Instruction::RecordSet(RecordSet {
+            shape: (),
             record,
             key: RecordKey::Slot(slot),
             value,
