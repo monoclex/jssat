@@ -192,11 +192,13 @@ impl<'d> SymbolicExecutionEngine<'d> {
         for instruction in block.instructions.iter() {
             match instruction {
                 Instruction::Comment(_, _) => {}
-                &Instruction::ReferenceOfFunction(r, fn_id) => {
-                    let func = self.ir.functions.get(&fn_id).unwrap();
-                    let blk_id = self.blocks.get_block_id_by_host(fn_id, func.entry_block);
+                &Instruction::ReferenceOfFunction(inst) => {
+                    let func = self.ir.functions.get(&inst.function).unwrap();
+                    let blk_id = self
+                        .blocks
+                        .get_block_id_by_host(inst.function, func.entry_block);
 
-                    registers.insert(r, ValueType::FnPtr(blk_id));
+                    registers.insert(inst.result, ValueType::FnPtr(blk_id));
                 }
                 &Instruction::MakeTrivial(r) => registers.insert(
                     r.result,

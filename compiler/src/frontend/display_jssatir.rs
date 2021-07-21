@@ -61,9 +61,7 @@ pub fn display(program: &IR) -> String {
                     Instruction::CallStatic(t) => iwl!(text, "    CallStatic {:?}", t),
                     Instruction::MakeTrivial(t) => iwl!(text, "    MakeTrivial {:?}", t),
                     Instruction::MakeString(instt) => iwl!(text, "    MakeString {:?}", instt),
-                    Instruction::ReferenceOfFunction(r, f) => {
-                        iwl!(text, "    %{} = MakeFnPtr @{}", r, f)
-                    }
+                    Instruction::ReferenceOfFunction(inst) => iwl!(text, "todo"),
                     Instruction::CompareLessThan(inst) => {
                         let r = inst.result;
                         let l = inst.lhs;

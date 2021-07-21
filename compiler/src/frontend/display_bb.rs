@@ -41,9 +41,7 @@ pub fn display(program: &PureBlocks) -> String {
                 Instruction::CallStatic(t) => iwl!(text, "    {:?}", t),
                 Instruction::MakeTrivial(t) => iwl!(text, "    {:?}", t),
                 Instruction::MakeString(inst) => iwl!(text, "    {:?}", inst),
-                Instruction::ReferenceOfFunction(r, f) => {
-                    iwl!(text, "    %{} = MakeFnPtr @{}", r, f)
-                }
+                Instruction::ReferenceOfFunction(inst) => iwl!(text, "todo"),
                 Instruction::CompareLessThan(inst) => {
                     let r = inst.result;
                     let l = inst.lhs;

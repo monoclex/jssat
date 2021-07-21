@@ -11,7 +11,7 @@ type ConstantId = crate::id::ConstantId<IrCtx>;
 use crate::id::RegisterId;
 
 use super::isa::{
-    BlockJump, CallExtern, CallStatic, CallVirt, ISAInstruction, Jump, JumpIf, MakeBytes,
+    BlockJump, CallExtern, CallStatic, CallVirt, GetFnPtr, ISAInstruction, Jump, JumpIf, MakeBytes,
     MakeInteger, MakeRecord, MakeTrivial, OpAdd, OpEquals, OpLessThan, OpNegate, RecordGet,
     RecordSet, Return,
 };
@@ -113,7 +113,7 @@ pub enum Instruction<C: Tag = crate::id::IrCtx, F: Tag = crate::id::IrCtx> {
     RecordNew(MakeRecord<C>),
     RecordGet(RecordGet<C>),
     RecordSet(RecordSet<C>),
-    ReferenceOfFunction(RegisterId<C>, crate::id::FunctionId<F>),
+    ReferenceOfFunction(GetFnPtr<C, F>),
     CallStatic(CallStatic<C, F>),
     CallExtern(CallExtern<C, F>),
     CallVirt(CallVirt<C>),
@@ -174,8 +174,8 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::RecordNew(inst) => Instruction::RecordNew(inst.retag(retagger)),
             Instruction::RecordGet(inst) => Instruction::RecordGet(inst.retag(retagger)),
             Instruction::RecordSet(inst) => Instruction::RecordSet(inst.retag(retagger)),
-            Instruction::ReferenceOfFunction(r, f) => {
-                Instruction::ReferenceOfFunction(retagger.retag_new(r), fn_retagger.retag_old(f))
+            Instruction::ReferenceOfFunction(inst) => {
+                Instruction::ReferenceOfFunction(inst.retag(retagger, fn_retagger))
             }
             Instruction::CallStatic(inst) => {
                 Instruction::CallStatic(inst.retag(retagger, fn_retagger))
@@ -217,7 +217,7 @@ impl<C: Tag> Instruction<C> {
     pub fn assigned_to(&self) -> Option<RegisterId<C>> {
         match self {
             Instruction::Comment(c, _) => None,
-            Instruction::ReferenceOfFunction(result, _) => Some(*result),
+            Instruction::ReferenceOfFunction(inst) => inst.declared_register(),
             Instruction::MakeString(inst) => inst.declared_register(),
             Instruction::RecordNew(isa) => isa.declared_register(),
             Instruction::CompareLessThan(inst) => inst.declared_register(),
@@ -236,7 +236,8 @@ impl<C: Tag> Instruction<C> {
 
     pub fn used_registers(&self) -> Vec<RegisterId<C>> {
         match self {
-            Instruction::Comment(_, _) | Instruction::ReferenceOfFunction(_, _) => Vec::new(),
+            Instruction::Comment(_, _) => Vec::new(),
+            Instruction::ReferenceOfFunction(inst) => inst.used_registers().to_vec(),
             Instruction::MakeString(inst) => inst.used_registers().to_vec(),
             Instruction::RecordNew(inst) => inst.used_registers().to_vec(),
             Instruction::CompareLessThan(inst) => inst.used_registers().to_vec(),
@@ -255,7 +256,8 @@ impl<C: Tag> Instruction<C> {
 
     pub fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
         match self {
-            Instruction::Comment(_, _) | Instruction::ReferenceOfFunction(_, _) => Vec::new(),
+            Instruction::Comment(_, _) => Vec::new(),
+            Instruction::ReferenceOfFunction(inst) => inst.used_registers_mut(),
             Instruction::MakeString(inst) => inst.used_registers_mut(),
             Instruction::RecordNew(inst) => inst.used_registers_mut(),
             Instruction::CompareLessThan(inst) => inst.used_registers_mut(),

@@ -9,7 +9,7 @@ use crate::name::DebugName;
 use crate::UnwrapNone;
 
 use super::isa::{
-    BlockJump, CallExtern, CallStatic, CallVirt, InternalSlot, Jump, JumpIf, MakeBytes,
+    BlockJump, CallExtern, CallStatic, CallVirt, GetFnPtr, InternalSlot, Jump, JumpIf, MakeBytes,
     MakeInteger, MakeRecord, MakeTrivial, OpAdd, OpEquals, OpLessThan, OpNegate, RecordGet,
     RecordKey, RecordSet, Return, TrivialItem,
 };
@@ -489,10 +489,13 @@ impl DynBlockBuilder {
         result
     }
 
-    pub fn make_fnptr(&mut self, function_id: FunctionId) -> RegisterId {
+    pub fn make_fnptr(&mut self, function: FunctionId) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions
-            .push(Instruction::ReferenceOfFunction(result, function_id));
+            .push(Instruction::ReferenceOfFunction(GetFnPtr {
+                result,
+                function,
+            }));
         result
     }
 

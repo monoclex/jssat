@@ -626,14 +626,24 @@ where
 
         match inst {
             ir::Instruction::Comment(_, _) => {}
-            &ir::Instruction::ReferenceOfFunction(result, func) => {
-                let fnptr = self.retagger.retag_new(result);
-                let static_fn = self.fn_assembler.assembler.ir.functions.get(&func).unwrap();
+            &ir::Instruction::ReferenceOfFunction(inst) => {
+                // TODO: dont do this
+                let mut hacks = FnPassRetagger::default();
+                hacks.retag_new(inst.function);
+                let inst = inst.retag(self.retagger, &hacks);
+
+                let static_fn = self
+                    .fn_assembler
+                    .assembler
+                    .ir
+                    .functions
+                    .get(&inst.function)
+                    .unwrap();
                 let entry_blk = static_fn.entry_block;
-                let pure_bb_id =
-                    (self.fn_assembler.assembler.pure_bocks).get_block_id_by_host(func, entry_blk);
+                let pure_bb_id = (self.fn_assembler.assembler.pure_bocks)
+                    .get_block_id_by_host(inst.function, entry_blk);
                 self.instructions
-                    .push(Instruction::MakeFnPtr(fnptr, pure_bb_id));
+                    .push(Instruction::MakeFnPtr(inst.result, pure_bb_id));
 
                 // TODO: aren't we suppose to insert types??????????????????/ wtf??????????????????????////////
                 // self.register_types
