@@ -11,9 +11,9 @@ type ConstantId = crate::id::ConstantId<IrCtx>;
 use crate::id::RegisterId;
 
 use crate::isa::{
-    BlockJump, CallExtern, CallStatic, CallVirt, GetFnPtr, ISAInstruction, Jump, JumpIf, MakeBytes,
-    MakeInteger, MakeTrivial, NewRecord, OpAdd, OpEquals, OpLessThan, OpNegate, RecordGet,
-    RecordSet, Return,
+    Add, BlockJump, CallExtern, CallStatic, CallVirt, Equals, GetFnPtr, ISAInstruction, Jump,
+    JumpIf, LessThan, MakeBytes, MakeInteger, MakeTrivial, Negate, NewRecord, RecordGet, RecordSet,
+    Return,
 };
 use crate::retag::{BlkRetagger, CnstRetagger, ExtFnRetagger, FnRetagger, RegRetagger};
 type PlainRegisterId = RegisterId<IrCtx>;
@@ -140,10 +140,10 @@ pub enum Instruction<C: Tag = crate::id::IrCtx, F: Tag = crate::id::IrCtx> {
     // /// times.
     // Unreachable,
     MakeInteger(MakeInteger<C>),
-    OpLessThan(OpLessThan<C>),
-    OpEquals(OpEquals<C>),
-    OpNegate(OpNegate<C>),
-    OpAdd(OpAdd<C>),
+    LessThan(LessThan<C>),
+    Equals(Equals<C>),
+    Negate(Negate<C>),
+    Add(Add<C>),
 }
 
 #[derive(Debug, Clone)]
@@ -168,7 +168,7 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::MakeBytes(inst) => {
                 Instruction::MakeBytes(inst.retag(retagger, const_retagger))
             }
-            Instruction::OpLessThan(inst) => Instruction::OpLessThan(inst.retag(retagger)),
+            Instruction::LessThan(inst) => Instruction::LessThan(inst.retag(retagger)),
             Instruction::NewRecord(inst) => Instruction::NewRecord(inst.retag(retagger)),
             Instruction::RecordGet(inst) => Instruction::RecordGet(inst.retag(retagger)),
             Instruction::RecordSet(inst) => Instruction::RecordSet(inst.retag(retagger)),
@@ -182,9 +182,9 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::CallVirt(inst) => Instruction::CallVirt(inst.retag(retagger)),
             Instruction::MakeTrivial(inst) => Instruction::MakeTrivial(inst.retag(retagger)),
             Instruction::MakeInteger(inst) => Instruction::MakeInteger(inst.retag(retagger)),
-            Instruction::OpEquals(inst) => Instruction::OpEquals(inst.retag(retagger)),
-            Instruction::OpNegate(inst) => Instruction::OpNegate(inst.retag(retagger)),
-            Instruction::OpAdd(inst) => Instruction::OpAdd(inst.retag(retagger)),
+            Instruction::Equals(inst) => Instruction::Equals(inst.retag(retagger)),
+            Instruction::Negate(inst) => Instruction::Negate(inst.retag(retagger)),
+            Instruction::Add(inst) => Instruction::Add(inst.retag(retagger)),
         }
     }
 }
@@ -216,7 +216,7 @@ impl<C: Tag> Instruction<C> {
             Instruction::GetFnPtr(inst) => inst.declared_register(),
             Instruction::MakeBytes(inst) => inst.declared_register(),
             Instruction::NewRecord(isa) => isa.declared_register(),
-            Instruction::OpLessThan(inst) => inst.declared_register(),
+            Instruction::LessThan(inst) => inst.declared_register(),
             Instruction::CallStatic(inst) => inst.declared_register(),
             Instruction::CallExtern(inst) => inst.declared_register(),
             Instruction::CallVirt(inst) => inst.declared_register(),
@@ -224,9 +224,9 @@ impl<C: Tag> Instruction<C> {
             Instruction::RecordGet(inst) => inst.declared_register(),
             Instruction::RecordSet(inst) => inst.declared_register(),
             Instruction::MakeInteger(inst) => inst.declared_register(),
-            Instruction::OpEquals(inst) => inst.declared_register(),
-            Instruction::OpNegate(inst) => inst.declared_register(),
-            Instruction::OpAdd(inst) => inst.declared_register(),
+            Instruction::Equals(inst) => inst.declared_register(),
+            Instruction::Negate(inst) => inst.declared_register(),
+            Instruction::Add(inst) => inst.declared_register(),
         }
     }
 
@@ -236,7 +236,7 @@ impl<C: Tag> Instruction<C> {
             Instruction::GetFnPtr(inst) => inst.used_registers().to_vec(),
             Instruction::MakeBytes(inst) => inst.used_registers().to_vec(),
             Instruction::NewRecord(inst) => inst.used_registers().to_vec(),
-            Instruction::OpLessThan(inst) => inst.used_registers().to_vec(),
+            Instruction::LessThan(inst) => inst.used_registers().to_vec(),
             Instruction::CallStatic(inst) => inst.used_registers().to_vec(),
             Instruction::CallExtern(inst) => inst.used_registers().to_vec(),
             Instruction::CallVirt(inst) => inst.used_registers().to_vec(),
@@ -244,9 +244,9 @@ impl<C: Tag> Instruction<C> {
             Instruction::RecordGet(inst) => inst.used_registers().to_vec(),
             Instruction::RecordSet(inst) => inst.used_registers().to_vec(),
             Instruction::MakeInteger(inst) => inst.used_registers().to_vec(),
-            Instruction::OpEquals(inst) => inst.used_registers().to_vec(),
-            Instruction::OpNegate(inst) => inst.used_registers().to_vec(),
-            Instruction::OpAdd(inst) => inst.used_registers().to_vec(),
+            Instruction::Equals(inst) => inst.used_registers().to_vec(),
+            Instruction::Negate(inst) => inst.used_registers().to_vec(),
+            Instruction::Add(inst) => inst.used_registers().to_vec(),
         }
     }
 
@@ -256,7 +256,7 @@ impl<C: Tag> Instruction<C> {
             Instruction::GetFnPtr(inst) => inst.used_registers_mut(),
             Instruction::MakeBytes(inst) => inst.used_registers_mut(),
             Instruction::NewRecord(inst) => inst.used_registers_mut(),
-            Instruction::OpLessThan(inst) => inst.used_registers_mut(),
+            Instruction::LessThan(inst) => inst.used_registers_mut(),
             Instruction::CallStatic(inst) => inst.used_registers_mut(),
             Instruction::CallExtern(inst) => inst.used_registers_mut(),
             Instruction::CallVirt(inst) => inst.used_registers_mut(),
@@ -264,9 +264,9 @@ impl<C: Tag> Instruction<C> {
             Instruction::RecordGet(inst) => inst.used_registers_mut(),
             Instruction::RecordSet(inst) => inst.used_registers_mut(),
             Instruction::MakeInteger(inst) => inst.used_registers_mut(),
-            Instruction::OpEquals(inst) => inst.used_registers_mut(),
-            Instruction::OpNegate(inst) => inst.used_registers_mut(),
-            Instruction::OpAdd(inst) => inst.used_registers_mut(),
+            Instruction::Equals(inst) => inst.used_registers_mut(),
+            Instruction::Negate(inst) => inst.used_registers_mut(),
+            Instruction::Add(inst) => inst.used_registers_mut(),
         }
     }
 }

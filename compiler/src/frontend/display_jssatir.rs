@@ -62,16 +62,16 @@ pub fn display(program: &IR) -> String {
                     Instruction::MakeTrivial(t) => iwl!(text, "    MakeTrivial {:?}", t),
                     Instruction::MakeBytes(instt) => iwl!(text, "    MakeString {:?}", instt),
                     Instruction::GetFnPtr(inst) => iwl!(text, "todo"),
-                    Instruction::OpLessThan(inst) => {
+                    Instruction::LessThan(inst) => {
                         let r = inst.result;
                         let l = inst.lhs;
                         let rr = inst.rhs;
                         iwl!(text, "    %{} = CompareLessThan %{}, %{}", r, l, rr)
                     }
                     Instruction::MakeInteger(t) => iwl!(text, "    MakeInteger {:?}", t),
-                    Instruction::OpEquals(t) => iwl!(text, "    CompareEqual {:?}", t),
-                    Instruction::OpNegate(t) => iwl!(text, "    Negate {:?}", t),
-                    Instruction::OpAdd(t) => iwl!(text, "    Add {:?}", t),
+                    Instruction::Equals(t) => iwl!(text, "    CompareEqual {:?}", t),
+                    Instruction::Negate(t) => iwl!(text, "    Negate {:?}", t),
+                    Instruction::Add(t) => iwl!(text, "    Add {:?}", t),
                 }
             }
 

@@ -2,6 +2,9 @@
 //! to allow easy composability of instructions for other IR passes with their
 //! own in-house ISAs.
 
+use std::fmt::{Display, Write};
+use std::marker::PhantomData;
+
 use derive_more::Display;
 use tinyvec::{tiny_vec, TinyVec};
 
@@ -13,6 +16,27 @@ use crate::id::RegisterId;
 use crate::id::Tag;
 
 use crate::retag::{BlkRetagger, CnstRetagger, ExtFnRetagger, FnRetagger, RegRetagger};
+
+struct Registers<'a, R: Tag>(&'a Vec<RegisterId<R>>);
+
+impl<R: Tag> Display for Registers<'_, R> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut iter = self.0.iter();
+
+        match iter.next() {
+            None => return Ok(()),
+            Some(r) => write!(f, "%{}", r)?,
+        };
+
+        for r in iter {
+            write!(f, ", %{}", r)?;
+        }
+
+        Ok(())
+    }
+}
+
+pub trait TypeStore {}
 
 /// The contract provided by any single instruction. Provides methods to make
 /// interfacing with all instructions easy.
@@ -52,6 +76,12 @@ pub trait ISAInstruction<C: Tag> {
     /// provides mutable access to the registers being used to allow for
     /// changes to the registers.
     fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>>;
+
+    fn display(&self, w: &mut impl Write) -> std::fmt::Result;
+
+    fn display_typed(&self, w: &mut impl Write, t: &impl TypeStore) -> std::fmt::Result {
+        self.display(w)
+    }
 }
 
 pub struct Noop;
@@ -67,6 +97,10 @@ impl<C: Tag> ISAInstruction<C> for Noop {
 
     fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
         Vec::new()
+    }
+
+    fn display(&self, w: &mut impl Write) -> std::fmt::Result {
+        write!(w, "Noop;")
     }
 }
 
@@ -88,6 +122,10 @@ impl<C: Tag> ISAInstruction<C> for Unreachable {
 
     fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
         Vec::new()
+    }
+
+    fn display(&self, w: &mut impl Write) -> std::fmt::Result {
+        write!(w, "Unreachable;")
     }
 }
 
@@ -118,6 +156,13 @@ impl<C: Tag> ISAInstruction<C> for Return<C> {
             None => Vec::new(),
         }
     }
+
+    fn display(&self, w: &mut impl Write) -> std::fmt::Result {
+        match self.0 {
+            Some(r) => write!(w, "Return {};", r),
+            None => write!(w, "Return;"),
+        }
+    }
 }
 
 impl<C: Tag> Return<C> {
@@ -145,6 +190,12 @@ impl<B: Tag, C: Tag> BlockJump<B, C> {
     }
 }
 
+impl<B: Tag, R: Tag> Display for BlockJump<B, R> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "${}({})", self.0, Registers(&self.1))
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Jump<B: Tag, C: Tag>(pub BlockJump<B, C>);
 
@@ -167,6 +218,10 @@ impl<B: Tag, C: Tag> ISAInstruction<C> for Jump<B, C> {
 
     fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
         (self.0).1.iter_mut().collect()
+    }
+
+    fn display(&self, w: &mut impl Write) -> std::fmt::Result {
+        write!(w, "Jump {}", self.0)
     }
 }
 
@@ -206,6 +261,10 @@ impl<C: Tag> ISAInstruction<C> for NewRecord<C> {
     fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
         Vec::new()
     }
+
+    fn display(&self, w: &mut impl Write) -> std::fmt::Result {
+        write!(w, "%{} = NewRecord;", self.result)
+    }
 }
 
 impl<C: Tag> NewRecord<C> {
@@ -231,6 +290,10 @@ impl<C: Tag> ISAInstruction<C> for MakeBoolean<C> {
     fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
         Vec::new()
     }
+
+    fn display(&self, w: &mut impl Write) -> std::fmt::Result {
+        write!(w, "%{} = MakeBoolean {};", self.0, self.1)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -250,6 +313,10 @@ impl<C: Tag> ISAInstruction<C> for MakeInteger<C> {
 
     fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
         Vec::new()
+    }
+
+    fn display(&self, w: &mut impl Write) -> std::fmt::Result {
+        write!(w, "%{} = MakeInteger {};", self.result, self.value)
     }
 }
 
@@ -271,7 +338,7 @@ pub struct MakeTrivial<C: Tag> {
     pub item: TrivialItem,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Display)]
 pub enum TrivialItem {
     /// JSSAT Runtime
     Runtime,
@@ -294,6 +361,10 @@ impl<C: Tag> ISAInstruction<C> for MakeTrivial<C> {
 
     fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
         Vec::new()
+    }
+
+    fn display(&self, w: &mut impl Write) -> std::fmt::Result {
+        write!(w, "%{} = MakeTrivial {};", self.result, self.item)
     }
 }
 
@@ -324,6 +395,10 @@ impl<R: Tag, C: Tag> ISAInstruction<R> for MakeBytes<R, C> {
 
     fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<R>> {
         Vec::new()
+    }
+
+    fn display(&self, w: &mut impl Write) -> std::fmt::Result {
+        write!(w, "%{} = MakeBytes #{};", self.result, self.constant)
     }
 }
 
@@ -359,6 +434,10 @@ impl<R: Tag, F: Tag> ISAInstruction<R> for GetFnPtr<R, F> {
     fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<R>> {
         vec![]
     }
+
+    fn display(&self, w: &mut impl Write) -> std::fmt::Result {
+        write!(w, "%{} = GetFnPtr @{};", self.result, self.function)
+    }
 }
 
 impl<R: Tag, F: Tag> GetFnPtr<R, F> {
@@ -376,12 +455,12 @@ impl<R: Tag, F: Tag> GetFnPtr<R, F> {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct OpNegate<C: Tag> {
+pub struct Negate<C: Tag> {
     pub result: RegisterId<C>,
     pub operand: RegisterId<C>,
 }
 
-impl<C: Tag> ISAInstruction<C> for OpNegate<C> {
+impl<C: Tag> ISAInstruction<C> for Negate<C> {
     fn declared_register(&self) -> Option<RegisterId<C>> {
         Some(self.result)
     }
@@ -393,12 +472,16 @@ impl<C: Tag> ISAInstruction<C> for OpNegate<C> {
     fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
         vec![&mut self.operand]
     }
+
+    fn display(&self, w: &mut impl Write) -> std::fmt::Result {
+        write!(w, "%{} = Negate %{};", self.result, self.operand)
+    }
 }
 
-impl<C: Tag> OpNegate<C> {
+impl<C: Tag> Negate<C> {
     #[track_caller]
-    pub fn retag<C2: Tag>(self, retagger: &mut impl RegRetagger<C, C2>) -> OpNegate<C2> {
-        OpNegate {
+    pub fn retag<C2: Tag>(self, retagger: &mut impl RegRetagger<C, C2>) -> Negate<C2> {
+        Negate {
             result: retagger.retag_new(self.result),
             operand: retagger.retag_old(self.operand),
         }
@@ -406,13 +489,13 @@ impl<C: Tag> OpNegate<C> {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct OpAdd<C: Tag> {
+pub struct Add<C: Tag> {
     pub result: RegisterId<C>,
     pub lhs: RegisterId<C>,
     pub rhs: RegisterId<C>,
 }
 
-impl<C: Tag> ISAInstruction<C> for OpAdd<C> {
+impl<C: Tag> ISAInstruction<C> for Add<C> {
     fn declared_register(&self) -> Option<RegisterId<C>> {
         Some(self.result)
     }
@@ -424,12 +507,16 @@ impl<C: Tag> ISAInstruction<C> for OpAdd<C> {
     fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
         vec![&mut self.lhs, &mut self.rhs]
     }
+
+    fn display(&self, w: &mut impl Write) -> std::fmt::Result {
+        write!(w, "%{} = Add %{}, %{}", self.result, self.lhs, self.rhs)
+    }
 }
 
-impl<C: Tag> OpAdd<C> {
+impl<C: Tag> Add<C> {
     #[track_caller]
-    pub fn retag<C2: Tag>(self, retagger: &mut impl RegRetagger<C, C2>) -> OpAdd<C2> {
-        OpAdd {
+    pub fn retag<C2: Tag>(self, retagger: &mut impl RegRetagger<C, C2>) -> Add<C2> {
+        Add {
             result: retagger.retag_new(self.result),
             lhs: retagger.retag_old(self.lhs),
             rhs: retagger.retag_old(self.rhs),
@@ -437,13 +524,13 @@ impl<C: Tag> OpAdd<C> {
     }
 }
 
-pub struct OpOr<C: Tag> {
+pub struct Or<C: Tag> {
     pub result: RegisterId<C>,
     pub lhs: RegisterId<C>,
     pub rhs: RegisterId<C>,
 }
 
-impl<C: Tag> ISAInstruction<C> for OpOr<C> {
+impl<C: Tag> ISAInstruction<C> for Or<C> {
     fn declared_register(&self) -> Option<RegisterId<C>> {
         Some(self.result)
     }
@@ -454,17 +541,21 @@ impl<C: Tag> ISAInstruction<C> for OpOr<C> {
 
     fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
         vec![&mut self.lhs, &mut self.rhs]
+    }
+
+    fn display(&self, w: &mut impl Write) -> std::fmt::Result {
+        write!(w, "%{} = Or %{}, %{};", self.result, self.lhs, self.rhs)
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct OpLessThan<C: Tag> {
+pub struct LessThan<C: Tag> {
     pub result: RegisterId<C>,
     pub lhs: RegisterId<C>,
     pub rhs: RegisterId<C>,
 }
 
-impl<C: Tag> ISAInstruction<C> for OpLessThan<C> {
+impl<C: Tag> ISAInstruction<C> for LessThan<C> {
     fn declared_register(&self) -> Option<RegisterId<C>> {
         Some(self.result)
     }
@@ -476,12 +567,20 @@ impl<C: Tag> ISAInstruction<C> for OpLessThan<C> {
     fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
         vec![&mut self.lhs, &mut self.rhs]
     }
+
+    fn display(&self, w: &mut impl Write) -> std::fmt::Result {
+        write!(
+            w,
+            "%{} = LessThan %{}, %{};",
+            self.result, self.lhs, self.rhs
+        )
+    }
 }
 
-impl<C: Tag> OpLessThan<C> {
+impl<C: Tag> LessThan<C> {
     #[track_caller]
-    pub fn retag<C2: Tag>(self, retagger: &mut impl RegRetagger<C, C2>) -> OpLessThan<C2> {
-        OpLessThan {
+    pub fn retag<C2: Tag>(self, retagger: &mut impl RegRetagger<C, C2>) -> LessThan<C2> {
+        LessThan {
             result: retagger.retag_new(self.result),
             lhs: retagger.retag_old(self.lhs),
             rhs: retagger.retag_old(self.rhs),
@@ -490,13 +589,13 @@ impl<C: Tag> OpLessThan<C> {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct OpEquals<C: Tag> {
+pub struct Equals<C: Tag> {
     pub result: RegisterId<C>,
     pub lhs: RegisterId<C>,
     pub rhs: RegisterId<C>,
 }
 
-impl<C: Tag> ISAInstruction<C> for OpEquals<C> {
+impl<C: Tag> ISAInstruction<C> for Equals<C> {
     fn declared_register(&self) -> Option<RegisterId<C>> {
         Some(self.result)
     }
@@ -508,12 +607,16 @@ impl<C: Tag> ISAInstruction<C> for OpEquals<C> {
     fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
         vec![&mut self.lhs, &mut self.rhs]
     }
+
+    fn display(&self, w: &mut impl Write) -> std::fmt::Result {
+        write!(w, "%{} = Equals %{}, %{};", self.result, self.lhs, self.rhs)
+    }
 }
 
-impl<C: Tag> OpEquals<C> {
+impl<C: Tag> Equals<C> {
     #[track_caller]
-    pub fn retag<C2: Tag>(self, retagger: &mut impl RegRetagger<C, C2>) -> OpEquals<C2> {
-        OpEquals {
+    pub fn retag<C2: Tag>(self, retagger: &mut impl RegRetagger<C, C2>) -> Equals<C2> {
+        Equals {
             result: retagger.retag_new(self.result),
             lhs: retagger.retag_old(self.lhs),
             rhs: retagger.retag_old(self.rhs),
@@ -593,6 +696,14 @@ impl<C: Tag> ISAInstruction<C> for RecordGet<C> {
         }
         used_registers
     }
+
+    fn display(&self, w: &mut impl Write) -> std::fmt::Result {
+        write!(
+            w,
+            "%{} = RecordGet %{}.{};",
+            self.result, self.record, self.key
+        )
+    }
 }
 
 impl<C: Tag> RecordGet<C> {
@@ -632,6 +743,14 @@ impl<C: Tag> ISAInstruction<C> for RecordSet<C> {
             used_registers.push(register);
         }
         used_registers
+    }
+
+    fn display(&self, w: &mut impl Write) -> std::fmt::Result {
+        write!(
+            w,
+            "RecordSet %{}.{} = %{}",
+            self.record, self.key, self.value
+        )
     }
 }
 
@@ -675,6 +794,14 @@ impl<B: Tag, C: Tag> ISAInstruction<C> for JumpIf<B, C> {
         (self.if_so.1.iter_mut())
             .chain(self.other.1.iter_mut())
             .collect()
+    }
+
+    fn display(&self, w: &mut impl Write) -> std::fmt::Result {
+        write!(w, "If %{}:", self.condition)?;
+        w.write_str("\n")?;
+        write!(w, "     {};", self.if_so)?;
+        w.write_str("\n")?;
+        write!(w, "else {};", self.other)
     }
 }
 
@@ -725,6 +852,13 @@ impl<C: Tag, F: Tag> ISAInstruction<C> for CallStatic<C, F> {
     fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
         self.args.iter_mut().collect()
     }
+
+    fn display(&self, w: &mut impl Write) -> std::fmt::Result {
+        if let Some(r) = self.result {
+            write!(w, "%{} = ", r)?;
+        }
+        write!(w, "CallStatic @{}({})", self.fn_id, Registers(&self.args))
+    }
 }
 
 impl<C: Tag, F: Tag> CallStatic<C, F> {
@@ -773,6 +907,13 @@ impl<C: Tag> ISAInstruction<C> for CallVirt<C> {
             .chain(std::iter::once(&mut self.fn_ptr))
             .collect()
     }
+
+    fn display(&self, w: &mut impl Write) -> std::fmt::Result {
+        if let Some(r) = self.result {
+            write!(w, "%{} = ", r)?;
+        }
+        write!(w, "CallVirt %{}({})", self.fn_ptr, Registers(&self.args))
+    }
 }
 
 impl<C: Tag> CallVirt<C> {
@@ -810,6 +951,13 @@ impl<C: Tag, F: Tag> ISAInstruction<C> for CallExtern<C, F> {
     fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
         self.args.iter_mut().collect()
     }
+
+    fn display(&self, w: &mut impl Write) -> std::fmt::Result {
+        if let Some(r) = self.result {
+            write!(w, "%{} = ", r)?;
+        }
+        write!(w, "CallExtern @@{}({})", self.fn_id, Registers(&self.args))
+    }
 }
 
 impl<C: Tag, F: Tag> CallExtern<C, F> {
@@ -846,6 +994,10 @@ impl<C: Tag> ISAInstruction<C> for Widen<C> {
     fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
         vec![&mut self.input]
     }
+
+    fn display(&self, w: &mut impl Write) -> std::fmt::Result {
+        todo!()
+    }
 }
 
 pub struct Narrow<C: Tag> {
@@ -865,5 +1017,9 @@ impl<C: Tag> ISAInstruction<C> for Narrow<C> {
 
     fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
         vec![&mut self.input]
+    }
+
+    fn display(&self, w: &mut impl Write) -> std::fmt::Result {
+        todo!()
     }
 }

@@ -42,16 +42,16 @@ pub fn display(program: &PureBlocks) -> String {
                 Instruction::MakeTrivial(t) => iwl!(text, "    {:?}", t),
                 Instruction::MakeBytes(inst) => iwl!(text, "    {:?}", inst),
                 Instruction::GetFnPtr(inst) => iwl!(text, "todo"),
-                Instruction::OpLessThan(inst) => {
+                Instruction::LessThan(inst) => {
                     let r = inst.result;
                     let l = inst.lhs;
                     let rr = inst.rhs;
                     iwl!(text, "    %{} = CompareLessThan %{}, %{}", r, l, rr)
                 }
                 Instruction::MakeInteger(inst) => iwl!(text, "    {:?}", inst),
-                Instruction::OpEquals(inst) => iwl!(text, "    {:?}", inst),
-                Instruction::OpNegate(inst) => iwl!(text, "    {:?}", inst),
-                Instruction::OpAdd(inst) => iwl!(text, "    {:?}", inst),
+                Instruction::Equals(inst) => iwl!(text, "    {:?}", inst),
+                Instruction::Negate(inst) => iwl!(text, "    {:?}", inst),
+                Instruction::Add(inst) => iwl!(text, "    {:?}", inst),
             }
         }
 

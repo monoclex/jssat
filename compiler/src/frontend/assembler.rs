@@ -4,7 +4,7 @@
 use std::{collections::VecDeque, fmt::Debug, sync::Mutex};
 
 use crate::isa::{
-    CallExtern, CallStatic, CallVirt, ISAInstruction, MakeTrivial, OpLessThan, RecordKey,
+    CallExtern, CallStatic, CallVirt, ISAInstruction, LessThan, MakeTrivial, RecordKey,
 };
 use crate::retag::{ExtFnPassRetagger, RegGenRetagger, RegMapRetagger, RegRetagger};
 
@@ -103,7 +103,7 @@ pub enum Instruction {
     },
     Unreachable,
     Noop,
-    OpLessThan(OpLessThan<AssemblerCtx>),
+    OpLessThan(LessThan<AssemblerCtx>),
 }
 
 #[derive(Clone, Debug)]
@@ -701,7 +701,7 @@ where
                 // self.register_types
                 //     .insert(inst.result, ValueType::ExactInteger(inst.value));
             }
-            &ir::Instruction::OpLessThan(inst) => {
+            &ir::Instruction::LessThan(inst) => {
                 let cmp_typ = self.type_info.get_type(inst.result);
                 let inst = inst.retag(self.retagger);
 
@@ -723,7 +723,7 @@ where
                     );
                 }
             }
-            &ir::Instruction::OpAdd(inst) => {
+            &ir::Instruction::Add(inst) => {
                 let res_typ = self.type_info.get_type(inst.result);
                 let inst = inst.retag(self.retagger);
 
@@ -1001,7 +1001,7 @@ where
                     panic!("cannot call RecordSet on non record");
                 }
             }
-            &ir::Instruction::OpEquals(inst) => {
+            &ir::Instruction::Equals(inst) => {
                 let res_typ = self.type_info.get_type(inst.result);
                 let inst = inst.retag(self.retagger);
 
@@ -1021,7 +1021,7 @@ where
                     );
                 }
             }
-            &ir::Instruction::OpNegate(inst) => {
+            &ir::Instruction::Negate(inst) => {
                 let res_typ = self.type_info.get_type(inst.result);
                 let inst = inst.retag(self.retagger);
 

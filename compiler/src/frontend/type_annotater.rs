@@ -220,7 +220,7 @@ impl<'d> SymbolicExecutionEngine<'d> {
                 &Instruction::MakeInteger(inst) => {
                     registers.insert(inst.result, ValueType::ExactInteger(inst.value));
                 }
-                &Instruction::OpLessThan(inst) => {
+                &Instruction::LessThan(inst) => {
                     let l = registers.get(inst.lhs);
                     let r = registers.get(inst.rhs);
 
@@ -236,7 +236,7 @@ impl<'d> SymbolicExecutionEngine<'d> {
 
                     registers.insert(inst.result, res_typ);
                 }
-                &Instruction::OpAdd(inst) => {
+                &Instruction::Add(inst) => {
                     let l = registers.get(inst.lhs);
                     let r = registers.get(inst.rhs);
 
@@ -451,7 +451,7 @@ impl<'d> SymbolicExecutionEngine<'d> {
                         panic!("cannot call RecordSet on non record");
                     }
                 }
-                &Instruction::OpNegate(inst) => {
+                &Instruction::Negate(inst) => {
                     let typ = registers.get(inst.operand);
 
                     match typ {
@@ -471,7 +471,7 @@ impl<'d> SymbolicExecutionEngine<'d> {
                         | ValueType::Undefined => unimplemented!("cannot negate {:?}", typ),
                     };
                 }
-                &Instruction::OpEquals(inst) => {
+                &Instruction::Equals(inst) => {
                     let l = registers.get(inst.lhs);
                     let r = registers.get(inst.rhs);
 

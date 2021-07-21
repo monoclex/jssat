@@ -9,9 +9,9 @@ use crate::name::DebugName;
 use crate::UnwrapNone;
 
 use crate::isa::{
-    BlockJump, CallExtern, CallStatic, CallVirt, GetFnPtr, InternalSlot, Jump, JumpIf, MakeBytes,
-    MakeInteger, MakeTrivial, NewRecord, OpAdd, OpEquals, OpLessThan, OpNegate, RecordGet,
-    RecordKey, RecordSet, Return, TrivialItem,
+    Add, BlockJump, CallExtern, CallStatic, CallVirt, Equals, GetFnPtr, InternalSlot, Jump, JumpIf,
+    LessThan, MakeBytes, MakeInteger, MakeTrivial, Negate, NewRecord, RecordGet, RecordKey,
+    RecordSet, Return, TrivialItem,
 };
 
 pub type BlockId = crate::id::BlockId<crate::id::IrCtx>;
@@ -542,28 +542,28 @@ impl DynBlockBuilder {
     pub fn add(&mut self, lhs: RegisterId, rhs: RegisterId) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions
-            .push(Instruction::OpAdd(OpAdd { result, lhs, rhs }));
+            .push(Instruction::Add(Add { result, lhs, rhs }));
         result
     }
 
     pub fn compare_equal(&mut self, lhs: RegisterId, rhs: RegisterId) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions
-            .push(Instruction::OpEquals(OpEquals { result, lhs, rhs }));
+            .push(Instruction::Equals(Equals { result, lhs, rhs }));
         result
     }
 
     pub fn compare_less_than(&mut self, lhs: RegisterId, rhs: RegisterId) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions
-            .push(Instruction::OpLessThan(OpLessThan { result, lhs, rhs }));
+            .push(Instruction::LessThan(LessThan { result, lhs, rhs }));
         result
     }
 
     pub fn negate(&mut self, operand: RegisterId) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions
-            .push(Instruction::OpNegate(OpNegate { result, operand }));
+            .push(Instruction::Negate(Negate { result, operand }));
         result
     }
 
