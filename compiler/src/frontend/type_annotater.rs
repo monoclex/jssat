@@ -193,7 +193,7 @@ impl<'d> SymbolicExecutionEngine<'d> {
         for instruction in block.instructions.iter() {
             match instruction {
                 Instruction::Comment(_, _) => {}
-                &Instruction::ReferenceOfFunction(inst) => {
+                &Instruction::GetFnPtr(inst) => {
                     let func = self.ir.functions.get(&inst.function).unwrap();
                     let blk_id = self
                         .blocks
@@ -210,7 +210,7 @@ impl<'d> SymbolicExecutionEngine<'d> {
                         TrivialItem::Empty => todo!(), // ValueType::Empty,
                     },
                 ),
-                &Instruction::MakeString(inst) => {
+                &Instruction::MakeBytes(inst) => {
                     let constant = self.ir.constants.get(&inst.constant).unwrap();
                     registers.insert(
                         inst.result,
@@ -220,7 +220,7 @@ impl<'d> SymbolicExecutionEngine<'d> {
                 &Instruction::MakeInteger(inst) => {
                     registers.insert(inst.result, ValueType::ExactInteger(inst.value));
                 }
-                &Instruction::CompareLessThan(inst) => {
+                &Instruction::OpLessThan(inst) => {
                     let l = registers.get(inst.lhs);
                     let r = registers.get(inst.rhs);
 
@@ -236,7 +236,7 @@ impl<'d> SymbolicExecutionEngine<'d> {
 
                     registers.insert(inst.result, res_typ);
                 }
-                &Instruction::Add(inst) => {
+                &Instruction::OpAdd(inst) => {
                     let l = registers.get(inst.lhs);
                     let r = registers.get(inst.rhs);
 
@@ -358,7 +358,7 @@ impl<'d> SymbolicExecutionEngine<'d> {
                         }
                     };
                 }
-                &Instruction::RecordNew(inst) => {
+                &Instruction::NewRecord(inst) => {
                     let allocation = registers.insert_alloc();
                     registers.insert(inst.result, ValueType::Record(allocation));
                 }
@@ -451,7 +451,7 @@ impl<'d> SymbolicExecutionEngine<'d> {
                         panic!("cannot call RecordSet on non record");
                     }
                 }
-                &Instruction::Negate(inst) => {
+                &Instruction::OpNegate(inst) => {
                     let typ = registers.get(inst.operand);
 
                     match typ {
@@ -471,7 +471,7 @@ impl<'d> SymbolicExecutionEngine<'d> {
                         | ValueType::Undefined => unimplemented!("cannot negate {:?}", typ),
                     };
                 }
-                &Instruction::CompareEqual(inst) => {
+                &Instruction::OpEquals(inst) => {
                     let l = registers.get(inst.lhs);
                     let r = registers.get(inst.rhs);
 

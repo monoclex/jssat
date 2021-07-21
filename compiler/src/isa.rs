@@ -190,11 +190,11 @@ impl<B: Tag, C: Tag> Jump<B, C> {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct MakeRecord<C: Tag> {
+pub struct NewRecord<C: Tag> {
     pub result: RegisterId<C>,
 }
 
-impl<C: Tag> ISAInstruction<C> for MakeRecord<C> {
+impl<C: Tag> ISAInstruction<C> for NewRecord<C> {
     fn declared_register(&self) -> Option<RegisterId<C>> {
         Some(self.result)
     }
@@ -208,10 +208,10 @@ impl<C: Tag> ISAInstruction<C> for MakeRecord<C> {
     }
 }
 
-impl<C: Tag> MakeRecord<C> {
+impl<C: Tag> NewRecord<C> {
     #[track_caller]
-    pub fn retag<C2: Tag>(self, retagger: &mut impl RegRetagger<C, C2>) -> MakeRecord<C2> {
-        MakeRecord {
+    pub fn retag<C2: Tag>(self, retagger: &mut impl RegRetagger<C, C2>) -> NewRecord<C2> {
+        NewRecord {
             result: retagger.retag_new(self.result),
         }
     }

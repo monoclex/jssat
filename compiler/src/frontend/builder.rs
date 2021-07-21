@@ -10,7 +10,7 @@ use crate::UnwrapNone;
 
 use crate::isa::{
     BlockJump, CallExtern, CallStatic, CallVirt, GetFnPtr, InternalSlot, Jump, JumpIf, MakeBytes,
-    MakeInteger, MakeRecord, MakeTrivial, OpAdd, OpEquals, OpLessThan, OpNegate, RecordGet,
+    MakeInteger, MakeTrivial, NewRecord, OpAdd, OpEquals, OpLessThan, OpNegate, RecordGet,
     RecordKey, RecordSet, Return, TrivialItem,
 };
 
@@ -458,7 +458,7 @@ impl DynBlockBuilder {
     pub fn make_string(&mut self, constant: ConstantId) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions
-            .push(Instruction::MakeString(MakeBytes { result, constant }));
+            .push(Instruction::MakeBytes(MakeBytes { result, constant }));
         result
     }
 
@@ -492,17 +492,14 @@ impl DynBlockBuilder {
     pub fn make_fnptr(&mut self, function: FunctionId) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions
-            .push(Instruction::ReferenceOfFunction(GetFnPtr {
-                result,
-                function,
-            }));
+            .push(Instruction::GetFnPtr(GetFnPtr { result, function }));
         result
     }
 
     pub fn record_new(&mut self) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions
-            .push(Instruction::RecordNew(MakeRecord { result }));
+            .push(Instruction::NewRecord(NewRecord { result }));
         result
     }
 
@@ -545,32 +542,28 @@ impl DynBlockBuilder {
     pub fn add(&mut self, lhs: RegisterId, rhs: RegisterId) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions
-            .push(Instruction::Add(OpAdd { result, lhs, rhs }));
+            .push(Instruction::OpAdd(OpAdd { result, lhs, rhs }));
         result
     }
 
     pub fn compare_equal(&mut self, lhs: RegisterId, rhs: RegisterId) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions
-            .push(Instruction::CompareEqual(OpEquals { result, lhs, rhs }));
+            .push(Instruction::OpEquals(OpEquals { result, lhs, rhs }));
         result
     }
 
     pub fn compare_less_than(&mut self, lhs: RegisterId, rhs: RegisterId) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions
-            .push(Instruction::CompareLessThan(OpLessThan {
-                result,
-                lhs,
-                rhs,
-            }));
+            .push(Instruction::OpLessThan(OpLessThan { result, lhs, rhs }));
         result
     }
 
     pub fn negate(&mut self, operand: RegisterId) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions
-            .push(Instruction::Negate(OpNegate { result, operand }));
+            .push(Instruction::OpNegate(OpNegate { result, operand }));
         result
     }
 

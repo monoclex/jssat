@@ -31,7 +31,7 @@ pub fn display(program: &PureBlocks) -> String {
         for inst in block.instructions.iter() {
             match inst {
                 Instruction::Comment(s, l) => iwl!(text, "    -- {}, {}", s, l),
-                Instruction::RecordNew(r) => {
+                Instruction::NewRecord(r) => {
                     iwl!(text, "    %{} = RecordNew", r.result,)
                 }
                 Instruction::RecordGet(t) => iwl!(text, "    {:?}", t),
@@ -40,18 +40,18 @@ pub fn display(program: &PureBlocks) -> String {
                 Instruction::CallExtern(t) => iwl!(text, "    {:?}", t),
                 Instruction::CallStatic(t) => iwl!(text, "    {:?}", t),
                 Instruction::MakeTrivial(t) => iwl!(text, "    {:?}", t),
-                Instruction::MakeString(inst) => iwl!(text, "    {:?}", inst),
-                Instruction::ReferenceOfFunction(inst) => iwl!(text, "todo"),
-                Instruction::CompareLessThan(inst) => {
+                Instruction::MakeBytes(inst) => iwl!(text, "    {:?}", inst),
+                Instruction::GetFnPtr(inst) => iwl!(text, "todo"),
+                Instruction::OpLessThan(inst) => {
                     let r = inst.result;
                     let l = inst.lhs;
                     let rr = inst.rhs;
                     iwl!(text, "    %{} = CompareLessThan %{}, %{}", r, l, rr)
                 }
                 Instruction::MakeInteger(inst) => iwl!(text, "    {:?}", inst),
-                Instruction::CompareEqual(inst) => iwl!(text, "    {:?}", inst),
-                Instruction::Negate(inst) => iwl!(text, "    {:?}", inst),
-                Instruction::Add(inst) => iwl!(text, "    {:?}", inst),
+                Instruction::OpEquals(inst) => iwl!(text, "    {:?}", inst),
+                Instruction::OpNegate(inst) => iwl!(text, "    {:?}", inst),
+                Instruction::OpAdd(inst) => iwl!(text, "    {:?}", inst),
             }
         }
 

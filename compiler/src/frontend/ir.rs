@@ -12,7 +12,7 @@ use crate::id::RegisterId;
 
 use crate::isa::{
     BlockJump, CallExtern, CallStatic, CallVirt, GetFnPtr, ISAInstruction, Jump, JumpIf, MakeBytes,
-    MakeInteger, MakeRecord, MakeTrivial, OpAdd, OpEquals, OpLessThan, OpNegate, RecordGet,
+    MakeInteger, MakeTrivial, NewRecord, OpAdd, OpEquals, OpLessThan, OpNegate, RecordGet,
     RecordSet, Return,
 };
 use crate::retag::{BlkRetagger, CnstRetagger, ExtFnRetagger, FnRetagger, RegRetagger};
@@ -110,10 +110,10 @@ pub struct FunctionBlock {
 #[derive(Debug, Clone)]
 pub enum Instruction<C: Tag = crate::id::IrCtx, F: Tag = crate::id::IrCtx> {
     Comment(&'static str, &'static std::panic::Location<'static>),
-    RecordNew(MakeRecord<C>),
+    NewRecord(NewRecord<C>),
     RecordGet(RecordGet<C>),
     RecordSet(RecordSet<C>),
-    ReferenceOfFunction(GetFnPtr<C, F>),
+    GetFnPtr(GetFnPtr<C, F>),
     CallStatic(CallStatic<C, F>),
     CallExtern(CallExtern<C, F>),
     CallVirt(CallVirt<C>),
@@ -131,7 +131,7 @@ pub enum Instruction<C: Tag = crate::id::IrCtx, F: Tag = crate::id::IrCtx> {
     /// the constant referenced is a valid UTF-16 string.
     // TODO: the conv_bb_block phase doesn't mutate constants, so they're still
     // in the old constant phase. is this valid?
-    MakeString(MakeBytes<C, F>),
+    MakeBytes(MakeBytes<C, F>),
     // /// # [`Instruction::Unreachable`]
     // ///
     // /// Indicates that the executing code path will never reach this instruction.
@@ -140,10 +140,10 @@ pub enum Instruction<C: Tag = crate::id::IrCtx, F: Tag = crate::id::IrCtx> {
     // /// times.
     // Unreachable,
     MakeInteger(MakeInteger<C>),
-    CompareLessThan(OpLessThan<C>),
-    CompareEqual(OpEquals<C>),
-    Negate(OpNegate<C>),
-    Add(OpAdd<C>),
+    OpLessThan(OpLessThan<C>),
+    OpEquals(OpEquals<C>),
+    OpNegate(OpNegate<C>),
+    OpAdd(OpAdd<C>),
 }
 
 #[derive(Debug, Clone)]
@@ -165,18 +165,14 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
     ) -> Instruction<C2, F2> {
         match self {
             Instruction::Comment(c, l) => Instruction::Comment(c, l),
-            Instruction::MakeString(inst) => {
-                Instruction::MakeString(inst.retag(retagger, const_retagger))
+            Instruction::MakeBytes(inst) => {
+                Instruction::MakeBytes(inst.retag(retagger, const_retagger))
             }
-            Instruction::CompareLessThan(inst) => {
-                Instruction::CompareLessThan(inst.retag(retagger))
-            }
-            Instruction::RecordNew(inst) => Instruction::RecordNew(inst.retag(retagger)),
+            Instruction::OpLessThan(inst) => Instruction::OpLessThan(inst.retag(retagger)),
+            Instruction::NewRecord(inst) => Instruction::NewRecord(inst.retag(retagger)),
             Instruction::RecordGet(inst) => Instruction::RecordGet(inst.retag(retagger)),
             Instruction::RecordSet(inst) => Instruction::RecordSet(inst.retag(retagger)),
-            Instruction::ReferenceOfFunction(inst) => {
-                Instruction::ReferenceOfFunction(inst.retag(retagger, fn_retagger))
-            }
+            Instruction::GetFnPtr(inst) => Instruction::GetFnPtr(inst.retag(retagger, fn_retagger)),
             Instruction::CallStatic(inst) => {
                 Instruction::CallStatic(inst.retag(retagger, fn_retagger))
             }
@@ -186,9 +182,9 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::CallVirt(inst) => Instruction::CallVirt(inst.retag(retagger)),
             Instruction::MakeTrivial(inst) => Instruction::MakeTrivial(inst.retag(retagger)),
             Instruction::MakeInteger(inst) => Instruction::MakeInteger(inst.retag(retagger)),
-            Instruction::CompareEqual(inst) => Instruction::CompareEqual(inst.retag(retagger)),
-            Instruction::Negate(inst) => Instruction::Negate(inst.retag(retagger)),
-            Instruction::Add(inst) => Instruction::Add(inst.retag(retagger)),
+            Instruction::OpEquals(inst) => Instruction::OpEquals(inst.retag(retagger)),
+            Instruction::OpNegate(inst) => Instruction::OpNegate(inst.retag(retagger)),
+            Instruction::OpAdd(inst) => Instruction::OpAdd(inst.retag(retagger)),
         }
     }
 }
@@ -217,10 +213,10 @@ impl<C: Tag> Instruction<C> {
     pub fn assigned_to(&self) -> Option<RegisterId<C>> {
         match self {
             Instruction::Comment(c, _) => None,
-            Instruction::ReferenceOfFunction(inst) => inst.declared_register(),
-            Instruction::MakeString(inst) => inst.declared_register(),
-            Instruction::RecordNew(isa) => isa.declared_register(),
-            Instruction::CompareLessThan(inst) => inst.declared_register(),
+            Instruction::GetFnPtr(inst) => inst.declared_register(),
+            Instruction::MakeBytes(inst) => inst.declared_register(),
+            Instruction::NewRecord(isa) => isa.declared_register(),
+            Instruction::OpLessThan(inst) => inst.declared_register(),
             Instruction::CallStatic(inst) => inst.declared_register(),
             Instruction::CallExtern(inst) => inst.declared_register(),
             Instruction::CallVirt(inst) => inst.declared_register(),
@@ -228,19 +224,19 @@ impl<C: Tag> Instruction<C> {
             Instruction::RecordGet(inst) => inst.declared_register(),
             Instruction::RecordSet(inst) => inst.declared_register(),
             Instruction::MakeInteger(inst) => inst.declared_register(),
-            Instruction::CompareEqual(inst) => inst.declared_register(),
-            Instruction::Negate(inst) => inst.declared_register(),
-            Instruction::Add(inst) => inst.declared_register(),
+            Instruction::OpEquals(inst) => inst.declared_register(),
+            Instruction::OpNegate(inst) => inst.declared_register(),
+            Instruction::OpAdd(inst) => inst.declared_register(),
         }
     }
 
     pub fn used_registers(&self) -> Vec<RegisterId<C>> {
         match self {
             Instruction::Comment(_, _) => Vec::new(),
-            Instruction::ReferenceOfFunction(inst) => inst.used_registers().to_vec(),
-            Instruction::MakeString(inst) => inst.used_registers().to_vec(),
-            Instruction::RecordNew(inst) => inst.used_registers().to_vec(),
-            Instruction::CompareLessThan(inst) => inst.used_registers().to_vec(),
+            Instruction::GetFnPtr(inst) => inst.used_registers().to_vec(),
+            Instruction::MakeBytes(inst) => inst.used_registers().to_vec(),
+            Instruction::NewRecord(inst) => inst.used_registers().to_vec(),
+            Instruction::OpLessThan(inst) => inst.used_registers().to_vec(),
             Instruction::CallStatic(inst) => inst.used_registers().to_vec(),
             Instruction::CallExtern(inst) => inst.used_registers().to_vec(),
             Instruction::CallVirt(inst) => inst.used_registers().to_vec(),
@@ -248,19 +244,19 @@ impl<C: Tag> Instruction<C> {
             Instruction::RecordGet(inst) => inst.used_registers().to_vec(),
             Instruction::RecordSet(inst) => inst.used_registers().to_vec(),
             Instruction::MakeInteger(inst) => inst.used_registers().to_vec(),
-            Instruction::CompareEqual(inst) => inst.used_registers().to_vec(),
-            Instruction::Negate(inst) => inst.used_registers().to_vec(),
-            Instruction::Add(inst) => inst.used_registers().to_vec(),
+            Instruction::OpEquals(inst) => inst.used_registers().to_vec(),
+            Instruction::OpNegate(inst) => inst.used_registers().to_vec(),
+            Instruction::OpAdd(inst) => inst.used_registers().to_vec(),
         }
     }
 
     pub fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
         match self {
             Instruction::Comment(_, _) => Vec::new(),
-            Instruction::ReferenceOfFunction(inst) => inst.used_registers_mut(),
-            Instruction::MakeString(inst) => inst.used_registers_mut(),
-            Instruction::RecordNew(inst) => inst.used_registers_mut(),
-            Instruction::CompareLessThan(inst) => inst.used_registers_mut(),
+            Instruction::GetFnPtr(inst) => inst.used_registers_mut(),
+            Instruction::MakeBytes(inst) => inst.used_registers_mut(),
+            Instruction::NewRecord(inst) => inst.used_registers_mut(),
+            Instruction::OpLessThan(inst) => inst.used_registers_mut(),
             Instruction::CallStatic(inst) => inst.used_registers_mut(),
             Instruction::CallExtern(inst) => inst.used_registers_mut(),
             Instruction::CallVirt(inst) => inst.used_registers_mut(),
@@ -268,9 +264,9 @@ impl<C: Tag> Instruction<C> {
             Instruction::RecordGet(inst) => inst.used_registers_mut(),
             Instruction::RecordSet(inst) => inst.used_registers_mut(),
             Instruction::MakeInteger(inst) => inst.used_registers_mut(),
-            Instruction::CompareEqual(inst) => inst.used_registers_mut(),
-            Instruction::Negate(inst) => inst.used_registers_mut(),
-            Instruction::Add(inst) => inst.used_registers_mut(),
+            Instruction::OpEquals(inst) => inst.used_registers_mut(),
+            Instruction::OpNegate(inst) => inst.used_registers_mut(),
+            Instruction::OpAdd(inst) => inst.used_registers_mut(),
         }
     }
 }

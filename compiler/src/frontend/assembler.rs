@@ -629,7 +629,7 @@ where
 
         match inst {
             ir::Instruction::Comment(_, _) => {}
-            &ir::Instruction::ReferenceOfFunction(inst) => {
+            &ir::Instruction::GetFnPtr(inst) => {
                 // TODO: dont do this
                 let mut hacks = FnPassRetagger::default();
                 hacks.retag_new(inst.function);
@@ -670,7 +670,7 @@ where
                 //     },
                 // );
             }
-            &ir::Instruction::MakeString(inst) => {
+            &ir::Instruction::MakeBytes(inst) => {
                 let constant = self
                     .fn_assembler
                     .assembler
@@ -701,7 +701,7 @@ where
                 // self.register_types
                 //     .insert(inst.result, ValueType::ExactInteger(inst.value));
             }
-            &ir::Instruction::CompareLessThan(inst) => {
+            &ir::Instruction::OpLessThan(inst) => {
                 let cmp_typ = self.type_info.get_type(inst.result);
                 let inst = inst.retag(self.retagger);
 
@@ -723,7 +723,7 @@ where
                     );
                 }
             }
-            &ir::Instruction::Add(inst) => {
+            &ir::Instruction::OpAdd(inst) => {
                 let res_typ = self.type_info.get_type(inst.result);
                 let inst = inst.retag(self.retagger);
 
@@ -911,7 +911,7 @@ where
             // if this entire `assembler` phase is even necessary
             //
             // i'll probably end up trashing this entire struct
-            &ir::Instruction::RecordNew(inst) => {
+            &ir::Instruction::NewRecord(inst) => {
                 let inst = inst.retag(self.retagger);
                 self.instructions.push(Instruction::RecordNew(inst.result));
                 // TODO: aren't we suppose to insert types??????????????????/ wtf??????????????????????////////
@@ -1001,7 +1001,7 @@ where
                     panic!("cannot call RecordSet on non record");
                 }
             }
-            &ir::Instruction::CompareEqual(inst) => {
+            &ir::Instruction::OpEquals(inst) => {
                 let res_typ = self.type_info.get_type(inst.result);
                 let inst = inst.retag(self.retagger);
 
@@ -1021,7 +1021,7 @@ where
                     );
                 }
             }
-            &ir::Instruction::Negate(inst) => {
+            &ir::Instruction::OpNegate(inst) => {
                 let res_typ = self.type_info.get_type(inst.result);
                 let inst = inst.retag(self.retagger);
 
