@@ -6,7 +6,7 @@ JSSAT is a compiler that turns JavaScript into LLVM IR, without sacrificing
 performance or size as traditional methods do. To do this, it primarily utilizes
 symbolic execution to explore a program along all possible paths, and generates
 the corresponding LLVM IR.
-[A much more in-depth explanation can be found here (please do read it, it's everything this README should be and more)](https://sirjosh3917.com/jssat-compiling-javascript-to-llvm-ir).
+[A much more in-depth explanation can be found here (please do read it, it's everything this README should be and more)](https://sirjosh3917.com/posts/jssat-compiling-javascript-to-llvm-ir).
 
 ### ⚠️ JSSAT is in an early stage of development.
 
