@@ -5,7 +5,6 @@ use rustc_hash::FxHashMap;
 
 use crate::frontend::ir::*;
 use crate::id::{Counter, IdCompat};
-use crate::name::DebugName;
 use crate::UnwrapNone;
 
 use crate::isa::{
@@ -26,7 +25,7 @@ pub type ExternalFunctionId = crate::id::ExternalFunctionId<crate::id::IrCtx>;
 pub fn panics_on_drop_with_function_start_without_function_end() {
     let builder = ProgramBuilder::new();
     #[allow(unused_variables)]
-    let (my_fn, []) = builder.start_function("my_fn");
+    let (my_fn, []) = builder.start_function();
     // Oops! This accidentally got commented out!
     // builder.end_function(my_fn);
 }
@@ -72,21 +71,18 @@ impl ProgramBuilder {
         }
     }
 
-    pub fn constant(&mut self, name: &str, payload: Vec<u8>) -> ConstantId {
-        self.constants.push(Constant {
-            name: DebugName::new(name),
-            payload,
-        });
+    pub fn constant(&mut self, payload: Vec<u8>) -> ConstantId {
+        self.constants.push(Constant { payload });
 
         let id = self.constants.len() - 1;
         ConstantId::new_with_value(id)
     }
 
-    pub fn constant_str(&mut self, name: &str, message: String) -> ConstantId {
-        self.constant(name, message.into_bytes())
+    pub fn constant_str(&mut self, message: String) -> ConstantId {
+        self.constant(message.into_bytes())
     }
 
-    pub fn constant_str_utf16(&mut self, name: &str, message: String) -> ConstantId {
+    pub fn constant_str_utf16(&mut self, message: String) -> ConstantId {
         let mut payload = Vec::with_capacity(message.len() * 2);
 
         let utf16_payload = message
@@ -96,7 +92,7 @@ impl ProgramBuilder {
 
         payload.extend(utf16_payload);
 
-        self.constant(name, payload)
+        self.constant(payload)
     }
 
     pub fn external_function<N: ToString, const PARAMETERS: usize>(
@@ -125,21 +121,20 @@ impl ProgramBuilder {
         ExternalFunctionId::new_with_value(id)
     }
 
-    pub fn start_function_main(&mut self) -> FunctionBuilder<'static, 0> {
+    pub fn start_function_main(&mut self) -> FunctionBuilder<0> {
         assert!(
             matches!(self.entrypoint, None),
             "can only define one entrypoint function"
         );
 
-        let (builder, []) = self.start_function("main");
+        let (builder, []) = self.start_function();
         self.entrypoint = Some(builder.id);
         builder
     }
 
-    pub fn start_function<'name, const PARAMETERS: usize>(
+    pub fn start_function<const PARAMETERS: usize>(
         &self,
-        name: &'name str,
-    ) -> (FunctionBuilder<'name, PARAMETERS>, [RegisterId; PARAMETERS]) {
+    ) -> (FunctionBuilder<PARAMETERS>, [RegisterId; PARAMETERS]) {
         let id = self.gen_function_id.next();
 
         // TODO: is there a better way to do this?
@@ -149,7 +144,7 @@ impl ProgramBuilder {
             *parameter = RegisterId::new_with_value_const(idx);
         }
 
-        (FunctionBuilder::new(id, name), parameters)
+        (FunctionBuilder::new(id), parameters)
     }
 
     pub fn end_function<const PARAMETERS: usize>(
@@ -173,9 +168,8 @@ impl Default for ProgramBuilder {
     }
 }
 
-pub struct FunctionBuilder<'name, const PARAMETERS: usize> {
+pub struct FunctionBuilder<const PARAMETERS: usize> {
     pub id: FunctionId,
-    name: &'name str,
     gen_block_id: Counter<BlockId>,
     gen_register_id: Arc<Counter<RegisterId>>,
     entrypoint: Option<BlockId>,
@@ -190,11 +184,10 @@ pub struct FunctionBuilder<'name, const PARAMETERS: usize> {
     is_ok_to_drop: bool,
 }
 
-impl<'n, const P: usize> FunctionBuilder<'n, P> {
-    fn new(id: FunctionId, name: &'n str) -> Self {
+impl<const P: usize> FunctionBuilder<P> {
+    fn new(id: FunctionId) -> Self {
         Self {
             id,
-            name,
             gen_block_id: Counter::new(),
             gen_register_id: Arc::new(Counter::new_with_value(P)),
             entrypoint: None,
@@ -205,11 +198,9 @@ impl<'n, const P: usize> FunctionBuilder<'n, P> {
 
     fn finish(self) -> Function {
         Function {
-            name: DebugName::new(self.name),
             parameters: (0..P)
                 .into_iter()
                 .map(|p| Parameter {
-                    name: DebugName::none(),
                     register: RegisterId::new_with_value_const(p),
                 })
                 .collect(),
@@ -293,7 +284,7 @@ impl<'n, const P: usize> FunctionBuilder<'n, P> {
     }
 }
 
-impl<const P: usize> Drop for FunctionBuilder<'_, P> {
+impl<const P: usize> Drop for FunctionBuilder<P> {
     fn drop(&mut self) {
         if !self.is_ok_to_drop {
             panic!("A `FunctionBuilder` (created with `start_function`) was dropped without `end_function` being called.");

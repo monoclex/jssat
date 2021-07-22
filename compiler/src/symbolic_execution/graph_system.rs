@@ -13,7 +13,6 @@
 use std::{
     cell::UnsafeCell,
     hash::Hash,
-    ops::{Deref, DerefMut},
     panic::PanicInfo,
     sync::{atomic::AtomicBool, Arc, Mutex, TryLockError},
 };
@@ -128,8 +127,8 @@ unsafe impl<T> Send for SuperUnsafeCell<T> {}
 unsafe impl<T> Sync for SuperUnsafeCell<T> {}
 impl<T> SuperUnsafeCell<T> {
     #[allow(clippy::mut_from_ref)]
-    pub fn raw_get(&self) -> &mut T {
-        unsafe { &mut *UnsafeCell::raw_get(&self.0 as *const UnsafeCell<T>) }
+    pub unsafe fn raw_get(&self) -> &mut T {
+        &mut *UnsafeCell::raw_get(&self.0 as *const UnsafeCell<T>)
     }
 }
 
@@ -291,7 +290,7 @@ where
             global_callstack: global_callstack.clone(),
         };
 
-        let worker = worker.raw_get();
+        let worker = unsafe { worker.raw_get() };
         let result = Arc::new(worker.work(&sys_api));
 
         // update the worker status

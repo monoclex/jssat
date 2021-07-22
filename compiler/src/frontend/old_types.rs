@@ -4,7 +4,7 @@ use crate::{id::*, UnwrapNone};
 use petgraph::{visit::EdgeRef, EdgeDirection};
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use super::type_annotater::{InvocationArgs, ValueType};
+use super::type_annotater::ValueType;
 use crate::isa::InternalSlot;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -134,10 +134,6 @@ impl<C: Tag> RegMap<C> {
         alloc_id
     }
 
-    pub fn alloc_alloc(&mut self, alloc_id: AllocationId<NoContext>) {
-        self.allocations.insert(alloc_id, vec![]).expect_free();
-    }
-
     pub fn insert_shape(&mut self, shape: RecordShape) -> ShapeId<C> {
         let mut shape_id;
         loop {
@@ -154,25 +150,6 @@ impl<C: Tag> RegMap<C> {
 
     pub fn assign_new_shape(&mut self, allocation: AllocationId<NoContext>, shape: ShapeId<C>) {
         self.allocations.get_mut(&allocation).unwrap().push(shape);
-    }
-
-    pub fn extend(&mut self, other: RegMap<C>) {
-        for (other, _) in other.registers.iter() {
-            debug_assert!(!self.registers.contains_key(other));
-        }
-        self.registers.extend(other.registers);
-
-        for (k, v) in other.allocations {
-            self.allocations
-                .entry(k)
-                .or_insert_with(Default::default)
-                .extend(v);
-        }
-
-        for (other, _) in other.shapes.iter() {
-            debug_assert!(self.shapes.contains_key(other));
-        }
-        self.shapes.extend(other.shapes);
     }
 
     pub fn remove_alloc(&mut self, id: AllocationId<NoContext>) {
@@ -217,10 +194,6 @@ impl<C: Tag> RegMap<C> {
 
     pub fn get_shape_by_id_mut(&mut self, shape_id: &ShapeId<C>) -> &mut RecordShape {
         self.shapes.get_mut(shape_id).unwrap()
-    }
-
-    pub fn registers(&self) -> impl Iterator<Item = RegisterId<C>> + '_ {
-        self.registers.keys().copied()
     }
 
     pub fn allocations(&self) -> Vec<(AllocationId<NoContext>, &Vec<ShapeId<C>>)> {
@@ -342,135 +315,6 @@ impl<C: Tag> RegMap<C> {
         }
         true
     }
-
-    /// States whether the type is "simple" or not. Simple types are extremely
-    /// cheap to rebuild at any moment in the IR, and are considered cheaper to
-    /// build than to pass around. Passing them around is considered "expensive"
-    /// because then we're using more registers than necessary, which cause
-    /// performance deficits because the more registers we use the more likely
-    /// we'll need to spill onto the stack to generate a function.
-    pub fn is_simple(&self, register: RegisterId<C>) -> bool {
-        self.is_simple_typ(self.get(register))
-    }
-
-    pub fn is_simple_typ(&self, typ: &ValueType) -> bool {
-        match typ {
-            ValueType::Runtime
-            | ValueType::ExactInteger(_)
-            | ValueType::Bool(_)
-            | ValueType::ExactString(_) => true,
-            ValueType::Record(alloc) => {
-                let shape = self.get_shape(*alloc);
-                self.is_simple_shape(shape)
-            }
-            _ => false,
-        }
-    }
-
-    fn is_simple_shape(&self, shape: &RecordShape) -> bool {
-        shape
-            .fields()
-            .fold(true, |current, (_, v)| self.is_simple_typ(v) && current)
-    }
-
-    pub fn prepare_invocation<C2: Tag>(
-        &self,
-        arguments: impl Iterator<Item = (RegisterId<C>, RegisterId<C2>)>,
-    ) -> InvocationArgs<C2> {
-        let mut map = RegMap::default();
-        let mut alloc_map = AllocIdMap::default();
-
-        for (argument, target) in arguments {
-            println!("1preparing - arg {:?} |-> {:?}", argument, target);
-            let typ = self.get(argument).clone();
-            println!("2preparing - arg {:?} |-> {:?}", target, typ);
-            if let ValueType::Record(a) = &typ {
-                println!("2.preparing - aloc {:?} |-> {:?}", a, self.get_shape(*a));
-            }
-            let typ = self.map_type(typ, &mut map, &mut alloc_map);
-            println!("3preparing - arg {:?} |-> {:?}", target, typ);
-            if let ValueType::Record(a) = &typ {
-                println!("3.preparing - aloc {:?} |-> {:?}", a, map.get_shape(*a));
-            }
-
-            map.insert(target, typ);
-        }
-
-        InvocationArgs(map)
-    }
-
-    fn map_type<C2: Tag>(
-        &self,
-        typ: ValueType,
-        target: &mut RegMap<C2>,
-        alloc_map: &mut AllocIdMap<NoContext, NoContext>,
-    ) -> ValueType {
-        match typ {
-            ValueType::Any
-            | ValueType::Runtime
-            | ValueType::String
-            | ValueType::ExactString(_)
-            | ValueType::Number
-            | ValueType::ExactInteger(_)
-            | ValueType::Boolean
-            | ValueType::Bool(_)
-            | ValueType::Undefined
-            | ValueType::Null
-            | ValueType::FnPtr(_) => typ,
-            ValueType::Record(orig_alloc_id) => {
-                let (alloc_id, is_new) = alloc_map.map_is_new(orig_alloc_id);
-
-                if is_new {
-                    // if the type is new, we need to make a shape and allocation things
-                    target.alloc_alloc(alloc_id);
-                    for shp in self.get_shapes(orig_alloc_id) {
-                        let current_shape = self.get_shape_by_id(shp);
-                        let mut new_shape = RecordShape::default();
-
-                        for (k, v) in current_shape.fields() {
-                            // TODO: this is a pitfall
-                            new_shape = new_shape
-                                .add_prop(k.clone(), self.map_type(v.clone(), target, alloc_map));
-                        }
-
-                        let shape_id = target.insert_shape(new_shape);
-                        target.assign_new_shape(alloc_id, shape_id);
-                    }
-                }
-
-                ValueType::Record(alloc_id)
-            }
-        }
-    }
-
-    pub fn duplicate_with_allocations<C2: Tag>(&self) -> RegMap<C2> {
-        RegMap::<C2> {
-            allocation_id_gen: self.allocation_id_gen,
-            allocations: self
-                .allocations
-                .clone()
-                .into_iter()
-                .map(|(k, v)| {
-                    (
-                        k,
-                        v.into_iter().map(|s| s.map_context()).collect::<Vec<_>>(),
-                    )
-                })
-                .collect(),
-            shape_id_gen: self.shape_id_gen.map_context(),
-            shapes: self
-                .shapes
-                .clone()
-                .into_iter()
-                .map(|(k, v)| (k.map_context(), v))
-                .collect(),
-            registers: self
-                .registers
-                .iter()
-                .map(|(k, v)| (k.map_context(), v.clone()))
-                .collect::<FxHashMap<_, _>>(),
-        }
-    }
 }
 
 impl<C: Tag> Default for RegMap<C> {
@@ -484,14 +328,3 @@ impl<C: Tag> Default for RegMap<C> {
         }
     }
 }
-
-// /// A [`RegMap`], but that derives [`PartialEq`] and [`Eq`] to make it suitable
-// /// for use in comparisons.
-// #[derive(Debug, Clone, PartialEq, Eq)]
-// pub struct RegMapView<C: ContextTag> {
-//     registers: PoorMap<RegisterId<C>, ValueType>,
-//     allocation_id_gen: AllocationId<NoContext>,
-//     allocations: FxHashMap<AllocationId<NoContext>, Vec<ShapeId<C>>>,
-//     shape_id_gen: ShapeId<C>,
-//     shapes: FxHashMap<ShapeId<C>, RecordShape>,
-// }

@@ -61,7 +61,7 @@ pub fn display(program: &IR) -> String {
                     Instruction::CallStatic(t) => iwl!(text, "    CallStatic {:?}", t),
                     Instruction::MakeTrivial(t) => iwl!(text, "    MakeTrivial {:?}", t),
                     Instruction::MakeBytes(instt) => iwl!(text, "    MakeString {:?}", instt),
-                    Instruction::GetFnPtr(inst) => iwl!(text, "todo"),
+                    Instruction::GetFnPtr(_) => iwl!(text, "todo"),
                     Instruction::LessThan(inst) => {
                         let r = inst.result;
                         let l = inst.lhs;
@@ -99,22 +99,4 @@ fn display_norecord(t: &FFIValueType) -> String {
         // ValueType::FnPtr(_) => "todo::FnPtr".into(),
         _ => format!("{:?}", t),
     }
-}
-
-fn display_str(payload: &[u8]) -> String {
-    if let Ok(s) = String::from_utf8(payload.to_vec()) {
-        return format!("{:?}", s);
-    };
-
-    let (pre, bytes, post) = unsafe { payload.align_to() };
-
-    if !pre.is_empty() && !post.is_empty() {
-        return format!("{:?}", payload);
-    }
-
-    if let Ok(s) = String::from_utf16(bytes) {
-        return s;
-    };
-
-    return format!("{:?}", payload);
 }

@@ -3,8 +3,6 @@ use std::hash::Hash;
 
 use rustc_hash::FxHashMap;
 
-use crate::name::DebugName;
-
 use crate::id::{IrCtx, Tag};
 type BlockId = crate::id::BlockId<IrCtx>;
 type FunctionId = crate::id::FunctionId<IrCtx>;
@@ -36,7 +34,6 @@ impl IR {
 
 #[derive(Debug, Clone)]
 pub struct Constant {
-    pub name: DebugName,
     pub payload: Vec<u8>,
 }
 
@@ -86,7 +83,6 @@ pub type FFIReturnType = Returns<FFIValueType>;
 
 #[derive(Debug, Clone)]
 pub struct Function {
-    pub name: DebugName,
     pub parameters: Vec<Parameter>,
     // require that the entry block has 0 parameters
     pub entry_block: BlockId,
@@ -97,7 +93,6 @@ pub struct Function {
 
 #[derive(Debug, Clone)]
 pub struct Parameter {
-    pub name: DebugName,
     pub register: PlainRegisterId,
 }
 
@@ -220,7 +215,7 @@ impl<CO: Tag, PO: Tag> ControlFlowInstruction<CO, PO> {
 impl<C: Tag, F: Tag> Instruction<C, F> {
     pub fn assigned_to(&self) -> Option<RegisterId<C>> {
         match self {
-            Instruction::Comment(c, _) => None,
+            Instruction::Comment(_, _) => None,
             Instruction::GetFnPtr(inst) => inst.declared_register(),
             Instruction::MakeBytes(inst) => inst.declared_register(),
             Instruction::NewRecord(isa) => isa.declared_register(),

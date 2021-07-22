@@ -15,7 +15,7 @@
 
 use std::{io::Write, process::Command};
 
-use crate::frontend::{display::display, display_bb, display_jssatir};
+use crate::frontend::{display::display, display_jssatir};
 
 pub mod backend;
 pub mod frontend;
@@ -24,7 +24,6 @@ pub mod interner;
 pub mod isa;
 pub mod lifted;
 pub mod my_tests;
-pub mod name;
 pub mod poor_hashmap;
 pub mod retag;
 pub mod symbolic_execution;
@@ -32,7 +31,6 @@ pub mod symbolic_execution;
 /// can't have nice things :'( https://github.com/rust-lang/rust/issues/62633
 pub trait UnwrapNone {
     fn expect_none(self, msg: &str);
-    fn unwrap_none(self);
 
     // lazy/hacky code but w/e
     fn expect_free(self);
@@ -42,10 +40,6 @@ impl<T> UnwrapNone for Option<T> {
     #[track_caller]
     fn expect_none(self, msg: &str) {
         assert!(matches!(self, None), "{}", msg);
-    }
-
-    fn unwrap_none(self) {
-        assert!(matches!(self, None))
     }
 
     #[track_caller]
@@ -61,10 +55,6 @@ impl<L, R> UnwrapNone for bimap::Overwritten<L, R> {
             "{}",
             msg
         );
-    }
-
-    fn unwrap_none(self) {
-        assert!(matches!(self, bimap::Overwritten::<L, R>::Neither));
     }
 
     fn expect_free(self) {
@@ -157,16 +147,9 @@ fn main() {
     let content = "print('Hello, World!');".to_owned();
 
     let ir = frontend::js::traverse(content);
-    eprintln!("{:#?}", ir);
-
     println!("{}", display_jssatir::display(&ir));
 
-    let as_only_blocks = frontend::conv_only_bb::translate(&ir);
-    let lifted = lifted::lift(ir.clone());
-    eprintln!("{:#?}", as_only_blocks);
-    println!("{}", display_bb::display(&as_only_blocks));
-
-    let annotations = frontend::type_annotater::annotate(&ir, &as_only_blocks);
+    let lifted = lifted::lift(ir);
     let lifted_ref = Box::leak(Box::new(lifted));
     let program = symbolic_execution::execute(lifted_ref);
 
@@ -178,12 +161,10 @@ fn main() {
     // this will probably run our opts enough
     for _ in 0..4 {
         program = frontend::asm_opt_const_elim::opt_constant_elimination(program);
-        // eprintln!("{:#?}", program);
         println!("=== MID OPT1 ===");
         println!("{}", display(&program));
 
         program = frontend::asm_opt_dead_register_elim::opt_dead_register_elimination(program);
-        // eprintln!("{:#?}", program);
         println!("=== MID OPT2 ===");
         println!("{}", display(&program));
     }

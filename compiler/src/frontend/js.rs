@@ -259,9 +259,9 @@ pub fn traverse(source: String) -> IR {
     builder.finish()
 }
 
-struct JsWriter<'builder, 'name, const PARAMETERS: usize> {
+struct JsWriter<'builder, const PARAMETERS: usize> {
     bld: &'builder mut ProgramBuilder,
-    bld_fn: &'builder mut FunctionBuilder<'name, PARAMETERS>,
+    bld_fn: &'builder mut FunctionBuilder<PARAMETERS>,
     block: DynBlockBuilder,
     /// this is a hack, shouldn't be here... probably
     running_execution_context_lexical_environment: RegisterId,
@@ -269,7 +269,7 @@ struct JsWriter<'builder, 'name, const PARAMETERS: usize> {
 
 #[cfg(feature = "link-swc")]
 #[allow(non_snake_case)]
-impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
+impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
     /// https://tc39.es/ecma262/#sec-initializehostdefinedrealm
     pub fn InitializeHostDefinedRealm(&mut self) -> (RegisterId, RegisterId) {
         self.block.comment("InitializeHostDefinedRealm");
@@ -316,7 +316,7 @@ impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
         // TODO: what is `empty`? a string? a zero sized type? idk bro
         let empty = self
             .block
-            .make_string(self.bld.constant_str("", "empty".into()));
+            .make_string(self.bld.constant_str("empty".into()));
         (self.NormalCompletion(empty), realm)
     }
 
@@ -419,7 +419,7 @@ impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
         // 2. For each property of the Global Object specified in clause 19, do
         // TODO: implement global object stuff
         let print_stub = {
-            let (mut print_stub, [any]) = self.bld.start_function("print_stub");
+            let (mut print_stub, [any]) = self.bld.start_function();
 
             let print = self.bld.external_function(
                 "jssatrt_print_any",
@@ -440,7 +440,7 @@ impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
         self.block
             .record_set_slot(func_obj, InternalSlot::Call, fnptr);
 
-        let print_text = self.bld.constant_str_utf16("", "print".into());
+        let print_text = self.bld.constant_str_utf16("print".into());
         let key = self.block.make_string(print_text);
         self.block.record_set_prop(global, key, func_obj);
         // a. Let name be the String value of the property name.
@@ -808,13 +808,13 @@ impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
                 let func = self.GetValue(r#ref);
 
                 // TODO: do arguments
-                let hello_world = self.bld.constant_str_utf16("", "Hello, World!".into());
+                let hello_world = self.bld.constant_str_utf16("Hello, World!".into());
                 let hello_world = self.block.make_string(hello_world);
 
                 // 3. Let thisCall be this CallExpression.
                 // 4. Let tailCall be IsInTailPosition(thisCall).
                 // 5. Return ? EvaluateCall(func, ref, Arguments, tailCall).
-                let completion_record = self.EvaluateCall(func, hello_world, args, ());
+                let completion_record = self.EvaluateCall(hello_world, hello_world, args, ());
                 let result = self.ReturnIfAbrupt(completion_record);
                 self.NormalCompletion(result)
                 /*
@@ -831,7 +831,7 @@ impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
             swc_ecmascript::ast::Expr::Ident(ident) => {
                 // 1. Return ? ResolveBinding(StringValue of Identifier).
                 let string_value = ident.sym.to_string();
-                let string_value = self.bld.constant_str_utf16("", string_value);
+                let string_value = self.bld.constant_str_utf16(string_value);
                 let name = self.block.make_string(string_value);
                 let resolve_binding = self.ResolveBinding(name, None);
                 let inner_value = self.ReturnIfAbrupt(resolve_binding);
@@ -913,14 +913,14 @@ impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
         let completion_record = self.block.record_new();
         let normal = self
             .block
-            .make_string(self.bld.constant_str("", "normal".into()));
+            .make_string(self.bld.constant_str("normal".into()));
         self.block
             .record_set_slot(completion_record, InternalSlot::Type, normal);
         self.block
             .record_set_slot(completion_record, InternalSlot::Value, argument);
         let empty = self
             .block
-            .make_string(self.bld.constant_str("", "empty".into()));
+            .make_string(self.bld.constant_str("empty".into()));
         self.block
             .record_set_slot(completion_record, InternalSlot::Target, empty);
         completion_record
@@ -928,7 +928,7 @@ impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
 
     // actual helpers
 
-    fn perform_if<F: FnMut(&'_ mut JsWriter<'b, 'n, PARAMS>)>(
+    fn perform_if<F: FnMut(&'_ mut JsWriter<'b, PARAMS>)>(
         &mut self,
         condition: RegisterId,
         mut in_if: F,
@@ -977,7 +977,7 @@ impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
         let completion_type = self.block.record_get_slot(record, InternalSlot::Type);
         let normal_completion = self
             .block
-            .make_string(self.bld.constant_str("", "normal".into()));
+            .make_string(self.bld.constant_str("normal".into()));
         self.block.compare_equal(completion_type, normal_completion)
     }
 

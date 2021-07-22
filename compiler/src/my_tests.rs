@@ -1,10 +1,10 @@
 //! Because this is all in one binary, i can't use a `tests` folder
 
-use crate::lifted::EndInstruction;
 #[cfg(test)]
 use crate::{
-    frontend::{builder::ProgramBuilder, conv_only_bb, ir::ControlFlowInstruction},
+    frontend::builder::ProgramBuilder,
     isa::{BlockJump, Jump},
+    lifted::EndInstruction,
 };
 
 /// Confirm that registers are passed one block away properly

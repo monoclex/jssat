@@ -37,7 +37,7 @@ impl UniqueFnIdShared {
     }
 
     pub fn is_entry_fn(&self, id: FunctionId<SymbolicCtx>) -> bool {
-        let mut me = self.0.try_lock().expect("should be contentionless");
+        let me = self.0.try_lock().expect("should be contentionless");
         me.is_entry_fn(id)
     }
 

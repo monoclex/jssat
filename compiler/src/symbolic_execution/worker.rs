@@ -10,7 +10,6 @@ use crate::frontend::ir::Returns;
 use crate::frontend::old_types;
 use crate::frontend::type_annotater;
 use crate::id::*;
-use crate::isa::MakeTrivial;
 use crate::isa::RecordKey;
 use crate::isa::TrivialItem;
 use crate::lifted;
@@ -250,7 +249,7 @@ impl<'p> Worker for SymbWorker<'p> {
                     match (i.result, &ext_fn.returns) {
                         (Some(_), Returns::Void) => panic!("cannot assign `void` to register"),
                         (None, _) => {}
-                        (Some(reg), Returns::Value(v)) => {
+                        (Some(_), Returns::Value(_)) => {
                             todo!("handle return types of ext fns")
                         }
                     };

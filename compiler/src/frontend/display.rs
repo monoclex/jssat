@@ -1,7 +1,7 @@
 use crate::frontend::assembler::BlockJump;
 
 use super::{
-    assembler::{Block, Function, Program},
+    assembler::{Block, Program},
     old_types::RecordShape,
     type_annotater::ValueType,
 };
@@ -143,7 +143,7 @@ pub fn display(program: &Program) -> String {
                         // don't write anything, it's annoying
                         // iwl!(text, "    Noop")
                     }
-                    crate::frontend::assembler::Instruction::OpLessThan(i) => {
+                    crate::frontend::assembler::Instruction::OpLessThan(_) => {
                         iwl!(text, "    op less than TODO")
                     }
                 }

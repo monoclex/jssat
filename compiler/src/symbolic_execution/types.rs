@@ -7,8 +7,6 @@ use crate::id::{Counter, LiftedCtx, SymbolicCtx};
 use crate::isa::{InternalSlot, RecordKey, TrivialItem};
 use crate::UnwrapNone;
 
-use super::graph_system::Bogusable;
-
 type AllocationId = crate::id::AllocationId<LiftedCtx>;
 type ConstantId = crate::id::ConstantId<SymbolicCtx>;
 type RegisterId = crate::id::RegisterId<LiftedCtx>;
@@ -21,13 +19,6 @@ pub enum ReturnType {
     Void,
     Value(RegisterType),
     Never,
-}
-
-impl Bogusable for ReturnType {
-    fn bogus() -> Self {
-        panic!("this shouldn't be called yet");
-        Self::Never
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

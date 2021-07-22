@@ -2,15 +2,11 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::TryLockError;
 
-use rustc_hash::FxHashMap;
-use rustc_hash::FxHashSet;
-
 use crate::frontend::assembler;
 use crate::id::*;
 use crate::lifted::LiftedProgram;
 use crate::retag::ExtFnPassRetagger;
 use crate::retag::ExtFnRetagger;
-use crate::symbolic_execution::graph_system::SuperUnsafeCell;
 
 use self::graph_system::{Bogusable, GraphSystem, System, Worker, WorkerFactory};
 use self::types::ReturnType;
@@ -27,7 +23,7 @@ pub mod worker;
 
 pub fn execute(program: &'static LiftedProgram) -> assembler::Program {
     let mut asm_ext_map = ExtFnPassRetagger::default();
-    for (id, ext_fn) in program.external_functions.iter() {
+    for (id, _) in program.external_functions.iter() {
         asm_ext_map.retag_new(*id);
     }
 
@@ -55,9 +51,9 @@ pub fn execute(program: &'static LiftedProgram) -> assembler::Program {
         println!();
 
         println!("callstack:");
-        for (func, worker) in callstack {
+        for (_, worker) in callstack {
             // TODO: we don't actually need mutable access, just immutable access
-            let w: &mut SymbWorker = worker.raw_get();
+            let w: &mut SymbWorker = unsafe { worker.raw_get() };
 
             println!();
             println!("Worker {}:", w.id);

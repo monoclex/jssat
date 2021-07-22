@@ -153,11 +153,11 @@ pub fn lift(ir: IR) -> LiftedProgram {
     // will not overlap with any existing function ids
     if cfg!(debug_assertions) {
         let mut retagger = fn_retagger.clone();
-        let new_fn_ids = fn_id_gen.dup();
+        let new_fn_ids = fn_id_gen.clone();
 
         assert_eq!(
             retagger.retag_new(retagger.free()),
-            new_fn_ids.dup().next(),
+            new_fn_ids.next(),
             "newly generated function ids should start right after all retagged functions"
         );
     }

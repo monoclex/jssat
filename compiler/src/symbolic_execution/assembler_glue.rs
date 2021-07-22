@@ -44,10 +44,6 @@ pub fn glue(
     for (id, mut results) in results {
         let id = fn_retagger.retag_new(id);
 
-        let instructions = (results.assembler_piece.blocks)
-            .iter_mut()
-            .flat_map(|(_, b)| b.instructions.iter_mut());
-
         for (_, blk) in results.assembler_piece.blocks.iter_mut() {
             for inst in blk.instructions.iter_mut() {
                 if let Instruction::MakeString(r, c) = inst {
@@ -74,7 +70,7 @@ pub fn glue(
 fn intern_constant(
     c_retagger: &mut CnstMapRetagger<NoContext, AssemblerCtx>,
     constants: &mut FxHashMap<ConstantId<AssemblerCtx>, Vec<u8>>,
-    payload: &Vec<u8>,
+    payload: &[u8],
 ) -> ConstantId<AssemblerCtx> {
     for (k, v) in constants.iter() {
         if v == payload {
@@ -83,6 +79,6 @@ fn intern_constant(
     }
 
     let k = c_retagger.gen();
-    constants.insert(k, payload.clone());
+    constants.insert(k, payload.to_vec());
     k
 }
