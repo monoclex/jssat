@@ -168,11 +168,7 @@ fn main() {
 
     let annotations = frontend::type_annotater::annotate(&ir, &as_only_blocks);
     let lifted_ref = Box::leak(Box::new(lifted));
-    let symb_execd = symbolic_execution::execute(lifted_ref);
-    eprintln!("{:#?}", annotations);
-
-    let program = frontend::assembler::assemble(&ir, &as_only_blocks, annotations);
-    eprintln!("{:#?}", program);
+    let program = symbolic_execution::execute(lifted_ref);
 
     println!("=== PRE OPT ===");
     println!("{}", display(&program));

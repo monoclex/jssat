@@ -346,13 +346,19 @@ impl RegisterMapper {
 #[derive(Default)]
 struct GlobalRecordStructBuilder<'rt_types, 'duration, 'counter> {
     counter: Counter<StructId<LlvmCtx>>,
-    builders:
-        FxHashMap<FunctionId<AssemblerCtx>, RecordStructBuilder<'rt_types, 'duration, 'counter>>,
+    builders: FxHashMap<
+        (FunctionId<AssemblerCtx>, BlockId<AssemblerCtx>),
+        RecordStructBuilder<'rt_types, 'duration, 'counter>,
+    >,
 }
 
 impl<'rt, 'd, 'c> GlobalRecordStructBuilder<'rt, 'd, 'c> {
-    pub fn get(&self, fn_id: FunctionId<AssemblerCtx>) -> &RecordStructBuilder<'rt, 'd, 'c> {
-        self.builders.get(&fn_id).unwrap()
+    pub fn get(
+        &self,
+        fn_id: FunctionId<AssemblerCtx>,
+        b_id: BlockId<AssemblerCtx>,
+    ) -> &RecordStructBuilder<'rt, 'd, 'c> {
+        self.builders.get(&(fn_id, b_id)).unwrap()
     }
 
     // TODO: somehow fix this to accept a `self`
@@ -406,8 +412,6 @@ impl<'rt, 'r, 'c> RecordStructBuilder<'rt, 'r, 'c> {
         let mut field_idx = FxHashMap::default();
 
         let history = history.collect::<Vec<_>>();
-        println!("cleaning a llocation {:?}", id);
-        println!("history: {:#?}", history);
         let shape = history
             .into_iter()
             .fold(RecordShape::default(), |a, b| a.union(b));
@@ -454,17 +458,21 @@ pub fn translate(program: Program) -> BackendIR<'static> {
 
     let mut global_structs = GlobalRecordStructBuilder::default();
     for (f_id, f) in program.functions.iter() {
-        let mut record_struct_builder =
-            RecordStructBuilder::new(&rt_types, &f.register_types, &global_structs.counter);
-        for (id, history) in f.register_types.allocations() {
-            record_struct_builder.build_type(
-                id,
-                history
-                    .iter()
-                    .map(|id| f.register_types.get_shape_by_id(id)),
-            );
+        for (b_id, b) in f.blocks.iter() {
+            let mut record_struct_builder =
+                RecordStructBuilder::new(&rt_types, &b.register_types, &global_structs.counter);
+            for (id, history) in b.register_types.allocations() {
+                record_struct_builder.build_type(
+                    id,
+                    history
+                        .iter()
+                        .map(|id| b.register_types.get_shape_by_id(id)),
+                );
+            }
+            global_structs
+                .builders
+                .insert((*f_id, *b_id), record_struct_builder);
         }
-        global_structs.builders.insert(*f_id, record_struct_builder);
     }
 
     let mut ext_fns = ExternalFunctionMapper::new(&rt_types);
@@ -472,7 +480,10 @@ pub fn translate(program: Program) -> BackendIR<'static> {
 
     let mut functions = FxHashMap::default();
     for (fn_id, function) in program.functions.iter() {
-        let struct_defs = global_structs.builders.get(fn_id).unwrap();
+        let struct_defs = global_structs
+            .builders
+            .get(&(*fn_id, function.entry_block))
+            .unwrap();
         let id = fn_id.map_context();
 
         let is_entrypoint = id == program.entrypoint.map_context();
@@ -511,8 +522,6 @@ pub fn translate(program: Program) -> BackendIR<'static> {
 
             params
         };
-
-        let reg_types = &function.register_types;
 
         let entry_block = function.entry_block.map_context();
 
@@ -560,7 +569,9 @@ pub fn translate(program: Program) -> BackendIR<'static> {
                 }
             };
 
-            let defined_structs = global_structs.get(*fn_id);
+            let reg_types = &block.register_types;
+
+            let defined_structs = global_structs.get(*fn_id, id);
 
             let mut rt_regs = FxHashSet::default();
             for instruction in block.instructions.iter() {

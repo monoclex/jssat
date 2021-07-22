@@ -10,6 +10,5 @@ pub struct BuildArtifact {
 
 pub fn compile(program: Program) -> BuildArtifact {
     let backend_ir = skeleton::translate(program);
-    println!("{:#?}", backend_ir);
     llvm::compile(backend_ir)
 }

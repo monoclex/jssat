@@ -47,48 +47,46 @@ fn opt_fn(f: &mut Function) {
 
     let declared_but_not_used = declared.difference(&used).collect::<FxHashSet<_>>();
 
-    for inst in f
-        .blocks
-        .iter_mut()
-        .flat_map(|(_, b)| b.instructions.iter_mut())
-    {
-        if let Some(declared) = inst.assigned_to() {
-            if declared_but_not_used.contains(&declared) {
-                // this is a useless instruction, delete it
+    for (_, b) in f.blocks.iter_mut() {
+        for inst in b.instructions.iter_mut() {
+            if let Some(declared) = inst.assigned_to() {
+                if declared_but_not_used.contains(&declared) {
+                    // this is a useless instruction, delete it
 
-                match inst {
-                    // fix the object type
-                    Instruction::RecordSet { shape_id, key, .. } => {
-                        let k = match key {
-                            RecordKey::Prop(v) => match f.register_types.get(*v) {
-                                ValueType::ExactString(s) => ShapeKey::Str(s.clone()),
-                                ValueType::Any
-                                | ValueType::Runtime
-                                | ValueType::String
-                                | ValueType::Number
-                                | ValueType::ExactInteger(_)
-                                | ValueType::Boolean
-                                | ValueType::Bool(_)
-                                | ValueType::Record(_)
-                                | ValueType::FnPtr(_)
-                                | ValueType::Null
-                                | ValueType::Undefined => todo!(),
-                            },
-                            RecordKey::Slot(s) => ShapeKey::InternalSlot(*s),
-                        };
-                        let shape = f.register_types.get_shape_by_id_mut(shape_id);
-                        shape.remove_prop(&k);
-                    }
-                    // if we're completely deleting an allocation,
-                    // remove its existence from the list of allocations while we're at it
-                    Instruction::RecordNew(r) => {
-                        if let ValueType::Record(alloc) = *f.register_types.get(*r) {
-                            f.register_types.remove_alloc(alloc);
-                            *inst = Instruction::Noop;
+                    match inst {
+                        // fix the object type
+                        Instruction::RecordSet { shape_id, key, .. } => {
+                            let k = match key {
+                                RecordKey::Prop(v) => match b.register_types.get(*v) {
+                                    ValueType::ExactString(s) => ShapeKey::Str(s.clone()),
+                                    ValueType::Any
+                                    | ValueType::Runtime
+                                    | ValueType::String
+                                    | ValueType::Number
+                                    | ValueType::ExactInteger(_)
+                                    | ValueType::Boolean
+                                    | ValueType::Bool(_)
+                                    | ValueType::Record(_)
+                                    | ValueType::FnPtr(_)
+                                    | ValueType::Null
+                                    | ValueType::Undefined => todo!(),
+                                },
+                                RecordKey::Slot(s) => ShapeKey::InternalSlot(*s),
+                            };
+                            let shape = b.register_types.get_shape_by_id_mut(shape_id);
+                            shape.remove_prop(&k);
                         }
-                    }
-                    _ => *inst = Instruction::Noop,
-                };
+                        // if we're completely deleting an allocation,
+                        // remove its existence from the list of allocations while we're at it
+                        Instruction::RecordNew(r) => {
+                            if let ValueType::Record(alloc) = *b.register_types.get(*r) {
+                                b.register_types.remove_alloc(alloc);
+                                *inst = Instruction::Noop;
+                            }
+                        }
+                        _ => *inst = Instruction::Noop,
+                    };
+                }
             }
         }
     }

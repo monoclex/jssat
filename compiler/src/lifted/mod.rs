@@ -34,6 +34,7 @@ pub struct Constant {
 
 #[derive(Debug, Clone)]
 pub struct ExternalFunction {
+    pub name: String,
     pub parameters: Vec<FFIValueType>,
     pub returns: Returns<FFIValueType>,
 }
@@ -131,6 +132,7 @@ pub fn lift(ir: IR) -> LiftedProgram {
     for (id, ext_fn) in ir.external_functions.into_iter() {
         let id = e_retagger.retag_new(id);
         let value = ExternalFunction {
+            name: ext_fn.name,
             parameters: ext_fn.parameters,
             returns: ext_fn.return_type,
         };

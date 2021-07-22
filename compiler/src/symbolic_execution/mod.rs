@@ -25,7 +25,7 @@ pub mod types;
 pub mod unique_id;
 pub mod worker;
 
-pub fn execute(program: &'static LiftedProgram) {
+pub fn execute(program: &'static LiftedProgram) -> assembler::Program {
     let mut asm_ext_map = ExtFnPassRetagger::default();
     for (id, ext_fn) in program.external_functions.iter() {
         asm_ext_map.retag_new(*id);
@@ -38,7 +38,7 @@ pub fn execute(program: &'static LiftedProgram) {
 
     let factory = SymbFactory {
         program,
-        fn_ids: fn_ids_shared.clone(),
+        fn_ids: fn_ids_shared,
         asm_ext_map: Arc::new(asm_ext_map),
     };
 
@@ -73,8 +73,6 @@ pub fn execute(program: &'static LiftedProgram) {
                     continue;
                 }
             };
-
-            println!("types: {:?}", w.types);
 
             match *looking_up {
                 types::LookingUp::Nothing => {}
@@ -159,7 +157,7 @@ pub fn execute(program: &'static LiftedProgram) {
 
     drop(std::panic::take_hook());
 
-    assembler_glue::glue(entry_fn_id, results)
+    assembler_glue::glue(entry_fn_id, &program, results)
 }
 
 struct SymbFactory<'program> {

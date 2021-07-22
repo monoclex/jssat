@@ -1,7 +1,7 @@
 use crate::frontend::assembler::BlockJump;
 
 use super::{
-    assembler::{Function, Program},
+    assembler::{Block, Function, Program},
     old_types::RecordShape,
     type_annotater::ValueType,
 };
@@ -42,9 +42,16 @@ pub fn display(program: &Program) -> String {
         for (id, block) in blocks {
             iw!(text, "  ${}(", id);
             for arg in block.parameters.iter() {
-                iw!(text, "%{}: {}, ", arg.register, display_vt(&arg.typ, &f));
+                iw!(
+                    text,
+                    "%{}: {}, ",
+                    arg.register,
+                    display_vt(&arg.typ, &block)
+                );
             }
             iw!(text, "):\n");
+
+            let reg_typs = &block.register_types;
 
             for inst in block.instructions.iter() {
                 match inst {
@@ -53,8 +60,8 @@ pub fn display(program: &Program) -> String {
                             text,
                             "    %{}: {} = RecordNew({})",
                             *r,
-                            display_vt(f.register_types.get(*r), f),
-                            match f.register_types.get(*r) {
+                            display_vt(reg_typs.get(*r), block),
+                            match reg_typs.get(*r) {
                                 ValueType::Record(a) => format!("{}", a),
                                 x => format!(
                                     "????????????????????????{:?}????????????????????????",
@@ -72,7 +79,7 @@ pub fn display(program: &Program) -> String {
                             text,
                             "    %{}: {} = RecordGet %{}, {}",
                             result,
-                            display_vt(f.register_types.get(*result), f),
+                            display_vt(reg_typs.get(*result), block),
                             record,
                             key,
                         )
@@ -87,7 +94,7 @@ pub fn display(program: &Program) -> String {
                             text,
                             "    RecordSet (%{}: {}), {}, %{}",
                             record,
-                            display_rs(f.register_types.get_shape_by_id(shape), f),
+                            display_rs(reg_typs.get_shape_by_id(shape), block),
                             key,
                             value,
                         )
@@ -106,7 +113,7 @@ pub fn display(program: &Program) -> String {
                             text,
                             "    %{}: {} = MakeString {}",
                             r,
-                            display_vt(f.register_types.get(*r), f),
+                            display_vt(reg_typs.get(*r), block),
                             display_str(program.constants.get(s).unwrap())
                         );
                     }
@@ -115,7 +122,7 @@ pub fn display(program: &Program) -> String {
                             text,
                             "    %{}: {} = MakeNumber {}",
                             r,
-                            display_vt(f.register_types.get(*r), f),
+                            display_vt(reg_typs.get(*r), block),
                             i
                         );
                     }
@@ -123,16 +130,19 @@ pub fn display(program: &Program) -> String {
                         text,
                         "    %{}: {} = MakeBoolean {}",
                         r,
-                        display_vt(f.register_types.get(*r), f),
+                        display_vt(reg_typs.get(*r), block),
                         v
                     ),
                     crate::frontend::assembler::Instruction::Widen { .. } => {
                         iwl!(text, "todo wieden")
                     }
                     crate::frontend::assembler::Instruction::Unreachable => {
-                        iwl!(text, "    Unreachable")
+                        iwl!(text, "    Unreachable");
                     }
-                    crate::frontend::assembler::Instruction::Noop => iwl!(text, "    Noop"),
+                    crate::frontend::assembler::Instruction::Noop => {
+                        // don't write anything, it's annoying
+                        // iwl!(text, "    Noop")
+                    }
                     crate::frontend::assembler::Instruction::OpLessThan(i) => {
                         iwl!(text, "    op less than TODO")
                     }
@@ -171,7 +181,7 @@ pub fn display(program: &Program) -> String {
     text
 }
 
-fn display_vt(t: &ValueType, f: &Function) -> String {
+fn display_vt(t: &ValueType, f: &Block) -> String {
     match t {
         ValueType::Bool(b) => format!("{}", b),
         ValueType::ExactInteger(i) => format!("{}", i),
@@ -188,7 +198,7 @@ fn display_vt(t: &ValueType, f: &Function) -> String {
     }
 }
 
-fn display_rs(shape: &RecordShape, f: &Function) -> String {
+fn display_rs(shape: &RecordShape, f: &Block) -> String {
     let mut s = String::new();
     iw!(s, "{{ ");
     for (k, v) in shape.fields() {

@@ -38,7 +38,6 @@ pub struct ExternalFunction {
 
 #[derive(Clone, Debug)]
 pub struct Function {
-    pub register_types: RegMap<AssemblerCtx>,
     pub entry_block: BlockId<AssemblerCtx>,
     pub blocks: FxHashMap<BlockId<AssemblerCtx>, Block>,
     pub return_type: ReturnType,
@@ -54,6 +53,7 @@ impl Function {
 
 #[derive(Clone, Debug)]
 pub struct Block {
+    pub register_types: RegMap<AssemblerCtx>,
     pub parameters: Vec<Parameter>,
     pub instructions: Vec<Instruction>,
     pub end: EndInstruction,
@@ -473,7 +473,6 @@ impl<'d> FnAssembler<'d> {
         println!("done");
         (
             Function {
-                register_types,
                 entry_block,
                 blocks,
                 return_type,
@@ -611,6 +610,7 @@ where
         };
 
         let block = Block {
+            register_types: todo!(),
             parameters,
             instructions: self.instructions,
             end,

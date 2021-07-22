@@ -8,16 +8,22 @@ use crate::{id::*, poor_hashmap::PoorMap};
 
 use super::types::TypeBag;
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct UniqueFnId {
-    id_gen: Counter<FunctionId<SymbolicCtx>>,
+    id_gen: FunctionId<SymbolicCtx>,
     fns: FxHashMap<FunctionId<LiftedCtx>, PoorMap<TypeBag, FunctionId<SymbolicCtx>>>,
     symb_to_lifted: FxHashMap<FunctionId<SymbolicCtx>, FunctionId<LiftedCtx>>,
     entry_fns: FxHashSet<FunctionId<SymbolicCtx>>,
 }
 
-#[derive(Clone)]
 pub struct UniqueFnIdShared(pub Arc<Mutex<UniqueFnId>>);
+
+impl Clone for UniqueFnIdShared {
+    fn clone(&self) -> Self {
+        let arc = self.0.clone();
+        Self(arc)
+    }
+}
 
 impl UniqueFnIdShared {
     pub fn id_of(
@@ -27,7 +33,7 @@ impl UniqueFnIdShared {
         is_entry_fn: bool,
     ) -> FunctionId<SymbolicCtx> {
         let mut me = self.0.try_lock().expect("should be contentionless");
-        me.id_of(fn_id, types, is_entry_fn)
+        dbg!(me.id_of(fn_id, types, is_entry_fn))
     }
 
     pub fn is_entry_fn(&self, id: FunctionId<SymbolicCtx>) -> bool {
@@ -57,12 +63,13 @@ impl UniqueFnId {
         types: TypeBag,
         is_entry_fn: bool,
     ) -> FunctionId<SymbolicCtx> {
+        println!("id of work: {:#?}", &self);
         let poor_map = self.fns.entry(fn_id).or_insert_with(Default::default);
 
         let id = match poor_map.get(&types) {
             Some(id) => *id,
             None => {
-                let id = self.id_gen.next();
+                let id = self.id_gen.next_and_mut();
                 poor_map.insert(types.clone(), id);
                 self.symb_to_lifted.insert(id, fn_id);
                 id

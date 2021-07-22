@@ -342,7 +342,7 @@ impl PartialEq for TypeBag {
     /// Makes sure that every register pairing of two type bags are the same.
     fn eq(&self, other: &Self) -> bool {
         if self.registers.len() != other.registers.len() {
-            return false;
+            return dbg!(false);
         }
 
         fn try_helper(me: &TypeBag, you: &TypeBag) -> Option<()> {
@@ -357,10 +357,17 @@ impl PartialEq for TypeBag {
                         let b = you.get_shape_id(*b);
                         shapes_must_match.push_back((a, b));
                     }
+                    (RegisterType::Byts(a), RegisterType::Byts(b)) => {
+                        if me.unintern_const(*a) == you.unintern_const(*b) {
+                            continue;
+                        } else {
+                            return dbg!(None);
+                        }
+                    }
                     (a, b) if a == b => {
                         continue;
                     }
-                    _ => return None,
+                    _ => return dbg!(None),
                 }
             }
 
@@ -376,7 +383,7 @@ impl PartialEq for TypeBag {
                 let a = me.get_shape(a);
                 let b = you.get_shape(b);
                 if a.fields.len() != b.fields.len() {
-                    return None;
+                    return dbg!(None);
                 }
 
                 for (idx, typ) in a.fields.iter() {
@@ -389,17 +396,24 @@ impl PartialEq for TypeBag {
                             let b = you.get_shape_id(*b);
                             shapes_must_match.push_back((a, b));
                         }
+                        (RegisterType::Byts(a), RegisterType::Byts(b)) => {
+                            if me.unintern_const(*a) == you.unintern_const(*b) {
+                                continue;
+                            } else {
+                                return dbg!(None);
+                            }
+                        }
                         (a, b) if a == b => {
                             continue;
                         }
-                        _ => return None,
+                        _ => return dbg!(None),
                     }
                 }
             }
 
-            Some(())
+            dbg!(Some(()))
         }
 
-        try_helper(self, other).map(|_| true).unwrap_or(false)
+        dbg!(try_helper(self, other).map(|_| true).unwrap_or(false))
     }
 }

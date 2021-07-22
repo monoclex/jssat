@@ -37,11 +37,12 @@ pub fn opt_constant_elimination(program: Program) -> Program {
 
 fn opt_fn(f: &mut Function, cnsts: &Cnsts) {
     for (_, b) in f.blocks.iter_mut() {
-        opt_blk(&mut f.register_types, cnsts, b);
+        opt_blk(cnsts, b);
     }
 }
 
-fn opt_blk(regs: &mut RegMap<AssemblerCtx>, cnsts: &Cnsts, b: &mut Block) {
+fn opt_blk(cnsts: &Cnsts, b: &mut Block) {
+    let regs = &mut b.register_types;
     // remove const params
     let const_params = b
         .parameters
@@ -201,6 +202,7 @@ fn stack_alloc_valule(
         &ValueType::Bool(b) => prepend.push(Instruction::MakeBoolean(r, b)),
         &ValueType::Record(alloc) => {
             prepend.push(Instruction::RecordNew(r));
+            regs.registers.remove(&r);
             regs.insert(r, ValueType::Record(alloc));
 
             let shape = regs.get_shape(alloc).clone();
@@ -248,6 +250,7 @@ fn stack_alloc_valule(
         | ValueType::Number
         | ValueType::Boolean => unreachable!("not simple type"),
     };
+    regs.registers.remove(&r);
     regs.insert(r, p.clone());
 }
 

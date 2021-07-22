@@ -807,10 +807,14 @@ impl<'b, 'n, const PARAMS: usize> JsWriter<'b, 'n, PARAMS> {
                 // 2. Let func be ? GetValue(ref).
                 let func = self.GetValue(r#ref);
 
+                // TODO: do arguments
+                let hello_world = self.bld.constant_str_utf16("", "Hello, World!".into());
+                let hello_world = self.block.make_string(hello_world);
+
                 // 3. Let thisCall be this CallExpression.
                 // 4. Let tailCall be IsInTailPosition(thisCall).
                 // 5. Return ? EvaluateCall(func, ref, Arguments, tailCall).
-                let completion_record = self.EvaluateCall(func, r#ref, args, ());
+                let completion_record = self.EvaluateCall(func, hello_world, args, ());
                 let result = self.ReturnIfAbrupt(completion_record);
                 self.NormalCompletion(result)
                 /*

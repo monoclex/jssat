@@ -76,6 +76,7 @@ impl<'p> Worker for SymbWorker<'p> {
         let mut never_infected = false;
 
         let mut blk = assembler::Block {
+            register_types: Default::default(),
             parameters: vec![],
             instructions: vec![],
             // placeholder
@@ -210,11 +211,10 @@ impl<'p> Worker for SymbWorker<'p> {
                             never_infected = true;
                             break;
                         }
-                        (None, ReturnType::Void) => continue,
-                        (None, ReturnType::Value(_)) => continue,
+                        (None, ReturnType::Void) => {}
+                        (None, ReturnType::Value(_)) => {}
                         (Some(r), ReturnType::Value(t)) => {
                             self.types.assign_type(r, t);
-                            continue;
                         }
                         // TODO: better error message
                         (a, b) => panic!("incompatible return state {:?} {:?}", a, b),
@@ -233,11 +233,10 @@ impl<'p> Worker for SymbWorker<'p> {
                             never_infected = true;
                             break;
                         }
-                        (None, ReturnType::Void) => continue,
-                        (None, ReturnType::Value(_)) => continue,
+                        (None, ReturnType::Void) => {}
+                        (None, ReturnType::Value(_)) => {}
                         (Some(r), ReturnType::Value(t)) => {
                             self.types.assign_type(r, t);
-                            continue;
                         }
                         // TODO: better error message
                         (a, b) => panic!("incompatible return state {:?} {:?}", a, b),
@@ -317,14 +316,21 @@ impl<'p> Worker for SymbWorker<'p> {
                 }
                 ir::Instruction::CallStatic(i) => {
                     if let ir::Instruction::CallStatic(inst) = inst {
-                        let f = inst.fn_id.map_context();
+                        // TODO: dedup code
+                        let src_fn = self.program.functions.get(&inst.fn_id).unwrap();
+                        debug_assert_eq!(src_fn.parameters.len(), inst.args.len());
+                        let map_args =
+                            (inst.args.iter().copied()).zip(src_fn.parameters.iter().copied());
+                        let types = self.types.extract_map(map_args);
+                        let id = self.fn_ids.id_of(inst.fn_id, types, true);
+
                         // TODO: worry about `Never`
                         // TODO: handle return values
                         assert!(matches!(i.result, None));
 
                         blk.instructions.push(assembler::Instruction::Call(
                             i.result,
-                            assembler::Callable::Static(f),
+                            assembler::Callable::Static(id.map_context()),
                             i.args,
                         ));
                     } else {
@@ -356,6 +362,7 @@ impl<'p> Worker for SymbWorker<'p> {
                                 continue;
                             } else {
                                 let result = wing_it.gen();
+                                call_insts.push(result);
                                 blk.instructions.push(assembler::Instruction::Widen {
                                     result,
                                     input: *r,
@@ -364,6 +371,15 @@ impl<'p> Worker for SymbWorker<'p> {
                                 });
                             }
                         }
+
+                        // TODO: handle return types
+                        assert!(matches!(i.result, None));
+
+                        blk.instructions.push(assembler::Instruction::Call(
+                            None,
+                            assembler::Callable::Extern(i.fn_id),
+                            call_insts,
+                        ));
                     } else {
                         unreachable!();
                     }
@@ -371,14 +387,21 @@ impl<'p> Worker for SymbWorker<'p> {
                 ir::Instruction::CallVirt(i) => {
                     if let ir::Instruction::CallVirt(inst) = inst {
                         let func = self.types.get_fnptr(inst.fn_ptr);
-                        let f = func.map_context();
+                        // TODO: dedup code
+                        let src_fn = self.program.functions.get(&func).unwrap();
+                        debug_assert_eq!(src_fn.parameters.len(), inst.args.len());
+                        let map_args =
+                            (inst.args.iter().copied()).zip(src_fn.parameters.iter().copied());
+                        let types = self.types.extract_map(map_args);
+                        let id = self.fn_ids.id_of(func, types, true);
+
                         // TODO: worry about `Never`
                         // TODO: handle return values
                         assert!(matches!(i.result, None));
 
                         blk.instructions.push(assembler::Instruction::Call(
                             i.result,
-                            assembler::Callable::Static(f),
+                            assembler::Callable::Static(id.map_context()),
                             i.args,
                         ));
                     } else {
@@ -402,9 +425,11 @@ impl<'p> Worker for SymbWorker<'p> {
                         if let RegisterType::Byts(c) = res_typ {
                             let bytes = self.types.unintern_const(c).clone();
 
-                            // i don't think the actual constant value put in here matters
-                            blk.instructions
-                                .push(assembler::Instruction::MakeString(i.result, i.constant));
+                            blk.instructions.push(assembler::Instruction::MakeString(
+                                i.result,
+                                // this value is useless/ignored lol
+                                c.map_context(),
+                            ));
 
                             asm_typs
                                 .insert(i.result, type_annotater::ValueType::ExactString(bytes));
@@ -512,6 +537,12 @@ impl<'p> Worker for SymbWorker<'p> {
                 let id = self.fn_ids.id_of(i.0 .0, types, false);
                 let r = system.spawn(id);
                 self.return_type = r.return_type;
+                // <assembler>
+                blk.end = assembler::EndInstruction::Jump(assembler::BlockJump(
+                    BlockId::new_with_value_raw(id.raw_value()),
+                    i.0 .1.iter().map(|r| r.map_context()).collect(),
+                ));
+                // </assembler>
                 vec![r]
             }
             crate::lifted::EndInstruction::JumpIf(i) => match self.types.get(i.condition) {
@@ -520,6 +551,12 @@ impl<'p> Worker for SymbWorker<'p> {
                     let id = self.fn_ids.id_of(i.if_so.0, types, false);
                     let r = system.spawn(id);
                     self.return_type = r.return_type;
+                    // <assembler>
+                    blk.end = assembler::EndInstruction::Jump(assembler::BlockJump(
+                        BlockId::new_with_value_raw(id.raw_value()),
+                        i.if_so.1.iter().map(|r| r.map_context()).collect(),
+                    ));
+                    // </assembler>
                     vec![r]
                 }
                 RegisterType::Bool(false) => {
@@ -527,6 +564,12 @@ impl<'p> Worker for SymbWorker<'p> {
                     let id = self.fn_ids.id_of(i.other.0, types, false);
                     let r = system.spawn(id);
                     self.return_type = r.return_type;
+                    // <assembler>
+                    blk.end = assembler::EndInstruction::Jump(assembler::BlockJump(
+                        BlockId::new_with_value_raw(id.raw_value()),
+                        i.other.1.iter().map(|r| r.map_context()).collect(),
+                    ));
+                    // </assembler>
                     vec![r]
                 }
                 RegisterType::Boolean => {
@@ -539,6 +582,9 @@ impl<'p> Worker for SymbWorker<'p> {
                     Some(r) => self.return_type = ReturnType::Value(self.types.get(r)),
                     None => self.return_type = ReturnType::Void,
                 };
+                // <assembler>
+                blk.end = assembler::EndInstruction::Return(i.0.map(|r| r.map_context()));
+                // </assembler>
                 vec![]
             }
         };
@@ -553,12 +599,12 @@ impl<'p> Worker for SymbWorker<'p> {
         };
         let me_block_id = BlockId::new_with_value_raw(self.id.raw_value());
         let mut blocks = FxHashMap::default();
+        blk.register_types = asm_typs;
         blocks.insert(me_block_id, blk);
         for r in rs {
             blocks.extend(r.assembler_piece.blocks.clone());
         }
         let func = assembler::Function {
-            register_types: asm_typs,
             entry_block: me_block_id,
             blocks,
             return_type,
