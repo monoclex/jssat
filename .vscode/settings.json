@@ -7,6 +7,5 @@
         "**/CVS": true,
         "**/.DS_Store": true,
         "target": true,
-        "runtime/mimalloc_rust": true
     }
 }

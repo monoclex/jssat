@@ -9,5 +9,5 @@ name = "jssatrt"
 crate-type = ["staticlib", "cdylib"]
 
 [dependencies]
-mimalloc = { path = "./mimalloc_rust" }
+mimalloc = "0.1.26"
 widestring = "0.4.3"

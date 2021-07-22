@@ -814,7 +814,7 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
                 // 3. Let thisCall be this CallExpression.
                 // 4. Let tailCall be IsInTailPosition(thisCall).
                 // 5. Return ? EvaluateCall(func, ref, Arguments, tailCall).
-                let completion_record = self.EvaluateCall(hello_world, hello_world, args, ());
+                let completion_record = self.EvaluateCall(func, hello_world, args, ());
                 let result = self.ReturnIfAbrupt(completion_record);
                 self.NormalCompletion(result)
                 /*
