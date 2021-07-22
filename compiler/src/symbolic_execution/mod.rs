@@ -49,7 +49,8 @@ pub fn execute(program: &'static LiftedProgram) {
             // TODO: we don't actually need mutable access, just immutable access
             let w: &mut SymbWorker = worker.raw_get();
 
-            println!("  Worker {}:", w.id);
+            println!();
+            println!("Worker {}:", w.id);
 
             let looking_up = match w.types.looking_up.try_lock() {
                 Ok(g) => g,
@@ -61,6 +62,12 @@ pub fn execute(program: &'static LiftedProgram) {
                     );
                     continue;
                 }
+            };
+
+            match *looking_up {
+                types::LookingUp::Nothing => {}
+                types::LookingUp::ShapeKey(key) => println!("- was looking up type for: {:?}", key),
+                types::LookingUp::Register(r) => println!("- was looking up type for: %{}", r),
             };
 
             // print `n` instructions before and after the instruction we're on
@@ -102,6 +109,23 @@ pub fn execute(program: &'static LiftedProgram) {
                     }
                 }
                 CurrentInstruction::ControlFlow(inst) => {
+                    // TODO: don't copy code
+                    let idx = w.func.instructions.len();
+                    let inst_range = (idx.saturating_sub(n))..(idx.saturating_add(n));
+
+                    for (i, inst) in w
+                        .func
+                        .instructions
+                        .iter()
+                        .enumerate()
+                        .filter(|(i, _)| inst_range.contains(i))
+                    {
+                        match i == idx {
+                            true => println!("> {}", inst.as_display()),
+                            false => println!("| {}", inst.as_display()),
+                        };
+                    }
+
                     println!("> {}", inst.as_display());
                 }
             };

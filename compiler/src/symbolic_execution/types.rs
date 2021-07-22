@@ -83,6 +83,12 @@ impl Shape {
     }
 }
 
+pub enum LookingUp {
+    Nothing,
+    ShapeKey(ShapeKey),
+    Register(RegisterId),
+}
+
 #[derive(Clone)]
 pub struct TypeBag {
     registers: FxHashMap<RegisterId, RegisterType>,
@@ -92,7 +98,7 @@ pub struct TypeBag {
     shapes: FxHashMap<ShapeId, Shape>,
     const_counter: Counter<ConstantId>,
     consts: FxHashMap<ConstantId, Vec<u8>>,
-    pub looking_up: Arc<Mutex<Option<RegisterId>>>,
+    pub looking_up: Arc<Mutex<LookingUp>>,
 }
 
 impl TypeBag {
@@ -140,25 +146,38 @@ impl TypeBag {
             .expect_none("should not have duplicate type for register");
     }
 
-    pub fn intern_constant(&mut self, payload: Vec<u8>) -> ConstantId {
+    pub fn intern_constant(&mut self, payload: &[u8]) -> ConstantId {
+        for (id, v) in self.consts.iter() {
+            if v == payload {
+                return *id;
+            }
+        }
+
         let id = self.const_counter.next();
-        self.consts.insert(id, payload);
+        self.consts.insert(id, payload.to_vec());
         id
     }
 
-    fn with_looking_up<F: FnOnce() -> R, R>(&self, with_register: RegisterId, action: F) -> R {
+    fn with_looking_up<F: FnOnce() -> R, R>(&self, looking_this_up: LookingUp, action: F) -> R {
         let mut looking_up = (self.looking_up.try_lock()).expect("should be contentionless");
-        *looking_up = Some(with_register);
+        *looking_up = looking_this_up;
         drop(looking_up);
         let result = action();
         let mut looking_up = (self.looking_up.try_lock()).expect("should be contentionless");
-        *looking_up = None;
+        *looking_up = LookingUp::Nothing;
         drop(looking_up);
         result
     }
 
     pub fn get(&self, register: RegisterId) -> RegisterType {
-        self.with_looking_up(register, || *self.registers.get(&register).unwrap())
+        self.with_looking_up(LookingUp::Register(register), || {
+            *self.registers.get(&register).unwrap()
+        })
+    }
+
+    pub fn get_field_type(&self, shape: &Shape, key: RecordKey<LiftedCtx>) -> ShapeValueType {
+        let key = self.conv_key(key);
+        self.with_looking_up(LookingUp::ShapeKey(key), || shape.get_typ(key))
     }
 
     pub fn record_shape(&self, register: RegisterId) -> &Shape {
@@ -226,8 +245,10 @@ impl TypeBag {
 
             if let RegisterType::Record(a) = typ {
                 need_to_shape.push_back(a);
+                let new_a = new.alloc_allocation();
 
-                alloc_map.insert(a, new.alloc_allocation());
+                alloc_map.insert(a, new_a);
+                new.assign_type(*reg, RegisterType::Record(new_a));
             } else {
                 new.assign_type(*reg, typ);
             }
@@ -238,9 +259,10 @@ impl TypeBag {
         while let Some(alloc_id) = need_to_shape.pop_front() {
             let shape_id = self.get_shape_id(alloc_id);
 
+            let mapped_alloc_id = *alloc_map.get(&alloc_id).unwrap();
+
             if let Some(id) = shape_map.get(&shape_id) {
-                let mapped_alloc_id = alloc_map.get(&alloc_id).unwrap();
-                new.push_shape(*mapped_alloc_id, *id);
+                new.push_shape(mapped_alloc_id, *id);
                 continue;
             }
 
@@ -248,25 +270,30 @@ impl TypeBag {
             let shape = self.get_shape(shape_id);
 
             for (&k, &v) in shape.fields.iter() {
-                if let RegisterType::Record(a) = v {
+                let k = match k {
+                    ShapeKey::Str(c) => ShapeKey::Str(new.intern_constant(self.unintern_const(c))),
+                    ShapeKey::Slot(s) => ShapeKey::Slot(s),
+                };
+
+                let v = if let RegisterType::Record(a) = v {
                     if let Some(a) = alloc_map.get(&a) {
-                        new_shape.fields.insert(k, RegisterType::Record(*a));
+                        RegisterType::Record(*a)
                     } else {
                         let new_alloc_id = new.alloc_allocation();
                         need_to_shape.push_back(a);
                         alloc_map.insert(a, new_alloc_id);
-                        new_shape
-                            .fields
-                            .insert(k, RegisterType::Record(new_alloc_id));
+                        RegisterType::Record(new_alloc_id)
                     }
                 } else {
-                    new_shape.fields.insert(k, v);
-                }
+                    v
+                };
+
+                new_shape.fields.insert(k, v);
             }
 
             let new_shape_id = new.new_shape(new_shape);
             shape_map.insert(shape_id, new_shape_id);
-            new.push_shape(alloc_id, new_shape_id);
+            new.push_shape(mapped_alloc_id, new_shape_id);
         }
 
         new
@@ -283,7 +310,7 @@ impl Default for TypeBag {
             shapes: Default::default(),
             const_counter: Default::default(),
             consts: Default::default(),
-            looking_up: Default::default(),
+            looking_up: Arc::new(Mutex::new(LookingUp::Nothing)),
         }
     }
 }

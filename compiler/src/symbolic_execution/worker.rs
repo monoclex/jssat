@@ -51,7 +51,7 @@ impl<'p> Worker for SymbWorker<'p> {
                 }
                 ir::Instruction::RecordGet(i) => {
                     let shape = self.types.record_shape(i.record);
-                    let field_typ = shape.get_typ(self.types.conv_key(i.key));
+                    let field_typ = self.types.get_field_type(shape, i.key);
                     self.types.assign_type(i.result, field_typ);
                 }
                 ir::Instruction::RecordSet(i) => {
@@ -70,7 +70,7 @@ impl<'p> Worker for SymbWorker<'p> {
                 }
                 ir::Instruction::MakeBytes(i) => {
                     let c = self.program.constants.get(&i.constant).unwrap();
-                    let c = self.types.intern_constant(c.payload.clone());
+                    let c = self.types.intern_constant(&c.payload);
                     self.types.assign_type(i.result, RegisterType::Byts(c));
                 }
                 ir::Instruction::MakeInteger(i) => {
