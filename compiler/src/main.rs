@@ -10,6 +10,7 @@
 #![feature(entry_insert)]
 #![feature(unboxed_closures)]
 #![feature(fn_traits)]
+#![feature(unsafe_cell_raw_get)]
 #![deny(clippy::disallowed_method)]
 
 use std::{io::Write, process::Command};
@@ -166,7 +167,8 @@ fn main() {
     println!("{}", display_bb::display(&as_only_blocks));
 
     let annotations = frontend::type_annotater::annotate(&ir, &as_only_blocks);
-    let symb_execd = symbolic_execution::execute(&lifted);
+    let lifted_ref = Box::leak(Box::new(lifted));
+    let symb_execd = symbolic_execution::execute(lifted_ref);
     eprintln!("{:#?}", annotations);
 
     let program = frontend::assembler::assemble(&ir, &as_only_blocks, annotations);

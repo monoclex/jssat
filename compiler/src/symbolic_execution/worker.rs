@@ -3,6 +3,7 @@
 use crate::frontend::ir;
 use crate::id::*;
 use crate::isa::TrivialItem;
+use crate::lifted;
 use crate::lifted::{Function, LiftedProgram};
 use crate::symbolic_execution::types::{RegisterType, ReturnType};
 
@@ -12,6 +13,13 @@ use super::{
     unique_id::UniqueFnIdShared,
 };
 
+#[derive(Clone, Copy, Debug)]
+pub enum CurrentInstruction<'program> {
+    None,
+    Sequential(&'program ir::Instruction<LiftedCtx, LiftedCtx>),
+    ControlFlow(&'program lifted::EndInstruction),
+}
+
 pub struct SymbWorker<'program> {
     pub program: &'program LiftedProgram,
     pub func: &'program Function,
@@ -19,6 +27,7 @@ pub struct SymbWorker<'program> {
     pub fn_ids: UniqueFnIdShared,
     pub types: TypeBag,
     pub return_type: ReturnType,
+    pub inst_on: CurrentInstruction<'program>,
 }
 
 impl<'p> Worker for SymbWorker<'p> {
@@ -27,12 +36,14 @@ impl<'p> Worker for SymbWorker<'p> {
     // TODO: the result of a worker should be a return type like Never
     // or something idk. maybe it's fine to leave it as self and hope that
     // callers only use the return type and not any other values
-    type Result = Self;
+    type Result = ReturnType;
 
-    fn work(mut self, system: &impl System<Self>) -> Self::Result {
+    fn work(&mut self, system: &impl System<Self>) -> Self::Result {
         let mut never_infected = false;
 
         for inst in self.func.instructions.iter() {
+            self.inst_on = CurrentInstruction::Sequential(inst);
+
             match inst {
                 ir::Instruction::Comment(_, _) => {}
                 ir::Instruction::NewRecord(i) => {
@@ -134,7 +145,7 @@ impl<'p> Worker for SymbWorker<'p> {
                     let id = self.fn_ids.id_of(fn_id, types);
                     let r = system.spawn(id);
 
-                    match (i.result, r.return_type) {
+                    match (i.result, *r) {
                         (_, ReturnType::Never) => {
                             never_infected = true;
                             break;
@@ -154,7 +165,7 @@ impl<'p> Worker for SymbWorker<'p> {
                     let id = self.fn_ids.id_of(i.fn_id, types);
                     let r = system.spawn(id);
 
-                    match (i.result, r.return_type) {
+                    match (i.result, *r) {
                         (_, ReturnType::Never) => {
                             never_infected = true;
                             break;
@@ -180,25 +191,26 @@ impl<'p> Worker for SymbWorker<'p> {
             self.return_type = ReturnType::Never;
         }
 
+        self.inst_on = CurrentInstruction::ControlFlow(&self.func.end);
         match &self.func.end {
             crate::lifted::EndInstruction::Jump(i) => {
                 let types = self.types.extract(&i.0 .1);
                 let id = self.fn_ids.id_of(i.0 .0, types);
                 let r = system.spawn(id);
-                self.return_type = r.return_type;
+                self.return_type = *r;
             }
             crate::lifted::EndInstruction::JumpIf(i) => match self.types.get(i.condition) {
                 RegisterType::Bool(true) => {
                     let types = self.types.extract(&i.if_so.1);
                     let id = self.fn_ids.id_of(i.if_so.0, types);
                     let r = system.spawn(id);
-                    self.return_type = r.return_type;
+                    self.return_type = *r;
                 }
                 RegisterType::Bool(false) => {
                     let types = self.types.extract(&i.other.1);
                     let id = self.fn_ids.id_of(i.other.0, types);
                     let r = system.spawn(id);
-                    self.return_type = r.return_type;
+                    self.return_type = *r;
                 }
                 RegisterType::Boolean => {
                     todo!()
@@ -213,6 +225,6 @@ impl<'p> Worker for SymbWorker<'p> {
             }
         }
 
-        self
+        self.return_type
     }
 }

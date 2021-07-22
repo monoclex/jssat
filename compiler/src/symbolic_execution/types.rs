@@ -1,10 +1,13 @@
 use std::collections::VecDeque;
+use std::sync::{Arc, Mutex};
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::id::{Counter, LiftedCtx, SymbolicCtx};
 use crate::isa::{InternalSlot, RecordKey, TrivialItem};
 use crate::UnwrapNone;
+
+use super::graph_system::Bogusable;
 
 type AllocationId = crate::id::AllocationId<LiftedCtx>;
 type ConstantId = crate::id::ConstantId<SymbolicCtx>;
@@ -18,6 +21,13 @@ pub enum ReturnType {
     Void,
     Value(RegisterType),
     Never,
+}
+
+impl Bogusable for ReturnType {
+    fn bogus() -> Self {
+        panic!("this shouldn't be called yet");
+        Self::Never
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -82,6 +92,7 @@ pub struct TypeBag {
     shapes: FxHashMap<ShapeId, Shape>,
     const_counter: Counter<ConstantId>,
     consts: FxHashMap<ConstantId, Vec<u8>>,
+    pub looking_up: Arc<Mutex<Option<RegisterId>>>,
 }
 
 impl TypeBag {
@@ -135,8 +146,19 @@ impl TypeBag {
         id
     }
 
+    fn with_looking_up<F: FnOnce() -> R, R>(&self, with_register: RegisterId, action: F) -> R {
+        let mut looking_up = (self.looking_up.try_lock()).expect("should be contentionless");
+        *looking_up = Some(with_register);
+        drop(looking_up);
+        let result = action();
+        let mut looking_up = (self.looking_up.try_lock()).expect("should be contentionless");
+        *looking_up = None;
+        drop(looking_up);
+        result
+    }
+
     pub fn get(&self, register: RegisterId) -> RegisterType {
-        *self.registers.get(&register).unwrap()
+        self.with_looking_up(register, || *self.registers.get(&register).unwrap())
     }
 
     pub fn record_shape(&self, register: RegisterId) -> &Shape {
@@ -261,6 +283,7 @@ impl Default for TypeBag {
             shapes: Default::default(),
             const_counter: Default::default(),
             consts: Default::default(),
+            looking_up: Default::default(),
         }
     }
 }

@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use rustc_hash::{FxHashMap, FxHashSet};
 use tinyvec::TinyVec;
 
@@ -49,6 +51,13 @@ pub enum EndInstruction {
     Return(Return<LiftedCtx>),
 }
 
+pub struct DisplayEndInst<'instruction>(&'instruction EndInstruction);
+impl<'i> Display for DisplayEndInst<'i> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.display(f)
+    }
+}
+
 impl EndInstruction {
     pub fn declared_register(&self) -> Option<RegisterId> {
         match self {
@@ -87,6 +96,18 @@ impl EndInstruction {
             EndInstruction::Jump(inst) => inst.paths_mut(),
             EndInstruction::JumpIf(inst) => inst.paths_mut(),
             EndInstruction::Return(_) => Vec::new(),
+        }
+    }
+
+    pub fn as_display(&self) -> DisplayEndInst {
+        DisplayEndInst(&self)
+    }
+
+    pub fn display(&self, w: &mut impl std::fmt::Write) -> std::fmt::Result {
+        match self {
+            EndInstruction::Jump(inst) => inst.display(w),
+            EndInstruction::JumpIf(inst) => inst.display(w),
+            EndInstruction::Return(inst) => inst.display(w),
         }
     }
 }

@@ -1,3 +1,4 @@
+use std::fmt::Display;
 use std::hash::Hash;
 
 use rustc_hash::FxHashMap;
@@ -146,6 +147,13 @@ pub enum Instruction<C: Tag = crate::id::IrCtx, F: Tag = crate::id::IrCtx> {
     Add(Add<C>),
 }
 
+pub struct DisplayInst<'instruction, C: Tag, F: Tag>(&'instruction Instruction<C, F>);
+impl<'i, C: Tag, F: Tag> Display for DisplayInst<'i, C, F> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.display(f)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum ControlFlowInstruction<Ctx: Tag = IrCtx, Path: Tag = IrCtx> {
     Jmp(Jump<crate::id::BlockId<Path>, Ctx>),
@@ -267,6 +275,30 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::Equals(inst) => inst.used_registers_mut(),
             Instruction::Negate(inst) => inst.used_registers_mut(),
             Instruction::Add(inst) => inst.used_registers_mut(),
+        }
+    }
+
+    pub fn as_display(&self) -> DisplayInst<C, F> {
+        DisplayInst(&self)
+    }
+
+    pub fn display(&self, w: &mut impl std::fmt::Write) -> std::fmt::Result {
+        match self {
+            Instruction::Comment(comment, location) => write!(w, "-- {}, {}", comment, location),
+            Instruction::GetFnPtr(inst) => inst.display(w),
+            Instruction::MakeBytes(inst) => inst.display(w),
+            Instruction::NewRecord(inst) => inst.display(w),
+            Instruction::LessThan(inst) => inst.display(w),
+            Instruction::CallStatic(inst) => inst.display(w),
+            Instruction::CallExtern(inst) => inst.display(w),
+            Instruction::CallVirt(inst) => inst.display(w),
+            Instruction::MakeTrivial(inst) => inst.display(w),
+            Instruction::RecordGet(inst) => inst.display(w),
+            Instruction::RecordSet(inst) => inst.display(w),
+            Instruction::MakeInteger(inst) => inst.display(w),
+            Instruction::Equals(inst) => inst.display(w),
+            Instruction::Negate(inst) => inst.display(w),
+            Instruction::Add(inst) => inst.display(w),
         }
     }
 }

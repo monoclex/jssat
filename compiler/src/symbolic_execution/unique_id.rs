@@ -20,12 +20,12 @@ pub struct UniqueFnIdShared(pub Arc<Mutex<UniqueFnId>>);
 
 impl UniqueFnIdShared {
     pub fn id_of(&self, fn_id: FunctionId<LiftedCtx>, types: TypeBag) -> FunctionId<SymbolicCtx> {
-        let mut me = self.0.lock().unwrap();
+        let mut me = self.0.try_lock().expect("should be contentionless");
         me.id_of(fn_id, types)
     }
 
     pub fn types_of(&self, id: FunctionId<SymbolicCtx>) -> (FunctionId<LiftedCtx>, TypeBag) {
-        let me = self.0.lock().unwrap();
+        let me = self.0.try_lock().expect("should be contentionless");
         let lifted_id = *me.symb_to_lifted.get(&id).unwrap();
         let poor_map = me.fns.get(&lifted_id).unwrap();
 
