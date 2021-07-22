@@ -83,11 +83,11 @@ impl ShapeKey {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RegMap<C: Tag> {
-    registers: FxHashMap<RegisterId<C>, ValueType>,
-    allocation_id_gen: AllocationId<NoContext>,
-    allocations: FxHashMap<AllocationId<NoContext>, Vec<ShapeId<C>>>,
-    shape_id_gen: ShapeId<C>,
-    shapes: FxHashMap<ShapeId<C>, RecordShape>,
+    pub registers: FxHashMap<RegisterId<C>, ValueType>,
+    pub allocation_id_gen: AllocationId<NoContext>,
+    pub allocations: FxHashMap<AllocationId<NoContext>, Vec<ShapeId<C>>>,
+    pub shape_id_gen: ShapeId<C>,
+    pub shapes: FxHashMap<ShapeId<C>, RecordShape>,
 }
 
 impl<C: Tag> RegMap<C> {

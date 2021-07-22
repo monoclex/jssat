@@ -64,9 +64,10 @@ pub type ShapeValueType = RegisterType;
 //     Record(AllocationId),
 // }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Shape {
-    fields: FxHashMap<ShapeKey, ShapeValueType>,
+    // TODO: private this (it should not be public)
+    pub(crate) fields: FxHashMap<ShapeKey, ShapeValueType>,
 }
 
 impl Shape {
@@ -83,13 +84,15 @@ impl Shape {
     }
 }
 
+#[derive(Debug)]
 pub enum LookingUp {
     Nothing,
     ShapeKey(ShapeKey),
     Register(RegisterId),
+    Constant(ConstantId),
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct TypeBag {
     registers: FxHashMap<RegisterId, RegisterType>,
     alloc_counter: Counter<AllocationId>,
@@ -227,31 +230,46 @@ impl TypeBag {
     }
 
     pub fn unintern_const(&self, id: ConstantId) -> &Vec<u8> {
-        self.consts.get(&id).unwrap()
+        self.with_looking_up(LookingUp::Constant(id), || self.consts.get(&id).unwrap())
     }
 
     /// Given a set of registers, will pull out the types of those registers
     /// and create a new `TypeBag` containing only the types of the registers
     /// specified.
+    ///
+    /// This is useful for continuing execution of a function after a block.
     pub fn extract(&self, regs: &[RegisterId]) -> Self {
+        self.extract_map(regs.iter().map(|r| (*r, *r)))
+    }
+
+    /// Given a set of registers, it will extract the type out of them and
+    /// place those types into the register specified (RHS in the tuple)
+    pub fn extract_map(&self, regs: impl Iterator<Item = (RegisterId, RegisterId)>) -> Self {
         // TODO: coudl clean this up but EH!
         let mut new = TypeBag::default();
 
         let mut alloc_map = FxHashMap::default();
         let mut need_to_shape = VecDeque::new();
 
-        for reg in regs {
-            let typ = self.get(*reg);
+        for (s_reg, d_reg) in regs {
+            let typ = self.get(s_reg);
 
-            if let RegisterType::Record(a) = typ {
-                need_to_shape.push_back(a);
-                let new_a = new.alloc_allocation();
+            // TODO: don't duplicate this code with the hunk at the bottom
+            let new_tp = match typ {
+                RegisterType::Record(a) => {
+                    need_to_shape.push_back(a);
+                    let new_a = new.alloc_allocation();
 
-                alloc_map.insert(a, new_a);
-                new.assign_type(*reg, RegisterType::Record(new_a));
-            } else {
-                new.assign_type(*reg, typ);
-            }
+                    alloc_map.insert(a, new_a);
+                    RegisterType::Record(new_a)
+                }
+                RegisterType::Byts(c) => {
+                    RegisterType::Byts(new.intern_constant(self.unintern_const(c)))
+                }
+                other => other,
+            };
+
+            new.assign_type(d_reg, new_tp);
         }
 
         let mut shape_map = FxHashMap::default();
@@ -275,17 +293,22 @@ impl TypeBag {
                     ShapeKey::Slot(s) => ShapeKey::Slot(s),
                 };
 
-                let v = if let RegisterType::Record(a) = v {
-                    if let Some(a) = alloc_map.get(&a) {
-                        RegisterType::Record(*a)
-                    } else {
-                        let new_alloc_id = new.alloc_allocation();
-                        need_to_shape.push_back(a);
-                        alloc_map.insert(a, new_alloc_id);
-                        RegisterType::Record(new_alloc_id)
+                // TOPDO: don't duplicate this code with the hunk at the top
+                let v = match v {
+                    RegisterType::Record(a) => {
+                        if let Some(a) = alloc_map.get(&a) {
+                            RegisterType::Record(*a)
+                        } else {
+                            let new_alloc_id = new.alloc_allocation();
+                            need_to_shape.push_back(a);
+                            alloc_map.insert(a, new_alloc_id);
+                            RegisterType::Record(new_alloc_id)
+                        }
                     }
-                } else {
-                    v
+                    RegisterType::Byts(c) => {
+                        RegisterType::Byts(new.intern_constant(self.unintern_const(c)))
+                    }
+                    other => other,
                 };
 
                 new_shape.fields.insert(k, v);

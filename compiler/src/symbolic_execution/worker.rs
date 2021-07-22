@@ -1,12 +1,30 @@
 //! The file where the actual symbolic execution work gets done
 
+use std::sync::Arc;
+
+use rustc_hash::FxHashMap;
+
+use crate::frontend::assembler;
 use crate::frontend::ir;
+use crate::frontend::ir::Returns;
+use crate::frontend::old_types;
+use crate::frontend::type_annotater;
 use crate::id::*;
+use crate::isa::MakeTrivial;
+use crate::isa::RecordKey;
 use crate::isa::TrivialItem;
 use crate::lifted;
 use crate::lifted::{Function, LiftedProgram};
+use crate::retag::CnstPassRetagger;
+use crate::retag::ExtFnPassRetagger;
+use crate::retag::FnPassRetagger;
+use crate::retag::RegGenPassRetagger;
+use crate::retag::RegGenRetagger;
+use crate::retag::RegPassRetagger;
+use crate::retag::RegRetagger;
 use crate::symbolic_execution::types::{RegisterType, ReturnType};
 
+use super::graph_system::Bogusable;
 use super::{
     graph_system::{System, Worker},
     types::TypeBag,
@@ -23,11 +41,27 @@ pub enum CurrentInstruction<'program> {
 pub struct SymbWorker<'program> {
     pub program: &'program LiftedProgram,
     pub func: &'program Function,
+    /// If this worker is from a `call`, then it's an entry function.
+    /// Otherwise, it's part of a block.
+    pub is_entry_fn: bool,
     pub id: <Self as Worker>::Id,
     pub fn_ids: UniqueFnIdShared,
     pub types: TypeBag,
     pub return_type: ReturnType,
     pub inst_on: CurrentInstruction<'program>,
+    pub asm_ext_map: Arc<ExtFnPassRetagger<LiftedCtx, AssemblerCtx>>,
+}
+
+pub struct WorkerResults {
+    pub return_type: ReturnType,
+    pub types: TypeBag,
+    pub assembler_piece: assembler::Function,
+}
+
+impl Bogusable for WorkerResults {
+    fn bogus() -> Self {
+        panic!("bogusability should not be required yet");
+    }
 }
 
 impl<'p> Worker for SymbWorker<'p> {
@@ -36,10 +70,33 @@ impl<'p> Worker for SymbWorker<'p> {
     // TODO: the result of a worker should be a return type like Never
     // or something idk. maybe it's fine to leave it as self and hope that
     // callers only use the return type and not any other values
-    type Result = ReturnType;
+    type Result = WorkerResults;
 
     fn work(&mut self, system: &impl System<Self>) -> Self::Result {
         let mut never_infected = false;
+
+        let mut blk = assembler::Block {
+            parameters: vec![],
+            instructions: vec![],
+            // placeholder
+            end: assembler::EndInstruction::Unreachable,
+        };
+
+        let mut asm_reg_map = RegPassRetagger::default();
+        let mut asm_typs = old_types::RegMap::default();
+
+        // in this code, we have <assember /> sections to seperate the parts
+        // that build an assembler function from the symbolic execution parts.
+        // this is because the assembler is going to be rewritten so i'd like
+        // to cleanly see where all teh mess is
+        // <assember>
+        for p in self.func.parameters.iter() {
+            blk.parameters.push(assembler::Parameter {
+                typ: map_reg_assembler(&mut self.types, &mut asm_typs, *p),
+                register: asm_reg_map.retag_new(*p),
+            });
+        }
+        // </assember>
 
         for inst in self.func.instructions.iter() {
             self.inst_on = CurrentInstruction::Sequential(inst);
@@ -141,11 +198,14 @@ impl<'p> Worker for SymbWorker<'p> {
                     let fn_id = self.types.get_fnptr(i.fn_ptr);
 
                     // TODO: don't blatantly copy `CallStatic`
-                    let types = self.types.extract(&i.args);
-                    let id = self.fn_ids.id_of(fn_id, types);
+                    let src_fn = self.program.functions.get(&fn_id).unwrap();
+                    debug_assert_eq!(src_fn.parameters.len(), i.args.len());
+                    let map_args = (i.args.iter().copied()).zip(src_fn.parameters.iter().copied());
+                    let types = self.types.extract_map(map_args);
+                    let id = self.fn_ids.id_of(fn_id, types, true);
                     let r = system.spawn(id);
 
-                    match (i.result, *r) {
+                    match (i.result, r.return_type) {
                         (_, ReturnType::Never) => {
                             never_infected = true;
                             break;
@@ -161,11 +221,14 @@ impl<'p> Worker for SymbWorker<'p> {
                     };
                 }
                 ir::Instruction::CallStatic(i) => {
-                    let types = self.types.extract(&i.args);
-                    let id = self.fn_ids.id_of(i.fn_id, types);
+                    let src_fn = self.program.functions.get(&i.fn_id).unwrap();
+                    debug_assert_eq!(src_fn.parameters.len(), i.args.len());
+                    let map_args = (i.args.iter().copied()).zip(src_fn.parameters.iter().copied());
+                    let types = self.types.extract_map(map_args);
+                    let id = self.fn_ids.id_of(i.fn_id, types, true);
                     let r = system.spawn(id);
 
-                    match (i.result, *r) {
+                    match (i.result, r.return_type) {
                         (_, ReturnType::Never) => {
                             never_infected = true;
                             break;
@@ -181,9 +244,260 @@ impl<'p> Worker for SymbWorker<'p> {
                     };
                 }
                 ir::Instruction::CallExtern(i) => {
-                    todo!("widening instructions and crud");
+                    // TODO: ensure/make args are coercible into `fn_id`,
+                    // although the `assembler` phase does this for us as of the time of writing
+                    let ext_fn = self.program.external_functions.get(&i.fn_id).unwrap();
+
+                    match (i.result, &ext_fn.returns) {
+                        (Some(_), Returns::Void) => panic!("cannot assign `void` to register"),
+                        (None, _) => {}
+                        (Some(reg), Returns::Value(v)) => {
+                            todo!("handle return types of ext fns")
+                        }
+                    };
                 }
             }
+
+            // <assembler>
+            let mut fn_retagger = FnPassRetagger::default();
+            fn_retagger.ignore_checks();
+            let mut c_retagger = CnstPassRetagger::default();
+            c_retagger.ignore_checks();
+            match inst.clone().retag(
+                &mut asm_reg_map,
+                &*self.asm_ext_map,
+                &fn_retagger,
+                &c_retagger,
+            ) {
+                ir::Instruction::Comment(_, _) => {}
+                ir::Instruction::NewRecord(i) => {
+                    let a = asm_typs.insert_alloc();
+                    asm_typs.insert(i.result, type_annotater::ValueType::Record(a));
+                    blk.instructions
+                        .push(assembler::Instruction::RecordNew(i.result));
+                }
+                ir::Instruction::RecordGet(i) => {
+                    if let type_annotater::ValueType::Record(a) = asm_typs.get(i.record) {
+                        let shape = asm_typs.get_shape(*a);
+                        let key = map_key_assembler(&asm_typs, i.key);
+                        let t = shape.type_at_key(&key).clone();
+                        asm_typs.insert(i.result, t);
+                        blk.instructions.push(assembler::Instruction::RecordGet {
+                            result: i.result,
+                            record: i.record,
+                            key: i.key,
+                        });
+                    } else {
+                        unreachable!();
+                    }
+                }
+                ir::Instruction::RecordSet(i) => {
+                    if let type_annotater::ValueType::Record(a) = *asm_typs.get(i.record) {
+                        let shape = asm_typs.get_shape(a);
+                        let value_typ = asm_typs.get(i.value).clone();
+                        let key = map_key_assembler(&asm_typs, i.key);
+                        let new_shape = shape.add_prop(key, value_typ);
+                        let shape_id = asm_typs.insert_shape(new_shape);
+                        asm_typs.assign_new_shape(a, shape_id);
+                        blk.instructions.push(assembler::Instruction::RecordSet {
+                            shape_id,
+                            record: i.record,
+                            key: i.key,
+                            value: i.value,
+                        });
+                    } else {
+                        unreachable!();
+                    }
+                }
+                ir::Instruction::GetFnPtr(i) => {
+                    let asm_blk = BlockId::new_with_value_raw(i.function.raw_value());
+                    asm_typs.insert(i.result, type_annotater::ValueType::FnPtr(asm_blk));
+                    blk.instructions
+                        .push(assembler::Instruction::MakeFnPtr(i.result, asm_blk));
+                }
+                ir::Instruction::CallStatic(i) => {
+                    if let ir::Instruction::CallStatic(inst) = inst {
+                        let f = inst.fn_id.map_context();
+                        // TODO: worry about `Never`
+                        // TODO: handle return values
+                        assert!(matches!(i.result, None));
+
+                        blk.instructions.push(assembler::Instruction::Call(
+                            i.result,
+                            assembler::Callable::Static(f),
+                            i.args,
+                        ));
+                    } else {
+                        unreachable!();
+                    }
+                }
+                ir::Instruction::CallExtern(i) => {
+                    if let ir::Instruction::CallExtern(inst) = inst {
+                        let func = self.program.external_functions.get(&inst.fn_id).unwrap();
+
+                        // TODO: damn i need register ids to widen the src into
+                        // and to do that i would need to maintain some register mapping crud
+                        // AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA time to WING IT!!!!!!
+                        let mut wing_it =
+                            RegGenPassRetagger::new(RegisterId::new_with_value(69420));
+                        // we don't actually need to map thigns but it wont compile unless i give it a type
+                        // doing it like this rather than within the ...::<x>::new call for the above reason
+                        wing_it.retag_new(RegisterId::<LiftedCtx>::default());
+
+                        let mut call_insts = vec![];
+
+                        debug_assert_eq!(inst.args.len(), func.parameters.len());
+                        for (r, target_typ) in i.args.iter().zip(func.parameters.iter()) {
+                            let src_vt = asm_typs.get(*r);
+                            let target_vt = target_typ.clone().into_value_type();
+
+                            if src_vt == &target_vt {
+                                call_insts.push(*r);
+                                continue;
+                            } else {
+                                let result = wing_it.gen();
+                                blk.instructions.push(assembler::Instruction::Widen {
+                                    result,
+                                    input: *r,
+                                    from: src_vt.clone(),
+                                    to: target_vt,
+                                });
+                            }
+                        }
+                    } else {
+                        unreachable!();
+                    }
+                }
+                ir::Instruction::CallVirt(i) => {
+                    if let ir::Instruction::CallVirt(inst) = inst {
+                        let func = self.types.get_fnptr(inst.fn_ptr);
+                        let f = func.map_context();
+                        // TODO: worry about `Never`
+                        // TODO: handle return values
+                        assert!(matches!(i.result, None));
+
+                        blk.instructions.push(assembler::Instruction::Call(
+                            i.result,
+                            assembler::Callable::Static(f),
+                            i.args,
+                        ));
+                    } else {
+                        unreachable!();
+                    }
+                }
+                ir::Instruction::MakeTrivial(i) => {
+                    let typ = map_typ_assembler(
+                        &mut self.types,
+                        &mut asm_typs,
+                        RegisterType::Trivial(i.item),
+                    );
+                    asm_typs.insert(i.result, typ);
+                    blk.instructions
+                        .push(assembler::Instruction::MakeTrivial(i));
+                }
+                ir::Instruction::MakeBytes(i) => {
+                    if let ir::Instruction::MakeBytes(inst) = inst {
+                        let res_typ = self.types.get(inst.result);
+
+                        if let RegisterType::Byts(c) = res_typ {
+                            let bytes = self.types.unintern_const(c).clone();
+
+                            // i don't think the actual constant value put in here matters
+                            blk.instructions
+                                .push(assembler::Instruction::MakeString(i.result, i.constant));
+
+                            asm_typs
+                                .insert(i.result, type_annotater::ValueType::ExactString(bytes));
+                        }
+                    } else {
+                        unreachable!();
+                    }
+                }
+                ir::Instruction::MakeInteger(i) => {
+                    if let ir::Instruction::MakeInteger(inst) = inst {
+                        let res_typ = self.types.get(inst.result);
+
+                        blk.instructions
+                            .push(assembler::Instruction::MakeNumber(i.result, i.value));
+                        asm_typs.insert(i.result, type_annotater::ValueType::ExactInteger(i.value));
+                    } else {
+                        unreachable!();
+                    }
+                }
+                ir::Instruction::LessThan(i) => {
+                    if let ir::Instruction::LessThan(inst) = inst {
+                        let res_typ = self.types.get(inst.result);
+
+                        let b = match res_typ {
+                            RegisterType::Bool(b) => {
+                                blk.instructions
+                                    .push(assembler::Instruction::MakeBoolean(i.result, b));
+                                b
+                            }
+                            _ => todo!("assembler boilerplate cannot handle this atm"),
+                        };
+
+                        asm_typs.insert(i.result, type_annotater::ValueType::Bool(b));
+                    } else {
+                        unreachable!();
+                    }
+                }
+                ir::Instruction::Equals(i) => {
+                    if let ir::Instruction::Equals(inst) = inst {
+                        let res_typ = self.types.get(inst.result);
+
+                        let b = match res_typ {
+                            RegisterType::Bool(b) => {
+                                blk.instructions
+                                    .push(assembler::Instruction::MakeBoolean(i.result, b));
+                                b
+                            }
+                            _ => todo!("assembler boilerplate cannot handle this atm"),
+                        };
+
+                        asm_typs.insert(i.result, type_annotater::ValueType::Bool(b));
+                    } else {
+                        unreachable!();
+                    }
+                }
+                ir::Instruction::Negate(i) => {
+                    if let ir::Instruction::Negate(inst) = inst {
+                        let res_typ = self.types.get(inst.result);
+
+                        let b = match res_typ {
+                            RegisterType::Bool(b) => {
+                                blk.instructions
+                                    .push(assembler::Instruction::MakeBoolean(i.result, b));
+                                b
+                            }
+                            _ => todo!("assembler boilerplate cannot handle this atm"),
+                        };
+
+                        asm_typs.insert(i.result, type_annotater::ValueType::Bool(b));
+                    } else {
+                        unreachable!();
+                    }
+                }
+                ir::Instruction::Add(i) => {
+                    if let ir::Instruction::Add(inst) = inst {
+                        let res_typ = self.types.get(inst.result);
+
+                        let b = match res_typ {
+                            RegisterType::Int(b) => {
+                                blk.instructions
+                                    .push(assembler::Instruction::MakeNumber(i.result, b));
+                                b
+                            }
+                            _ => todo!("assembler boilerplate cannot handle this atm"),
+                        };
+
+                        asm_typs.insert(i.result, type_annotater::ValueType::ExactInteger(b));
+                    } else {
+                        unreachable!();
+                    }
+                }
+            }
+            // </assembler>
         }
 
         if never_infected {
@@ -192,25 +506,28 @@ impl<'p> Worker for SymbWorker<'p> {
         }
 
         self.inst_on = CurrentInstruction::ControlFlow(&self.func.end);
-        match &self.func.end {
+        let rs = match &self.func.end {
             crate::lifted::EndInstruction::Jump(i) => {
                 let types = self.types.extract(&i.0 .1);
-                let id = self.fn_ids.id_of(i.0 .0, types);
+                let id = self.fn_ids.id_of(i.0 .0, types, false);
                 let r = system.spawn(id);
-                self.return_type = *r;
+                self.return_type = r.return_type;
+                vec![r]
             }
             crate::lifted::EndInstruction::JumpIf(i) => match self.types.get(i.condition) {
                 RegisterType::Bool(true) => {
                     let types = self.types.extract(&i.if_so.1);
-                    let id = self.fn_ids.id_of(i.if_so.0, types);
+                    let id = self.fn_ids.id_of(i.if_so.0, types, false);
                     let r = system.spawn(id);
-                    self.return_type = *r;
+                    self.return_type = r.return_type;
+                    vec![r]
                 }
                 RegisterType::Bool(false) => {
                     let types = self.types.extract(&i.other.1);
-                    let id = self.fn_ids.id_of(i.other.0, types);
+                    let id = self.fn_ids.id_of(i.other.0, types, false);
                     let r = system.spawn(id);
-                    self.return_type = *r;
+                    self.return_type = r.return_type;
+                    vec![r]
                 }
                 RegisterType::Boolean => {
                     todo!()
@@ -222,9 +539,140 @@ impl<'p> Worker for SymbWorker<'p> {
                     Some(r) => self.return_type = ReturnType::Value(self.types.get(r)),
                     None => self.return_type = ReturnType::Void,
                 };
+                vec![]
             }
-        }
+        };
 
-        self.return_type
+        // <assembler>
+        let return_type = match self.return_type {
+            ReturnType::Void => assembler::ReturnType::Void,
+            ReturnType::Value(v) => {
+                assembler::ReturnType::Value(map_typ_assembler(&mut self.types, &mut asm_typs, v))
+            }
+            ReturnType::Never => assembler::ReturnType::Void,
+        };
+        let me_block_id = BlockId::new_with_value_raw(self.id.raw_value());
+        let mut blocks = FxHashMap::default();
+        blocks.insert(me_block_id, blk);
+        for r in rs {
+            blocks.extend(r.assembler_piece.blocks.clone());
+        }
+        let func = assembler::Function {
+            register_types: asm_typs,
+            entry_block: me_block_id,
+            blocks,
+            return_type,
+        };
+        // </assembler>
+
+        let mut types = Default::default();
+        std::mem::swap(&mut self.types, &mut types);
+
+        WorkerResults {
+            return_type: self.return_type,
+            types,
+            assembler_piece: func,
+        }
     }
 }
+
+// <assembler>
+fn map_reg_assembler(
+    types: &mut TypeBag,
+    asm_typs: &mut old_types::RegMap<AssemblerCtx>,
+    reg: RegisterId<LiftedCtx>,
+) -> type_annotater::ValueType {
+    let typ = types.get(reg);
+    let t = map_typ_assembler(types, asm_typs, typ);
+    asm_typs.insert(reg.map_context(), t.clone());
+    t
+}
+
+fn map_key_assembler(
+    asm_typs: &old_types::RegMap<AssemblerCtx>,
+    key: RecordKey<AssemblerCtx>,
+) -> old_types::ShapeKey {
+    match key {
+        RecordKey::Prop(r) => map_keyt_assembler(asm_typs, asm_typs.get(r)),
+        RecordKey::Slot(s) => old_types::ShapeKey::InternalSlot(s),
+    }
+}
+
+fn map_keyt_assembler(
+    asm_typs: &old_types::RegMap<AssemblerCtx>,
+    key: &type_annotater::ValueType,
+) -> old_types::ShapeKey {
+    match key {
+        type_annotater::ValueType::String => old_types::ShapeKey::String,
+        type_annotater::ValueType::ExactString(s) => old_types::ShapeKey::Str(s.clone()),
+        type_annotater::ValueType::Any
+        | type_annotater::ValueType::Runtime
+        | type_annotater::ValueType::Number
+        | type_annotater::ValueType::ExactInteger(_)
+        | type_annotater::ValueType::Boolean
+        | type_annotater::ValueType::Bool(_)
+        | type_annotater::ValueType::Record(_)
+        | type_annotater::ValueType::FnPtr(_)
+        | type_annotater::ValueType::Null
+        | type_annotater::ValueType::Undefined => unimplemented!("unsupported conversion"),
+    }
+}
+
+fn map_typ_assembler(
+    types: &mut TypeBag,
+    asm_typs: &mut old_types::RegMap<AssemblerCtx>,
+    typ: RegisterType,
+) -> type_annotater::ValueType {
+    match typ {
+        RegisterType::Any => type_annotater::ValueType::Any,
+        RegisterType::Trivial(t) => match t {
+            TrivialItem::Runtime => type_annotater::ValueType::Runtime,
+            TrivialItem::Null => type_annotater::ValueType::Null,
+            TrivialItem::Undefined => type_annotater::ValueType::Undefined,
+            TrivialItem::Empty => todo!("trivial `Empty` not mapped yett"),
+        },
+        RegisterType::Bytes => type_annotater::ValueType::String,
+        RegisterType::Byts(c) => {
+            type_annotater::ValueType::ExactString(types.unintern_const(c).clone())
+        }
+        RegisterType::Number => type_annotater::ValueType::Number,
+        RegisterType::Int(v) => type_annotater::ValueType::ExactInteger(v),
+        RegisterType::Boolean => type_annotater::ValueType::Boolean,
+        RegisterType::Bool(b) => type_annotater::ValueType::Bool(b),
+        RegisterType::FnPtr(f) => {
+            type_annotater::ValueType::FnPtr(BlockId::new_with_value_raw(f.raw_value()))
+        }
+        RegisterType::Record(orig_a) => {
+            let a = orig_a.map_context();
+            if asm_typs.allocations.get(&a).is_some() {
+                return type_annotater::ValueType::Record(a);
+            }
+
+            let mut new_shape = old_types::RecordShape::default();
+
+            let shape_id = types.get_shape_id(orig_a);
+            let shape = types.get_shape(shape_id).clone();
+
+            for (k, v) in shape.fields.iter() {
+                let k = match *k {
+                    crate::symbolic_execution::types::ShapeKey::Str(s) => {
+                        old_types::ShapeKey::Str(types.unintern_const(s).clone())
+                    }
+                    crate::symbolic_execution::types::ShapeKey::Slot(s) => {
+                        old_types::ShapeKey::InternalSlot(s)
+                    }
+                };
+
+                let v = map_typ_assembler(types, asm_typs, *v);
+                new_shape = new_shape.add_prop(k, v);
+            }
+
+            let shape_id = shape_id.map_context();
+            asm_typs.shapes.insert(shape_id, new_shape);
+            asm_typs.allocations.insert(a, vec![shape_id]);
+
+            type_annotater::ValueType::Record(a)
+        }
+    }
+}
+// </assembler>

@@ -5,8 +5,11 @@ use std::sync::TryLockError;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 
+use crate::frontend::assembler;
 use crate::id::*;
 use crate::lifted::LiftedProgram;
+use crate::retag::ExtFnPassRetagger;
+use crate::retag::ExtFnRetagger;
 use crate::symbolic_execution::graph_system::SuperUnsafeCell;
 
 use self::graph_system::{Bogusable, GraphSystem, System, Worker, WorkerFactory};
@@ -16,20 +19,27 @@ use self::unique_id::{UniqueFnId, UniqueFnIdShared};
 use self::worker::CurrentInstruction;
 use self::worker::SymbWorker;
 
+pub mod assembler_glue;
 pub mod graph_system;
 pub mod types;
 pub mod unique_id;
 pub mod worker;
 
 pub fn execute(program: &'static LiftedProgram) {
+    let mut asm_ext_map = ExtFnPassRetagger::default();
+    for (id, ext_fn) in program.external_functions.iter() {
+        asm_ext_map.retag_new(*id);
+    }
+
     let mut fn_ids = UniqueFnId::default();
-    let entry_fn_id = fn_ids.id_of(program.entrypoint, TypeBag::default());
+    let entry_fn_id = fn_ids.id_of(program.entrypoint, TypeBag::default(), true);
 
     let fn_ids_shared = UniqueFnIdShared(Arc::new(Mutex::new(fn_ids)));
 
     let factory = SymbFactory {
         program,
         fn_ids: fn_ids_shared.clone(),
+        asm_ext_map: Arc::new(asm_ext_map),
     };
 
     let system = GraphSystem::new(factory);
@@ -64,10 +74,19 @@ pub fn execute(program: &'static LiftedProgram) {
                 }
             };
 
+            println!("types: {:?}", w.types);
+
             match *looking_up {
                 types::LookingUp::Nothing => {}
-                types::LookingUp::ShapeKey(key) => println!("- was looking up type for: {:?}", key),
-                types::LookingUp::Register(r) => println!("- was looking up type for: %{}", r),
+                types::LookingUp::ShapeKey(key) => {
+                    println!("- was looking up type of field key: {:?}", key)
+                }
+                types::LookingUp::Register(r) => {
+                    println!("- was looking up type of register: %{}", r)
+                }
+                types::LookingUp::Constant(c) => {
+                    println!("- was looking up value of constant: {}", c)
+                }
             };
 
             // print `n` instructions before and after the instruction we're on
@@ -140,12 +159,13 @@ pub fn execute(program: &'static LiftedProgram) {
 
     drop(std::panic::take_hook());
 
-    todo!()
+    assembler_glue::glue(entry_fn_id, results)
 }
 
 struct SymbFactory<'program> {
     program: &'program LiftedProgram,
     fn_ids: UniqueFnIdShared,
+    asm_ext_map: Arc<ExtFnPassRetagger<LiftedCtx, AssemblerCtx>>,
 }
 
 impl<'p> WorkerFactory for SymbFactory<'p> {
@@ -154,7 +174,7 @@ impl<'p> WorkerFactory for SymbFactory<'p> {
     fn make(&mut self, id: <Self::Worker as Worker>::Id) -> Self::Worker {
         let (lifted_id, types) = self.fn_ids.types_of(id);
 
-        Self::Worker {
+        SymbWorker {
             program: self.program,
             func: self.program.functions.get(&lifted_id).unwrap(),
             id,
@@ -163,6 +183,8 @@ impl<'p> WorkerFactory for SymbFactory<'p> {
             inst_on: CurrentInstruction::None,
             // placeholder value
             return_type: ReturnType::Never,
+            is_entry_fn: self.fn_ids.is_entry_fn(id),
+            asm_ext_map: self.asm_ext_map.clone(),
         }
     }
 }

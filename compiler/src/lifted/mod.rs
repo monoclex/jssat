@@ -4,7 +4,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use tinyvec::TinyVec;
 
 use crate::{
-    frontend::ir::{self, ControlFlowInstruction, FFIValueType, Instruction, IR},
+    frontend::ir::{self, ControlFlowInstruction, FFIValueType, Instruction, Returns, IR},
     id::{Counter, IrCtx, LiftedCtx},
     isa::{BlockJump, ISAInstruction, Jump, JumpIf, Return},
     retag::{
@@ -35,6 +35,7 @@ pub struct Constant {
 #[derive(Debug, Clone)]
 pub struct ExternalFunction {
     pub parameters: Vec<FFIValueType>,
+    pub returns: Returns<FFIValueType>,
 }
 
 #[derive(Debug, Clone)]
@@ -131,6 +132,7 @@ pub fn lift(ir: IR) -> LiftedProgram {
         let id = e_retagger.retag_new(id);
         let value = ExternalFunction {
             parameters: ext_fn.parameters,
+            returns: ext_fn.return_type,
         };
         external_functions.insert(id, value).expect_free();
     }

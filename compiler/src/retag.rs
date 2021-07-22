@@ -362,6 +362,16 @@ impl<A: Tag, B: Tag> Default for FnPassRetagger<A, B> {
     }
 }
 
+impl<A: Tag, B: Tag> FnPassRetagger<A, B> {
+    #[cfg(not(debug_assertions))]
+    pub fn ignore_checks(&mut self) {}
+
+    #[cfg(debug_assertions)]
+    pub fn ignore_checks(&mut self) {
+        self.0.ignore_check = true;
+    }
+}
+
 impl<C: Tag, C2: Tag> FnRetagger<C, C2> for FnPassRetagger<C, C2> {
     #[track_caller]
     fn retag_new(&mut self, id: FunctionId<C>) -> FunctionId<C2> {
@@ -483,6 +493,16 @@ pub struct CnstPassRetagger<C: Tag, C2: Tag>(PassRetagger<ConstantId<C>, Constan
 impl<A: Tag, B: Tag> Default for CnstPassRetagger<A, B> {
     fn default() -> Self {
         Self(Default::default())
+    }
+}
+
+impl<A: Tag, B: Tag> CnstPassRetagger<A, B> {
+    #[cfg(not(debug_assertions))]
+    pub fn ignore_checks(&mut self) {}
+
+    #[cfg(debug_assertions)]
+    pub fn ignore_checks(&mut self) {
+        self.0.ignore_check = true;
     }
 }
 
