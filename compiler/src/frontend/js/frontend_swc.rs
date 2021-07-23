@@ -1,22 +1,26 @@
 use std::ops::{Deref, DerefMut};
 
+use rustc_hash::FxHashSet;
 use swc_common::{
     errors::{ColorConfig, Handler},
     input::StringInput,
     sync::Lrc,
     FileName, SourceMap,
 };
-use swc_ecmascript::ast::{BlockStmt, CallExpr, Decl, Expr, ExprOrSpread, LabeledStmt, Stmt};
+use swc_ecmascript::ast::{
+    BindingIdent, BlockStmt, CallExpr, ClassDecl, Decl, Expr, ExprOrSpread, FnDecl, Ident,
+    LabeledStmt, ObjectPatProp, Pat, PatOrExpr, Stmt, VarDecl, VarDeclOrExpr, VarDeclOrPat,
+};
 use swc_ecmascript::{
     ast::Script,
     parser::{Parser, Syntax},
 };
 
-use crate::frontend::{builder::*, ir::*};
-
-use crate::isa::InternalSlot;
+use std::iter::FromIterator;
 
 use self::environment_record::{EnvironmentRecord, EnvironmentRecordFactory};
+use crate::frontend::{builder::*, ir::*};
+use crate::isa::InternalSlot;
 
 pub mod environment_record;
 
@@ -399,25 +403,31 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
 
         //# 13. If result.[[Type]] is normal, then
         let is_normal = self.is_normal_completion(result);
-        self.perform_if(is_normal, |me| {
-            //# a. Set result to the result of evaluating scriptBody.
-            let _result2 = me.evaluate_script(script);
-        });
+
+        let result = self.perform_if_else_w_value(
+            is_normal,
+            |me| {
+                //# a. Set result to the result of evaluating scriptBody.
+                me.evaluate_script(script)
+            },
+            |_| {
+                // in the event that we don't evaluate the script, we should use
+                // the old value for `result`
+                result
+            },
+        );
 
         //# 14. If result.[[Type]] is normal and result.[[Value]] is empty, then
-        // let is_normal = self.is_normal_completion(result);
-        // TODO: figure out if we can implement this part
+        let is_normal = self.is_normal_completion(result);
+        // TODO: check `[[Value]]` and stuff
         //# a. Set result to NormalCompletion(undefined).
+
         //# 15. Suspend scriptContext and remove it from the execution context stack.
-        // TODO: ?
         //# 16. Assert: The execution context stack is not empty.
-        // TODO: ?
         //# 17. Resume the context that is now on the top of the execution context stack as the running execution context.
-        // TODO: ?
         //# 18. Return Completion(result).
 
-        let _result3 = self.make_undefined();
-        self.NormalCompletion(_result3)
+        self.NormalCompletion(result)
     }
 
     /// <https://tc39.es/ecma262/#sec-globaldeclarationinstantiation>
@@ -429,17 +439,44 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
         self.comment("GlobalDeclarationInstantiation");
 
         //# 1. Assert: env is a global Environment Record.
+
         //# 2. Let lexNames be the LexicallyDeclaredNames of script.
-        let lexNames = ECMA262Script(script).LexicallyDeclaredNames();
+        let lexNames = LexicallyDeclaredNames::compute(script);
+        let lex_names_set = FxHashSet::from_iter(&lexNames);
+
+        //# It is a Syntax Error if the LexicallyDeclaredNames of <x> contains
+        //# any duplicate entries.
+        if lex_names_set.len() != lexNames.len() {
+            panic!("duplicate LexicallyDeclaredNames, error in JS");
+        }
+
         //# 3. Let varNames be the VarDeclaredNames of script.
-        // TODO: figure out this crud lololololololololololOLOLOLOLOLOLO IM NOT CRYING YOU'RE CRYING
+        let varNames = VarDeclaredNames::compute(script);
+        let var_names_set = FxHashSet::from_iter(&varNames);
+
+        //# It is a Syntax Error if any element of the LexicallyDeclaredNames of
+        //# StatementList also occurs in the VarDeclaredNames of StatementList.
+        if lex_names_set.intersection(&var_names_set).any(|_| true) {
+            panic!("duplicate LexicallyDeclaredNames, error in JS");
+        }
+
         //# 4. For each element name of lexNames, do
-        //# a. If env.HasVarDeclaration(name) is true, throw a SyntaxError exception.
-        //# b. If env.HasLexicalDeclaration(name) is true, throw a SyntaxError exception.
-        //# c. Let hasRestrictedGlobal be ? env.HasRestrictedGlobalProperty(name).
-        //# d. If hasRestrictedGlobal is true, throw a SyntaxError exception.
+        for elem in lexNames {
+            let name = self.bld.constant_str_utf16(elem);
+            let name = self.make_string(name);
+            //# a. If env.HasVarDeclaration(name) is true, throw a SyntaxError exception.
+            //# b. If env.HasLexicalDeclaration(name) is true, throw a SyntaxError exception.
+            //# c. Let hasRestrictedGlobal be ? env.HasRestrictedGlobalProperty(name).
+            //# d. If hasRestrictedGlobal is true, throw a SyntaxError exception.
+        }
+
         //# 5. For each element name of varNames, do
-        //# a. If env.HasLexicalDeclaration(name) is true, throw a SyntaxError exception.
+        for elem in varNames {
+            let name = self.bld.constant_str_utf16(elem);
+            let name = self.make_string(name);
+            //# a. If env.HasLexicalDeclaration(name) is true, throw a SyntaxError exception.
+        }
+
         //# 6. Let varDeclarations be the VarScopedDeclarations of script.
         //# 7. Let functionsToInitialize be a new empty List.
         //# 8. Let declaredFunctionNames be a new empty List.
@@ -872,6 +909,51 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
             .end_block(self_block.jmp_dynargs(return_to.id, vec![]));
     }
 
+    fn perform_if_else_w_value<F1, F2>(
+        &mut self,
+        condition: RegisterId,
+        mut if_so: F1,
+        mut other: F2,
+    ) -> RegisterId
+    where
+        F1: FnMut(&'_ mut JsWriter<'b, PARAMS>) -> RegisterId,
+        F2: FnMut(&'_ mut JsWriter<'b, PARAMS>) -> RegisterId,
+    {
+        let (mut if_true, []) = self.bld_fn.start_block();
+        let (mut if_not, []) = self.bld_fn.start_block();
+        let (mut return_to, [two_paths_results]) = self.bld_fn.start_block();
+        let return_to_sig = return_to.signature();
+
+        // make `self.block` jump to `if_true`/`if_not`
+        // sets self to the `return_to` block, which will have the `two_paths_results`
+        // register that the user wants
+        let mut return_to = return_to.into_dynamic();
+        std::mem::swap(&mut self.block, &mut return_to);
+        let old_self = return_to;
+
+        self.bld_fn.end_block_dyn(old_self.jmpif_dynargs(
+            condition,
+            if_true.id,
+            vec![],
+            if_not.id,
+            vec![],
+        ));
+
+        // perform if_true
+        std::mem::swap(&mut self.block, &mut if_true);
+        let reg = if_so(self);
+        std::mem::swap(&mut self.block, &mut if_true);
+        self.bld_fn.end_block(if_true.jmp(return_to_sig, [reg]));
+
+        // perform if_not
+        std::mem::swap(&mut self.block, &mut if_not);
+        let reg = other(self);
+        std::mem::swap(&mut self.block, &mut if_not);
+        self.bld_fn.end_block(if_not.jmp(return_to_sig, [reg]));
+
+        two_paths_results
+    }
+
     fn is_normal_completion(&mut self, record: RegisterId) -> RegisterId {
         self.comment("is_normal_completion");
 
@@ -890,105 +972,288 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
     }
 }
 
-pub struct ECMA262Script<'script>(&'script Script);
+struct LexicallyDeclaredNames<'names>(&'names mut Vec<String>);
 
+/// <https://tc39.es/ecma262/#sec-static-semantics-lexicallydeclarednames>
+///
+/// reading the spec is far too hard. most of this is inspired by:
+/// <https://github.com/engine262/engine262/blob/main/src/static-semantics/LexicallyDeclaredNames.mjs>
 #[allow(non_snake_case)]
-impl ECMA262Script<'_> {
-    pub fn LexicallyDeclaredNames(&self) -> Vec<String> {
-        ECMA262Script::LexicallyDeclaredNames_StatementList(&self.0.body)
+impl LexicallyDeclaredNames<'_> {
+    pub fn compute(script: &Script) -> Vec<String> {
+        let mut names = Vec::new();
+        LexicallyDeclaredNames(&mut names).Script(script);
+        names
     }
 
-    pub fn LexicallyDeclaredNames_Block(block: &BlockStmt) -> Vec<String> {
-        // Block : { }
+    fn Script(&mut self, script: &Script) {
+        //# ScriptBody : StatementList
+        //# 1. Return TopLevelLexicallyDeclaredNames of StatementList.
+        TopLevelLexicallyDeclaredNames(self.0).StatementList(&script.body);
+    }
+}
 
-        // 1. Return a new empty List.
-        vec![]
+struct TopLevelLexicallyDeclaredNames<'names>(&'names mut Vec<String>);
+
+impl TopLevelLexicallyDeclaredNames<'_> {
+    fn StatementList(&mut self, stmts: &[Stmt]) {
+        // for loop:
+        //# StatementList : StatementList StatementListItem
+        //# 1. Let names1 be TopLevelLexicallyDeclaredNames of StatementList.
+        //# 2. Let names2 be TopLevelLexicallyDeclaredNames of StatementListItem.
+        //# 3. Return the list-concatenation of names1 and names2.
+        for stmt in stmts {
+            // match:
+            //# StatementListItem : Declaration
+            //# 1. If Declaration is Declaration : HoistableDeclaration , then
+            //#     a. Return « ».
+            //# 2. Return the BoundNames of Declaration.
+            match stmt {
+                Stmt::Decl(Decl::Class(class)) => BoundNames(self.0).Class(class),
+                Stmt::Decl(Decl::Var(lex)) => BoundNames(self.0).Lexical(lex),
+                _ => {}
+            }
+        }
+    }
+}
+
+struct VarDeclaredNames<'names>(&'names mut Vec<String>);
+
+impl VarDeclaredNames<'_> {
+    pub fn compute(script: &Script) -> Vec<String> {
+        let mut names = Vec::new();
+        VarDeclaredNames(&mut names).Script(script);
+        names
     }
 
-    pub fn LexicallyDeclaredNames_StatementList(statement_list: &[Stmt]) -> Vec<String> {
-        // this isn't specified in the specification, probably my fault
-        if statement_list.len() == 0 {
-            panic!();
-        }
-
-        // this case isn't specified in the specification, specification's fault
-        if statement_list.len() == 1 {
-            return ECMA262Script::LexicallyDeclaredNames_StatementListItem(&statement_list[0]);
-        }
-
-        // StatementList : StatementList StatementListItem
-
-        // 1. Let names1 be LexicallyDeclaredNames of StatementList.
-        let names1 = ECMA262Script::LexicallyDeclaredNames_StatementList(
-            &statement_list[..statement_list.len() - 1],
-        );
-        // 2. Let names2 be LexicallyDeclaredNames of StatementListItem.
-        let names2 = ECMA262Script::LexicallyDeclaredNames_StatementListItem(
-            &statement_list[statement_list.len() - 1],
-        );
-        // 3. Return the list-concatenation of names1 and names2.
-        let mut concatenation = names1;
-        concatenation.extend(names2);
-        concatenation
+    fn Script(&mut self, script: &Script) {
+        //# ScriptBody : StatementList
+        //# 1. Return TopLevelVarDeclaredNames of StatementList.
+        TopLevelVarDeclaredNames(self.0).StatementList(&script.body);
     }
 
-    pub fn LexicallyDeclaredNames_StatementListItem(statement: &Stmt) -> Vec<String> {
-        // this weirdness is just because we're using swc and not rolling our own ecmascript parser
-        if let Stmt::Decl(declaration) = statement {
-            // StatementListItem : Declaration
-
-            // 1. Return the BoundNames of Declaration.
-            return ECMA262Script::BoundNames_Declaration(declaration);
-        }
-
-        // StatementListItem : Statement
-
-        // 1. If Statement is Statement : LabelledStatement , return LexicallyDeclaredNames of LabelledStatement.
-        if let Stmt::Labeled(labelled_statement) = statement {
-            return ECMA262Script::LexicallyDeclaredNames_LabelledStatement(labelled_statement);
-        }
-        // 2. Return a new empty List.
-        vec![]
-    }
-
-    pub fn BoundNames_Declaration(declaration: &Decl) -> Vec<String> {
-        match declaration {
-            Decl::Class(_) => todo!(),
-            Decl::Fn(_) => todo!(),
-            Decl::Var(_) => todo!(),
-            Decl::TsInterface(_) => todo!(),
-            Decl::TsTypeAlias(_) => todo!(),
-            Decl::TsEnum(_) => todo!(),
-            Decl::TsModule(_) => todo!(),
+    fn StatementList(&mut self, stmts: &[Stmt]) {
+        for stmt in stmts {
+            self.Statement(stmt);
         }
     }
 
-    pub fn LexicallyDeclaredNames_LabelledStatement(
-        labelled_statement: &LabeledStmt,
-    ) -> Vec<String> {
-        // LabelledStatement : LabelIdentifier : LabelledItem
+    fn Statement(&mut self, stmt: &Stmt) {
+        // for loop:
+        //# StatementList : StatementList StatementListItem
+        //# 1. Let names1 be VarDeclaredNames of StatementList.
+        //# 2. Let names2 be VarDeclaredNames of StatementListItem.
+        //# 3. Return the list-concatenation of names1 and names2.
+        match stmt {
+            Stmt::Decl(Decl::Fn(func)) => {
+                BoundNames(self.0).HoistableDeclaration(func);
+            }
+            Stmt::Decl(Decl::Var(v)) => {
+                //# VariableStatement : var VariableDeclarationList ;
+                //# 1. Return BoundNames of VariableDeclarationList.
+                BoundNames(self.0).VariableDeclarationList(v)
+            }
+            Stmt::DoWhile(s) => {
+                //# DoWhileStatement : do Statement while ( Expression ) ;
+                //# 1. Return the VarDeclaredNames of Statement.
+                self.Statement(&*s.body);
+            }
+            Stmt::While(s) => {
+                //# WhileStatement : while ( Expression ) Statement
+                //# 1. Return the VarDeclaredNames of Statement.
+                self.Statement(&*s.body);
+            }
+            Stmt::For(s) => {
+                match &s.init {
+                    Some(VarDeclOrExpr::VarDecl(v)) => {
+                        //# ForStatement : for ( var VariableDeclarationList ; Expressionopt ; Expressionopt ) Statement
+                        //# 1. Let names1 be BoundNames of VariableDeclarationList.
+                        //# 2. Let names2 be VarDeclaredNames of Statement.
+                        //# 3. Return the list-concatenation of names1 and names2.
+                        BoundNames(self.0).VariableDeclarationList(v);
+                        self.Statement(&*s.body);
+                    }
+                    _ => {
+                        //# ForStatement : for ( Expressionopt ; Expressionopt ; Expressionopt ) Statement
+                        //# 1. Return the VarDeclaredNames of Statement.
+                        self.Statement(&*s.body)
+                    }
+                }
+            }
+            Stmt::ForIn(s) => {
+                //# ForInOfStatement :
+                //  < all variants >
+                //# 1. Return the VarDeclaredNames of Statement.
+                self.Statement(&*s.body)
+            }
+            Stmt::ForOf(s) => {
+                //# ForInOfStatement :
+                //  < all variants >
+                //# 1. Let names1 be the BoundNames of ForBinding.
+                //# 2. Let names2 be the VarDeclaredNames of Statement.
+                //# 3. Return the list-concatenation of names1 and names2.
+                match &s.left {
+                    VarDeclOrPat::VarDecl(v) => BoundNames(self.0).VariableDeclarationList(v),
+                    VarDeclOrPat::Pat(p) => BoundNames(self.0).LexicalBinding(p),
+                };
 
-        // 1. Return the LexicallyDeclaredNames of LabelledItem.
-        match &*labelled_statement.body {
-            Stmt::Block(_) => todo!(),
-            Stmt::Empty(_) => todo!(),
-            Stmt::Debugger(_) => todo!(),
-            Stmt::With(_) => todo!(),
-            Stmt::Return(_) => todo!(),
-            Stmt::Labeled(_) => todo!(),
-            Stmt::Break(_) => todo!(),
-            Stmt::Continue(_) => todo!(),
-            Stmt::If(_) => todo!(),
-            Stmt::Switch(_) => todo!(),
-            Stmt::Throw(_) => todo!(),
-            Stmt::Try(_) => todo!(),
-            Stmt::While(_) => todo!(),
-            Stmt::DoWhile(_) => todo!(),
-            Stmt::For(_) => todo!(),
-            Stmt::ForIn(_) => todo!(),
-            Stmt::ForOf(_) => todo!(),
-            Stmt::Decl(_) => todo!(),
-            Stmt::Expr(_) => todo!(),
+                self.Statement(&*s.body);
+            }
+            Stmt::If(if_stmt) => {
+                //# IfStatement : if ( Expression ) Statement else Statement
+                //# 1. Let names1 be VarDeclaredNames of the first Statement.
+                //# 2. Let names2 be VarDeclaredNames of the second Statement.
+                //# 3. Return the list-concatenation of names1 and names2.
+                //# IfStatement : if ( Expression ) Statement
+                //# 1. Return the VarDeclaredNames of Statement.
+                VarDeclaredNames(self.0).Statement(&*if_stmt.cons);
+
+                if let Some(alt) = &if_stmt.alt {
+                    VarDeclaredNames(self.0).Statement(&**alt)
+                }
+            }
+            Stmt::With(s) => {
+                //# WithStatement : with ( Expression ) Statement
+                //# 1. Return the VarDeclaredNames of Statement.
+                self.Statement(&*s.body);
+            }
+            Stmt::Switch(s) => {
+                //# SwitchStatement : switch ( Expression ) CaseBlock
+                //# 1. Return the VarDeclaredNames of CaseBlock.
+                for case in s.cases.iter() {
+                    // what the spec here says in many words is:
+                    // run VarDeclardNames on all case bodies
+                    self.StatementList(&case.cons);
+                }
+            }
+            Stmt::Try(s) => {
+                // what the spec here says in many words is:
+                // run VarDeclardNames on all blocks of try
+                self.StatementList(&s.block.stmts);
+
+                if let Some(catch) = &s.handler {
+                    self.StatementList(&catch.body.stmts)
+                }
+
+                if let Some(finally) = &s.finalizer {
+                    self.StatementList(&finally.stmts)
+                }
+            }
+            Stmt::Expr(_) => {}
+            s => todo!("{:?}", s),
         }
+    }
+}
+
+struct TopLevelVarDeclaredNames<'names>(&'names mut Vec<String>);
+
+impl TopLevelVarDeclaredNames<'_> {
+    fn StatementList(&mut self, stmts: &[Stmt]) {
+        // for loop
+        //# StatementList : StatementList StatementListItem
+        //# 1. Let names1 be TopLevelVarDeclaredNames of StatementList.
+        //# 2. Let names2 be TopLevelVarDeclaredNames of StatementListItem.
+        //# 3. Return the list-concatenation of names1 and names2.
+        for stmt in stmts {
+            // match:
+            //# StatementListItem : Declaration
+            //# 1. If Declaration is Declaration : HoistableDeclaration , then
+            //#     a. Return the BoundNames of HoistableDeclaration.
+            //# 2. Return a new empty List.
+            match stmt {
+                Stmt::Decl(Decl::Fn(func)) => {
+                    BoundNames(self.0).HoistableDeclaration(func);
+                }
+                //# LabelledItem : Statement
+                //# 1. If Statement is Statement : LabelledStatement , return TopLevelVarDeclaredNames of Statement.
+                //# 2. Return VarDeclaredNames of Statement.
+                s => VarDeclaredNames(self.0).Statement(s),
+            }
+        }
+    }
+}
+
+struct BoundNames<'names>(&'names mut Vec<String>);
+
+/// <https://tc39.es/ecma262/#sec-static-semantics-boundnames>
+impl BoundNames<'_> {
+    fn VariableDeclarationList(&mut self, v: &VarDecl) {
+        for lex in v.decls.iter() {
+            self.LexicalBinding(&lex.name);
+        }
+    }
+
+    fn Class(&mut self, class: &ClassDecl) {
+        self.swc_identifier(&class.ident);
+
+        // TODO: what to do about if there is no identifier for the class?
+        // should return
+    }
+
+    fn Lexical(&mut self, lex: &VarDecl) {
+        //# LexicalDeclaration : LetOrConst BindingList ;
+        //# 1. Return the BoundNames of BindingList.
+
+        // for loop
+        //# BindingList : BindingList , LexicalBinding
+        //# 1. Let names1 be the BoundNames of BindingList.
+        //# 2. Let names2 be the BoundNames of LexicalBinding.
+        //# 3. Return the list-concatenation of names1 and names2.
+        for decl in lex.decls.iter() {
+            self.LexicalBinding(&decl.name);
+        }
+    }
+
+    fn HoistableDeclaration(&mut self, func: &FnDecl) {
+        //# FunctionDeclaration[?Yield, ?Await, ?Default]
+        //# GeneratorDeclaration[?Yield, ?Await, ?Default]
+        //# AsyncFunctionDeclaration[?Yield, ?Await, ?Default]
+        //# AsyncGeneratorDeclaration[?Yield, ?Await, ?Default]
+    }
+
+    fn LexicalBinding(&mut self, pat: &Pat) {
+        //# LexicalBinding : BindingIdentifier Initializeropt
+        //# 1. Return the BoundNames of BindingIdentifier.
+        //# LexicalBinding : BindingPattern Initializer
+        //# 1. Return the BoundNames of BindingPattern.
+        match pat {
+            Pat::Ident(ident) => self.BindingIdentifier(ident),
+            Pat::Array(arr) => {
+                // if a pat is missing, then it must be the `Elision` pattern
+                // othewise, it has to be something we call BoundNames on
+                for pat in arr.elems.iter().flatten() {
+                    self.LexicalBinding(pat);
+                }
+            }
+            Pat::Rest(rest) => self.LexicalBinding(&*rest.arg),
+            Pat::Object(obj) => {
+                for prop in obj.props.iter() {
+                    //# BindingProperty : PropertyName : BindingElement
+                    //# 1. Return the BoundNames of BindingElement.
+                    match prop {
+                        ObjectPatProp::KeyValue(pat) => self.LexicalBinding(&*pat.value),
+                        ObjectPatProp::Assign(_) => todo!(),
+                        ObjectPatProp::Rest(pat) => self.LexicalBinding(&*pat.arg),
+                    }
+                }
+            }
+            Pat::Assign(_) => todo!(),
+            Pat::Invalid(_) => todo!(),
+            Pat::Expr(_) => todo!(),
+        }
+    }
+
+    fn BindingIdentifier(&mut self, ident: &BindingIdent) {
+        //# BindingIdentifier : Identifier
+        //# 1. Return a List whose sole element is the StringValue of Identifier.
+        //# BindingIdentifier : yield
+        //# 1. Return a List whose sole element is "yield".
+        //# BindingIdentifier : await
+        //# 1. Return a List whose sole element is "await".
+        self.swc_identifier(&ident.id);
+    }
+
+    fn swc_identifier(&mut self, ident: &Ident) {
+        self.0.push(ident.sym.to_string());
     }
 }
