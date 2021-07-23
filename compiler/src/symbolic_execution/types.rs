@@ -333,7 +333,7 @@ impl PartialEq for TypeBag {
     /// Makes sure that every register pairing of two type bags are the same.
     fn eq(&self, other: &Self) -> bool {
         if self.registers.len() != other.registers.len() {
-            return dbg!(false);
+            return false;
         }
 
         fn try_helper(me: &TypeBag, you: &TypeBag) -> Option<()> {
@@ -352,13 +352,13 @@ impl PartialEq for TypeBag {
                         if me.unintern_const(*a) == you.unintern_const(*b) {
                             continue;
                         } else {
-                            return dbg!(None);
+                            return None;
                         }
                     }
                     (a, b) if a == b => {
                         continue;
                     }
-                    _ => return dbg!(None),
+                    _ => return None,
                 }
             }
 
@@ -374,7 +374,7 @@ impl PartialEq for TypeBag {
                 let a = me.get_shape(a);
                 let b = you.get_shape(b);
                 if a.fields.len() != b.fields.len() {
-                    return dbg!(None);
+                    return None;
                 }
 
                 for (idx, typ) in a.fields.iter() {
@@ -391,20 +391,20 @@ impl PartialEq for TypeBag {
                             if me.unintern_const(*a) == you.unintern_const(*b) {
                                 continue;
                             } else {
-                                return dbg!(None);
+                                return None;
                             }
                         }
                         (a, b) if a == b => {
                             continue;
                         }
-                        _ => return dbg!(None),
+                        _ => return None,
                     }
                 }
             }
 
-            dbg!(Some(()))
+            Some(())
         }
 
-        dbg!(try_helper(self, other).map(|_| true).unwrap_or(false))
+        try_helper(self, other).map(|_| true).unwrap_or(false)
     }
 }

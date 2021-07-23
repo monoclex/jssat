@@ -41,6 +41,8 @@ pub struct ExternalFunction {
 
 #[derive(Debug, Clone)]
 pub struct Function {
+    pub ir_fn_id: crate::id::FunctionId<IrCtx>,
+    pub ir_blk_id: crate::id::BlockId<IrCtx>,
     pub parameters: Vec<RegisterId>,
     pub instructions: Vec<Instruction<LiftedCtx, LiftedCtx>>,
     pub end: EndInstruction,
@@ -166,6 +168,7 @@ pub fn lift(ir: IR) -> LiftedProgram {
     let mut functions = FxHashMap::default();
     for (id, func) in ir.functions.into_iter() {
         let lifted_blocks = lift_function(
+            id,
             func,
             fn_retagger.retag_old(id),
             &fn_id_gen,
@@ -188,6 +191,7 @@ pub fn lift(ir: IR) -> LiftedProgram {
 }
 
 fn lift_function(
+    ir_fn_id: crate::id::FunctionId<IrCtx>,
     function: ir::Function,
     fn_id: FunctionId,
     fn_id_gen: &Counter<FunctionId>,
@@ -219,6 +223,8 @@ fn lift_function(
         let lifted_id = *lifted_ids.get(&id).unwrap();
 
         let mut lifted_blk = fn_block_to_fn(
+            ir_fn_id,
+            id,
             blk,
             &lifted_ids,
             &mut reg_retagger,
@@ -249,6 +255,8 @@ fn lift_function(
 }
 
 fn fn_block_to_fn(
+    ir_fn_id: crate::id::FunctionId<IrCtx>,
+    ir_blk_id: crate::id::BlockId<IrCtx>,
     fn_blk: ir::FunctionBlock,
     blk_to_fn: &impl BlkToFn<IrCtx, LiftedCtx>,
     retagger: &mut impl RegRetagger<IrCtx, LiftedCtx>,
@@ -275,6 +283,8 @@ fn fn_block_to_fn(
     };
 
     Function {
+        ir_fn_id,
+        ir_blk_id,
         parameters,
         instructions,
         end,

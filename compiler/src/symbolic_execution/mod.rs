@@ -56,7 +56,10 @@ pub fn execute(program: &'static LiftedProgram) -> assembler::Program {
             let w: &mut SymbWorker = unsafe { worker.raw_get() };
 
             println!();
-            println!("Worker {}:", w.id);
+            println!(
+                "Worker {} (IR: @{}.${}):",
+                w.id, w.func.ir_fn_id, w.func.ir_blk_id
+            );
 
             let looking_up = match w.types.looking_up.try_lock() {
                 Ok(g) => g,
@@ -86,9 +89,12 @@ pub fn execute(program: &'static LiftedProgram) -> assembler::Program {
             // print `n` instructions before and after the instruction we're on
             let n = 5;
 
-            match w.inst_on {
+            let idx = match w.inst_on {
                 CurrentInstruction::None => {
-                    println!("| was not found working on any instruction")
+                    println!(
+                        "was not found working on any instruction (maybe panicked on params?)"
+                    );
+                    None
                 }
                 CurrentInstruction::Sequential(inst) => {
                     let find_inst_idx = w
@@ -98,50 +104,44 @@ pub fn execute(program: &'static LiftedProgram) -> assembler::Program {
                         .enumerate()
                         .find(|(_, i)| std::ptr::eq(*i, inst));
 
-                    let idx = match find_inst_idx {
-                        Some((idx, _)) => idx,
-                        None => {
-                            println!("cannot print code of worker");
-                            continue;
-                        }
-                    };
-
-                    let inst_range = (idx.saturating_sub(n))..(idx.saturating_add(n));
-
-                    for (i, inst) in w
-                        .func
-                        .instructions
-                        .iter()
-                        .enumerate()
-                        .filter(|(i, _)| inst_range.contains(i))
-                    {
-                        match i == idx {
-                            true => println!("> {}", inst.as_display()),
-                            false => println!("| {}", inst.as_display()),
-                        };
-                    }
+                    find_inst_idx.map(|(idx, _)| idx)
                 }
-                CurrentInstruction::ControlFlow(inst) => {
-                    // TODO: don't copy code
-                    let idx = w.func.instructions.len();
-                    let inst_range = (idx.saturating_sub(n))..(idx.saturating_add(n));
-
-                    for (i, inst) in w
-                        .func
-                        .instructions
-                        .iter()
-                        .enumerate()
-                        .filter(|(i, _)| inst_range.contains(i))
-                    {
-                        match i == idx {
-                            true => println!("> {}", inst.as_display()),
-                            false => println!("| {}", inst.as_display()),
-                        };
-                    }
-
-                    println!("> {}", inst.as_display());
-                }
+                // one past last instruction idx == control flow
+                CurrentInstruction::ControlFlow(_) => Some(w.func.instructions.len()),
             };
+
+            let inst_range = match idx {
+                Some(idx) => idx.saturating_sub(n)..idx.saturating_add(n),
+                None => 0..5,
+            };
+
+            if !inst_range.contains(&0) {
+                println!("| ...");
+            }
+
+            for (i, inst) in w
+                .func
+                .instructions
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| inst_range.contains(i))
+            {
+                match Some(i) == idx {
+                    true => println!("> {}", inst.as_display()),
+                    false => println!("| {}", inst.as_display()),
+                };
+            }
+
+            let last_idx = w.func.instructions.len();
+            if inst_range.contains(&last_idx) {
+                let inst = &w.func.end;
+                match Some(last_idx) == idx {
+                    true => println!("> {}", inst.as_display()),
+                    false => println!("| {}", inst.as_display()),
+                };
+            } else {
+                println!("| ...");
+            }
         }
     }));
 

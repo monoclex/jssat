@@ -110,11 +110,6 @@ impl<C: Tag> RegMap<C> {
             );
         }
 
-        println!(
-            "currently: {:?} <-| {:?}",
-            self.registers.get(&register),
-            typ
-        );
         self.registers.insert(register, typ).expect_free();
     }
 
@@ -125,7 +120,6 @@ impl<C: Tag> RegMap<C> {
         loop {
             alloc_id = self.allocation_id_gen.next_and_mut();
             if self.allocations.contains_key(&alloc_id) {
-                println!("wtf why are we generating an allocation taht alreadyu exists???????????????????????????");
                 continue;
             }
             break;
@@ -139,7 +133,6 @@ impl<C: Tag> RegMap<C> {
         loop {
             shape_id = self.shape_id_gen.next_and_mut();
             if self.shapes.contains_key(&shape_id) {
-                println!("wtf why are we generating a shape that already exists??????????");
                 continue;
             }
             break;

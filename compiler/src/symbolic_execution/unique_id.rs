@@ -33,7 +33,7 @@ impl UniqueFnIdShared {
         is_entry_fn: bool,
     ) -> FunctionId<SymbolicCtx> {
         let mut me = self.0.try_lock().expect("should be contentionless");
-        dbg!(me.id_of(fn_id, types, is_entry_fn))
+        me.id_of(fn_id, types, is_entry_fn)
     }
 
     pub fn is_entry_fn(&self, id: FunctionId<SymbolicCtx>) -> bool {
@@ -63,7 +63,6 @@ impl UniqueFnId {
         types: TypeBag,
         is_entry_fn: bool,
     ) -> FunctionId<SymbolicCtx> {
-        println!("id of work: {:#?}", &self);
         let poor_map = self.fns.entry(fn_id).or_insert_with(Default::default);
 
         let id = match poor_map.get(&types) {
