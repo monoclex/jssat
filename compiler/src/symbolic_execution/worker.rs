@@ -535,7 +535,10 @@ impl<'p> Worker for SymbWorker<'p> {
         self.inst_on = CurrentInstruction::ControlFlow(&self.func.end);
         let rs = match &self.func.end {
             crate::lifted::EndInstruction::Jump(i) => {
-                let types = self.types.extract(&i.0 .1);
+                let src_fn = self.program.functions.get(&i.0 .0).unwrap();
+                debug_assert_eq!(src_fn.parameters.len(), i.0 .1.len());
+                let map_args = (i.0 .1.iter().copied()).zip(src_fn.parameters.iter().copied());
+                let types = self.types.extract_map(map_args);
                 let id = self.fn_ids.id_of(i.0 .0, types, false);
                 let r = system.spawn(id);
                 self.return_type = r.return_type;
@@ -549,7 +552,11 @@ impl<'p> Worker for SymbWorker<'p> {
             }
             crate::lifted::EndInstruction::JumpIf(i) => match self.types.get(i.condition) {
                 RegisterType::Bool(true) => {
-                    let types = self.types.extract(&i.if_so.1);
+                    let src_fn = self.program.functions.get(&i.if_so.0).unwrap();
+                    debug_assert_eq!(src_fn.parameters.len(), i.if_so.1.len());
+                    let map_args =
+                        (i.if_so.1.iter().copied()).zip(src_fn.parameters.iter().copied());
+                    let types = self.types.extract_map(map_args);
                     let id = self.fn_ids.id_of(i.if_so.0, types, false);
                     let r = system.spawn(id);
                     self.return_type = r.return_type;
@@ -562,7 +569,11 @@ impl<'p> Worker for SymbWorker<'p> {
                     vec![r]
                 }
                 RegisterType::Bool(false) => {
-                    let types = self.types.extract(&i.other.1);
+                    let src_fn = self.program.functions.get(&i.other.0).unwrap();
+                    debug_assert_eq!(src_fn.parameters.len(), i.other.1.len());
+                    let map_args =
+                        (i.other.1.iter().copied()).zip(src_fn.parameters.iter().copied());
+                    let types = self.types.extract_map(map_args);
                     let id = self.fn_ids.id_of(i.other.0, types, false);
                     let r = system.spawn(id);
                     self.return_type = r.return_type;

@@ -24,6 +24,52 @@ use crate::isa::InternalSlot;
 
 pub mod environment_record;
 
+#[test]
+fn doesnt_panic() {
+    let mut builder = ProgramBuilder::new();
+    let env_factory = EnvironmentRecordFactory::new(&mut builder);
+
+    let mut main = builder.start_function_main();
+    let block = main.start_block_main().into_dynamic();
+    let mut frontend = JsWriter {
+        bld: &mut builder,
+        bld_fn: &mut main,
+        block,
+        // the value doesn't matter, it gets set on ScriptEvalution
+        running_execution_context_lexical_environment: RegisterId::default(),
+        env_factory,
+    };
+
+    let s = frontend.bld.constant_str("a string".into());
+    let s = frontend.make_string(s);
+    let condition = frontend.compare_equal(s, s);
+    let r = frontend.perform_if_else_w_value(
+        condition,
+        |me| {
+            let constant = me.bld.constant_str("yes".into());
+            me.make_string(constant)
+        },
+        |me| {
+            let constant = me.bld.constant_str("no".into());
+            me.make_string(constant)
+        },
+    );
+
+    let cmp_const = frontend.bld.constant_str("yes".into());
+    let cmp_const = frontend.make_string(cmp_const);
+    frontend.compare_equal(r, cmp_const);
+
+    let block = frontend.block.ret(None);
+    main.end_block_dyn(block);
+
+    builder.end_function(main);
+    let ir = builder.finish();
+
+    let program = crate::lifted::lift(ir);
+    let lifted = Box::leak(Box::new(program));
+    crate::symbolic_execution::execute(lifted);
+}
+
 fn to_script(source: String) -> Script {
     // https://github.com/Starlight-JS/starlight/blob/4c4ce5d0178fb28c3b2a044d572473baaf057b73/crates/starlight/src/vm.rs#L275-L300
     let cm: Lrc<SourceMap> = Default::default();
@@ -390,7 +436,6 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
             .block
             .record_get_slot(scriptRecordRealm, InternalSlot::GlobalObject);
         self.running_execution_context_lexical_environment = theActualGlobalObject;
-        println!("!!! RUNNING EXEC CTX: {}", theActualGlobalObject);
 
         //# 11. Let scriptBody be scriptRecord.[[ECMAScriptCode]].
         let scriptBody = script;
@@ -919,6 +964,7 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
         F1: FnMut(&'_ mut JsWriter<'b, PARAMS>) -> RegisterId,
         F2: FnMut(&'_ mut JsWriter<'b, PARAMS>) -> RegisterId,
     {
+        self.comment("perform_if_else_w_value - fork");
         let (mut if_true, []) = self.bld_fn.start_block();
         let (mut if_not, []) = self.bld_fn.start_block();
         let (mut return_to, [two_paths_results]) = self.bld_fn.start_block();
@@ -941,16 +987,19 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
 
         // perform if_true
         std::mem::swap(&mut self.block, &mut if_true);
+        self.comment("perform_if_else_w_value - if_so");
         let reg = if_so(self);
         std::mem::swap(&mut self.block, &mut if_true);
         self.bld_fn.end_block(if_true.jmp(return_to_sig, [reg]));
 
         // perform if_not
         std::mem::swap(&mut self.block, &mut if_not);
+        self.comment("perform_if_else_w_value - other");
         let reg = other(self);
         std::mem::swap(&mut self.block, &mut if_not);
         self.bld_fn.end_block(if_not.jmp(return_to_sig, [reg]));
 
+        self.comment("perform_if_else_w_value - merge");
         two_paths_results
     }
 
