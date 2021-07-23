@@ -42,6 +42,11 @@ pub fn glue(
     let mut functions = FxHashMap::default();
 
     for (id, mut results) in results {
+        // non entry-fns are just used as intermediary pieces for the real functions
+        if !results.is_entry_fn {
+            continue;
+        }
+
         let id = fn_retagger.retag_new(id);
 
         for (_, blk) in results.assembler_piece.blocks.iter_mut() {

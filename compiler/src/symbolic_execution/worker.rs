@@ -52,6 +52,7 @@ pub struct SymbWorker<'program> {
 }
 
 pub struct WorkerResults {
+    pub is_entry_fn: bool,
     pub return_type: ReturnType,
     pub types: TypeBag,
     pub assembler_piece: assembler::Function,
@@ -614,6 +615,7 @@ impl<'p> Worker for SymbWorker<'p> {
         std::mem::swap(&mut self.types, &mut types);
 
         WorkerResults {
+            is_entry_fn: self.is_entry_fn,
             return_type: self.return_type,
             types,
             assembler_piece: func,

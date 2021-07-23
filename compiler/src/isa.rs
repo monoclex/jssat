@@ -727,6 +727,8 @@ pub enum InternalSlot {
     Value,
     Type,
     Target,
+    /// `%Function.prototype%`
+    FunctionPrototype,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

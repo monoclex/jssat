@@ -1,5 +1,0 @@
-- record debug location of where every instruction was made
-- print out debug info on type_annotater failure/panic of where the instruction was and surrounding context
-- way to debug the current path of execution of the symbolic annotater
-- record debug location of every block/function creation
-**********************- coding standard: always expect free entries in hashmaps**********************
