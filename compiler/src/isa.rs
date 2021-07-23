@@ -704,7 +704,8 @@ impl<C: Tag> RecordKey<C> {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Display)]
 pub enum InternalSlot {
-    RandomDebugSlot,
+    JSSATRandomDebugSlot,
+    JSSATHasBinding,
     // TODO: expand this to all ecmascript internal slot types
     // (should this even be here?)
     Function,
@@ -727,6 +728,10 @@ pub enum InternalSlot {
     Value,
     Type,
     Target,
+    BindingObject,
+    DeclarativeRecord,
+    ObjectRecord,
+    OuterEnv,
     /// `%Function.prototype%`
     FunctionPrototype,
 }
