@@ -576,6 +576,7 @@ pub fn translate(program: Program) -> BackendIR<'static> {
             let mut rt_regs = FxHashSet::default();
             for instruction in block.instructions.iter() {
                 match instruction {
+                    assembler::Instruction::Comment(_, _) => {}
                     &assembler::Instruction::MakeFnPtr(result, block_id) => {
                         // fnptrs are implemented with a number and switch where to go based on that number
                         // TODO: make function pointer values "smartly" allocated - e.g. for fnptrs like

@@ -268,7 +268,9 @@ impl<'p> Worker for SymbWorker<'p> {
                 &fn_retagger,
                 &c_retagger,
             ) {
-                ir::Instruction::Comment(_, _) => {}
+                ir::Instruction::Comment(m, l) => {
+                    blk.instructions.push(assembler::Instruction::Comment(m, l));
+                }
                 ir::Instruction::NewRecord(i) => {
                     let a = asm_typs.insert_alloc();
                     asm_typs.insert(i.result, type_annotater::ValueType::Record(a));

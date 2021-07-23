@@ -63,6 +63,7 @@ pub struct Parameter {
 
 #[derive(Clone, Debug)]
 pub enum Instruction {
+    Comment(&'static str, &'static std::panic::Location<'static>),
     RecordNew(RegisterId<AssemblerCtx>),
     RecordGet {
         result: RegisterId<AssemblerCtx>,
@@ -155,7 +156,10 @@ impl Instruction {
             | Instruction::RecordNew(result)
             | Instruction::RecordGet { result, .. }
             | Instruction::MakeFnPtr(result, _) => Some(*result),
-            Instruction::Unreachable | Instruction::Noop | Instruction::RecordSet { .. } => None,
+            Instruction::Comment(_, _)
+            | Instruction::Unreachable
+            | Instruction::Noop
+            | Instruction::RecordSet { .. } => None,
             Instruction::OpLessThan(inst) => inst.declared_register(),
             Instruction::MakeTrivial(inst) => inst.declared_register(),
         }
@@ -194,7 +198,10 @@ impl Instruction {
                 key: RecordKey::Slot(_),
                 value,
             } => vec![*record, *value],
-            Instruction::Unreachable | Instruction::Noop | Instruction::RecordNew(_) => vec![],
+            Instruction::Comment(_, _)
+            | Instruction::Unreachable
+            | Instruction::Noop
+            | Instruction::RecordNew(_) => vec![],
             Instruction::OpLessThan(inst) => inst.used_registers().to_vec(),
             Instruction::MakeTrivial(inst) => inst.used_registers().to_vec(),
         }
@@ -233,7 +240,10 @@ impl Instruction {
                 key: RecordKey::Slot(_),
                 value,
             } => vec![record, value],
-            Instruction::Unreachable | Instruction::Noop | Instruction::RecordNew(_) => vec![],
+            Instruction::Comment(_, _)
+            | Instruction::Unreachable
+            | Instruction::Noop
+            | Instruction::RecordNew(_) => vec![],
             Instruction::OpLessThan(inst) => inst.used_registers_mut(),
             Instruction::MakeTrivial(inst) => inst.used_registers_mut(),
         }

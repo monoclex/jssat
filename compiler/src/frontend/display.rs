@@ -55,6 +55,9 @@ pub fn display(program: &Program) -> String {
 
             for inst in block.instructions.iter() {
                 match inst {
+                    crate::frontend::assembler::Instruction::Comment(s, l) => {
+                        iwl!(text, "    -- {}, {}", s, l)
+                    }
                     crate::frontend::assembler::Instruction::RecordNew(r) => {
                         iwl!(
                             text,
