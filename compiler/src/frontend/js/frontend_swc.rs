@@ -9,7 +9,8 @@ use swc_common::{
 };
 use swc_ecmascript::ast::{
     BindingIdent, BlockStmt, CallExpr, ClassDecl, Decl, Expr, ExprOrSpread, FnDecl, Ident,
-    LabeledStmt, ObjectPatProp, Pat, PatOrExpr, Stmt, VarDecl, VarDeclOrExpr, VarDeclOrPat,
+    LabeledStmt, ObjectPatProp, Pat, PatOrExpr, Stmt, VarDecl, VarDeclKind, VarDeclOrExpr,
+    VarDeclOrPat, VarDeclarator,
 };
 use swc_ecmascript::{
     ast::Script,
@@ -516,54 +517,119 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
             //# b. If env.HasLexicalDeclaration(name) is true, throw a SyntaxError exception.
             //# c. Let hasRestrictedGlobal be ? env.HasRestrictedGlobalProperty(name).
             //# d. If hasRestrictedGlobal is true, throw a SyntaxError exception.
+            todo!();
         }
 
         //# 5. For each element name of varNames, do
         for elem in varNames {
+            //# a. If env.HasLexicalDeclaration(name) is true, throw a SyntaxError exception.
             let name = self.bld.constant_str_utf16(elem);
             let name = self.make_string(name);
-            //# a. If env.HasLexicalDeclaration(name) is true, throw a SyntaxError exception.
         }
 
         //# 6. Let varDeclarations be the VarScopedDeclarations of script.
+        let varDeclarations = VarScopedDeclarations::compute(script);
+
         //# 7. Let functionsToInitialize be a new empty List.
+        let mut functionsToInitialize = Vec::new();
+
         //# 8. Let declaredFunctionNames be a new empty List.
+        let mut declaredFunctionNames = Vec::new();
+
         //# 9. For each element d of varDeclarations, in reverse List order, do
-        //# a. If d is neither a VariableDeclaration nor a ForBinding nor a BindingIdentifier, then
-        //# i. Assert: d is either a FunctionDeclaration, a GeneratorDeclaration, an AsyncFunctionDeclaration, or an AsyncGeneratorDeclaration.
-        //# ii. NOTE: If there are multiple function declarations for the same name, the last declaration is used.
-        //# iii. Let fn be the sole element of the BoundNames of d.
-        //# iv. If fn is not an element of declaredFunctionNames, then
-        //# 1. Let fnDefinable be ? env.CanDeclareGlobalFunction(fn).
-        //# 2. If fnDefinable is false, throw a TypeError exception.
-        //# 3. Append fn to declaredFunctionNames.
-        //# 4. Insert d as the first element of functionsToInitialize.
+        for d in varDeclarations.iter().rev() {
+            //# a. If d is neither a VariableDeclaration nor a ForBinding nor a BindingIdentifier, then
+            if let VarDeclaratorKind::DeclaredFunctionName(d) = d {
+                //# i. Assert: d is either a FunctionDeclaration, a GeneratorDeclaration, an AsyncFunctionDeclaration, or an AsyncGeneratorDeclaration.
+                //# ii. NOTE: If there are multiple function declarations for the same name, the last declaration is used.
+                //# iii. Let fn be the sole element of the BoundNames of d.
+                let r#fn = BoundNames::compute_fn(d).remove(0);
+
+                //# iv. If fn is not an element of declaredFunctionNames, then
+                if !declaredFunctionNames.contains(&r#fn) {
+                    //# 1. Let fnDefinable be ? env.CanDeclareGlobalFunction(fn).
+                    //# 2. If fnDefinable is false, throw a TypeError exception.
+                    //# 3. Append fn to declaredFunctionNames.
+                    declaredFunctionNames.push(r#fn);
+
+                    //# 4. Insert d as the first element of functionsToInitialize.
+                    functionsToInitialize.insert(0, d);
+                }
+            }
+        }
+
         //# 10. Let declaredVarNames be a new empty List.
+        let mut declaredVarNames = Vec::new();
+
         //# 11. For each element d of varDeclarations, do
-        //# a. If d is a VariableDeclaration, a ForBinding, or a BindingIdentifier, then
-        //# i. For each String vn of the BoundNames of d, do
-        //# 1. If vn is not an element of declaredFunctionNames, then
-        //# a. Let vnDefinable be ? env.CanDeclareGlobalVar(vn).
-        //# b. If vnDefinable is false, throw a TypeError exception.
-        //# c. If vn is not an element of declaredVarNames, then
-        //# i. Append vn to declaredVarNames.
-        //# 12. NOTE: No abnormal terminations occur after this algorithm step if the global object is an ordinary object. However, if the global object is a Proxy exotic object it may exhibit behaviours that cause abnormal terminations in some of the following steps.
+        for d in varDeclarations.iter() {
+            //# a. If d is a VariableDeclaration, a ForBinding, or a BindingIdentifier, then
+            if let VarDeclaratorKind::DeclaredVariableName(d) = d {
+                //# i. For each String vn of the BoundNames of d, do
+                for vn in BoundNames::compute(d) {
+                    //# 1. If vn is not an element of declaredFunctionNames, then
+                    if !declaredFunctionNames.contains(&vn) {
+                        //# a. Let vnDefinable be ? env.CanDeclareGlobalVar(vn).
+                        //# b. If vnDefinable is false, throw a TypeError exception.
+                        //# c. If vn is not an element of declaredVarNames, then
+                        if !declaredVarNames.contains(&vn) {
+                            //# i. Append vn to declaredVarNames.
+                            declaredVarNames.push(vn);
+                        }
+                    }
+                }
+            }
+        }
+
+        //# 12. NOTE: No abnormal terminations occur after this algorithm step
+        //#     if the global object is an ordinary object. However, if the
+        //#     global object is a Proxy exotic object it may exhibit behaviours
+        //#     that cause abnormal terminations in some of the following steps.
+
         //# 13. NOTE: Annex B.3.3.2 adds additional steps at this point.
+
         //# 14. Let lexDeclarations be the LexicallyScopedDeclarations of script.
+        let lexDeclarations = LexicallyScopedDeclarations::compute(script);
+
         //# 15. Let privateEnv be null.
+        let privateEnv = self.make_null();
+
         //# 16. For each element d of lexDeclarations, do
-        //# a. NOTE: Lexically declared names are only instantiated here but not initialized.
-        //# b. For each element dn of the BoundNames of d, do
-        //# i. If IsConstantDeclaration of d is true, then
-        //# 1. Perform ? env.CreateImmutableBinding(dn, true).
-        //# ii. Else,
-        //# 1. Perform ? env.CreateMutableBinding(dn, false).
+        for d in lexDeclarations {
+            //# a. NOTE: Lexically declared names are only instantiated here but not initialized.
+
+            //# b. For each element dn of the BoundNames of d, do
+            let (IsConstantDeclaration, bound_names) = d.bound_names();
+            for dn in bound_names {
+                //# i. If IsConstantDeclaration of d is true, then
+                if IsConstantDeclaration {
+                    //# 1. Perform ? env.CreateImmutableBinding(dn, true).
+                    todo!("const");
+                } else {
+                    //# ii. Else,
+                    //# 1. Perform ? env.CreateMutableBinding(dn, false).
+                    todo!("non const");
+                }
+            }
+        }
+
         //# 17. For each Parse Node f of functionsToInitialize, do
-        //# a. Let fn be the sole element of the BoundNames of f.
-        //# b. Let fo be InstantiateFunctionObject of f with arguments env and privateEnv.
-        //# c. Perform ? env.CreateGlobalFunctionBinding(fn, fo, false).
+        for f in functionsToInitialize {
+            //# a. Let fn be the sole element of the BoundNames of f.
+            let r#fn = BoundNames::compute_fn(f).remove(0);
+
+            //# b. Let fo be InstantiateFunctionObject of f with arguments env and privateEnv.
+            todo!();
+
+            //# c. Perform ? env.CreateGlobalFunctionBinding(fn, fo, false).
+        }
+
         //# 18. For each String vn of declaredVarNames, do
-        //# a. Perform ? env.CreateGlobalVarBinding(vn, false).
+        for vn in declaredVarNames {
+            //# a. Perform ? env.CreateGlobalVarBinding(vn, false).
+            todo!();
+        }
+
         //# 19. Return NormalCompletion(empty).
         // TODO: implement ZST `empty`
         let empty = self.make_undefined();
@@ -1062,7 +1128,7 @@ impl TopLevelLexicallyDeclaredNames<'_> {
             //# 2. Return the BoundNames of Declaration.
             match stmt {
                 Stmt::Decl(Decl::Class(class)) => BoundNames(self.0).Class(class),
-                Stmt::Decl(Decl::Var(lex)) => BoundNames(self.0).Lexical(lex),
+                Stmt::Decl(Decl::Var(lex)) => BoundNames(self.0).VariableDeclarationList(lex),
                 _ => {}
             }
         }
@@ -1229,7 +1295,33 @@ struct BoundNames<'names>(&'names mut Vec<String>);
 
 /// <https://tc39.es/ecma262/#sec-static-semantics-boundnames>
 impl BoundNames<'_> {
+    pub fn compute(var_declarator: &VarDeclarator) -> Vec<String> {
+        let mut names = Vec::new();
+        BoundNames(&mut names).LexicalBinding(&var_declarator.name);
+        names
+    }
+
+    pub fn compute_fn(func: &FnDecl) -> Vec<String> {
+        let mut names = Vec::new();
+        BoundNames(&mut names).HoistableDeclaration(&func);
+        names
+    }
+
+    pub fn compute_cls(cls: &ClassDecl) -> Vec<String> {
+        let mut names = Vec::new();
+        BoundNames(&mut names).Class(&cls);
+        names
+    }
+
     fn VariableDeclarationList(&mut self, v: &VarDecl) {
+        //# LexicalDeclaration : LetOrConst BindingList ;
+        //# 1. Return the BoundNames of BindingList.
+
+        // for loop
+        //# BindingList : BindingList , LexicalBinding
+        //# 1. Let names1 be the BoundNames of BindingList.
+        //# 2. Let names2 be the BoundNames of LexicalBinding.
+        //# 3. Return the list-concatenation of names1 and names2.
         for lex in v.decls.iter() {
             self.LexicalBinding(&lex.name);
         }
@@ -1242,25 +1334,12 @@ impl BoundNames<'_> {
         // should return
     }
 
-    fn Lexical(&mut self, lex: &VarDecl) {
-        //# LexicalDeclaration : LetOrConst BindingList ;
-        //# 1. Return the BoundNames of BindingList.
-
-        // for loop
-        //# BindingList : BindingList , LexicalBinding
-        //# 1. Let names1 be the BoundNames of BindingList.
-        //# 2. Let names2 be the BoundNames of LexicalBinding.
-        //# 3. Return the list-concatenation of names1 and names2.
-        for decl in lex.decls.iter() {
-            self.LexicalBinding(&decl.name);
-        }
-    }
-
     fn HoistableDeclaration(&mut self, func: &FnDecl) {
         //# FunctionDeclaration[?Yield, ?Await, ?Default]
         //# GeneratorDeclaration[?Yield, ?Await, ?Default]
         //# AsyncFunctionDeclaration[?Yield, ?Await, ?Default]
         //# AsyncGeneratorDeclaration[?Yield, ?Await, ?Default]
+        self.swc_identifier(&func.ident);
     }
 
     fn LexicalBinding(&mut self, pat: &Pat) {
@@ -1307,5 +1386,250 @@ impl BoundNames<'_> {
 
     fn swc_identifier(&mut self, ident: &Ident) {
         self.0.push(ident.sym.to_string());
+    }
+}
+
+enum VarDeclaratorKind {
+    /// If d is neither a VariableDeclaration nor a ForBinding nor a BindingIdentifier, then
+    DeclaredFunctionName(FnDecl),
+    /// a. If d is a VariableDeclaration, a ForBinding, or a BindingIdentifier, then
+    DeclaredVariableName(VarDeclarator),
+}
+
+struct VarScopedDeclarations<'names>(&'names mut Vec<VarDeclaratorKind>);
+
+#[allow(non_snake_case)]
+impl VarScopedDeclarations<'_> {
+    pub fn compute(script: &Script) -> Vec<VarDeclaratorKind> {
+        let mut decls = Vec::new();
+        VarScopedDeclarations(&mut decls).Script(script);
+        decls
+    }
+
+    fn Script(&mut self, script: &Script) {
+        //# ScriptBody : StatementList
+        //# 1. Return TopLevelVarScopedDeclarations of StatementList.
+        TopLevelVarScopedDeclarations(self.0).StatementList(&script.body)
+    }
+
+    fn StatementList(&mut self, stmts: &[Stmt]) {
+        // for loop:
+        //# StatementList : StatementList StatementListItem
+        //# 1. Let declarations1 be VarScopedDeclarations of StatementList.
+        //# 2. Let declarations2 be VarScopedDeclarations of StatementListItem.
+        //# 3. Return the list-concatenation of declarations1 and declarations2.
+        for stmt in stmts {
+            self.Statement(stmt);
+        }
+    }
+
+    fn Statement(&mut self, stmt: &Stmt) {
+        // <https://github.com/engine262/engine262/blob/main/src/static-semantics/VarScopedDeclarations.mjs>
+        match stmt {
+            Stmt::Block(s) => self.StatementList(&s.stmts),
+            Stmt::Empty(_) => {}
+            Stmt::If(s) => {
+                self.Statement(&*s.cons);
+
+                if let Some(alt) = &s.alt {
+                    self.Statement(&**alt);
+                }
+            }
+            Stmt::While(s) => self.Statement(&*s.body),
+            Stmt::DoWhile(s) => self.Statement(&*s.body),
+            Stmt::For(s) => {
+                if let Some(VarDeclOrExpr::VarDecl(v)) = &s.init {
+                    self.VariableDeclarationList(v, VarDeclaratorKind::DeclaredVariableName);
+                }
+
+                self.Statement(&*s.body);
+            }
+            Stmt::ForIn(s) => {
+                if let VarDeclOrPat::VarDecl(v) = &s.left {
+                    self.VariableDeclarationList(v, VarDeclaratorKind::DeclaredVariableName);
+                }
+
+                self.Statement(&*s.body);
+            }
+            Stmt::ForOf(s) => {
+                if let VarDeclOrPat::VarDecl(v) = &s.left {
+                    self.VariableDeclarationList(&v, VarDeclaratorKind::DeclaredVariableName);
+                }
+
+                self.Statement(&*s.body);
+            }
+            Stmt::With(s) => self.Statement(&*s.body),
+            Stmt::Switch(s) => {
+                for case in s.cases.iter() {
+                    self.StatementList(&case.cons);
+                }
+            }
+            Stmt::Labeled(s) => self.Statement(&*s.body),
+            Stmt::Try(s) => {
+                self.StatementList(&s.block.stmts);
+
+                if let Some(c) = &s.handler {
+                    self.StatementList(&*c.body.stmts);
+                }
+
+                if let Some(c) = &s.finalizer {
+                    self.StatementList(&c.stmts);
+                }
+            }
+            Stmt::Decl(Decl::Fn(f)) => {
+                if let Some(body) = &f.function.body {
+                    TopLevelVarScopedDeclarations(self.0).StatementList(&body.stmts)
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn VariableDeclarationList<F>(&mut self, v: &VarDecl, f: F)
+    where
+        F: Fn(VarDeclarator) -> VarDeclaratorKind,
+    {
+        //# VariableDeclarationList : VariableDeclarationList , VariableDeclaration
+        //# 1. Let declarations1 be VarScopedDeclarations of VariableDeclarationList.
+        //# 2. Return the list-concatenation of declarations1 and « VariableDeclaration ».
+        for d in v.decls.iter() {
+            self.0.push(f(d.clone()));
+        }
+    }
+}
+
+struct TopLevelVarScopedDeclarations<'names>(&'names mut Vec<VarDeclaratorKind>);
+
+#[allow(non_snake_case)]
+impl TopLevelVarScopedDeclarations<'_> {
+    fn StatementList(&mut self, stmts: &[Stmt]) {
+        // for loop:
+        //# StatementList : StatementList StatementListItem
+        //# 1. Let declarations1 be TopLevelVarScopedDeclarations of StatementList.
+        //# 2. Let declarations2 be TopLevelVarScopedDeclarations of StatementListItem.
+        //# 3. Return the list-concatenation of declarations1 and declarations2.
+        for stmt in stmts {
+            self.Statement(stmt);
+        }
+    }
+
+    fn Statement(&mut self, stmt: &Stmt) {
+        //# StatementListItem : Statement
+        //# 1. If Statement is Statement : LabelledStatement , return TopLevelVarScopedDeclarations of Statement.
+        //# 2. Return VarScopedDeclarations of Statement.
+        match stmt {
+            // this is a hack to get the data in a way that VarScopedDecls understands
+            Stmt::Decl(Decl::Fn(f)) => {
+                (self.0).push(VarDeclaratorKind::DeclaredFunctionName(f.clone()))
+            }
+            // this is a hack to get the data in a way that VarScopedDecls understands
+            Stmt::Decl(Decl::Class(c)) => VarScopedDeclarations(self.0).VariableDeclarationList(
+                &VarDecl {
+                    span: c.ident.span,
+                    kind: VarDeclKind::Let,
+                    declare: false,
+                    decls: vec![VarDeclarator {
+                        span: c.ident.span,
+                        name: Pat::Ident(BindingIdent {
+                            id: c.ident.clone(),
+                            type_ann: None,
+                        }),
+                        init: None,
+                        definite: false,
+                    }],
+                },
+                VarDeclaratorKind::DeclaredVariableName,
+            ),
+            Stmt::Decl(Decl::Var(v)) => {
+                VarScopedDeclarations(self.0)
+                    .VariableDeclarationList(v, VarDeclaratorKind::DeclaredVariableName);
+            }
+            _ => VarScopedDeclarations(self.0).Statement(stmt),
+        }
+    }
+}
+
+enum LexicalScopedDecl {
+    Function(FnDecl),
+    Class(ClassDecl),
+    Variable(VarDecl),
+}
+
+impl LexicalScopedDecl {
+    fn bound_names(&self) -> (bool, Vec<String>) {
+        match self {
+            LexicalScopedDecl::Function(f) => (false, BoundNames::compute_fn(f)),
+            LexicalScopedDecl::Class(f) => (false, BoundNames::compute_cls(f)),
+            LexicalScopedDecl::Variable(v) => {
+                let mut bound_names = Vec::new();
+                for v in v.decls.iter() {
+                    bound_names.extend(BoundNames::compute(v));
+                }
+
+                (matches!(v.kind, VarDeclKind::Const), bound_names)
+            }
+        }
+    }
+}
+
+struct LexicallyScopedDeclarations<'names>(&'names mut Vec<LexicalScopedDecl>);
+
+#[allow(non_snake_case)]
+impl LexicallyScopedDeclarations<'_> {
+    fn compute(script: &Script) -> Vec<LexicalScopedDecl> {
+        let mut names = Vec::new();
+        LexicallyScopedDeclarations(&mut names).Script(script);
+        names
+    }
+
+    fn Script(&mut self, script: &Script) {
+        self.StatementList(&script.body);
+    }
+
+    fn StatementList(&mut self, stmts: &[Stmt]) {
+        // for loop:
+        //# StatementList : StatementList StatementListItem
+        //# 1. Let declarations1 be LexicallyScopedDeclarations of StatementList.
+        //# 2. Let declarations2 be LexicallyScopedDeclarations of StatementListItem.
+        //# 3. Return the list-concatenation of declarations1 and declarations2.
+        for stmt in stmts {
+            self.Statement(stmt);
+        }
+    }
+
+    fn Statement(&mut self, stmt: &Stmt) {
+        match stmt {
+            Stmt::Decl(Decl::Fn(f)) => {}
+            _ => {}
+        }
+    }
+}
+
+struct TopLevelLexicallyScopedDeclarations<'names>(&'names mut Vec<LexicalScopedDecl>);
+
+#[allow(non_snake_case)]
+impl TopLevelLexicallyScopedDeclarations<'_> {
+    fn StatementList(&mut self, stmts: &[Stmt]) {
+        // for loop:
+        //# StatementList : StatementList StatementListItem
+        //# 1. Let declarations1 be LexicallyScopedDeclarations of StatementList.
+        //# 2. Let declarations2 be LexicallyScopedDeclarations of StatementListItem.
+        //# 3. Return the list-concatenation of declarations1 and declarations2.
+        for stmt in stmts {
+            self.Statement(stmt);
+        }
+    }
+
+    fn Statement(&mut self, stmt: &Stmt) {
+        match stmt {
+            Stmt::Decl(Decl::Class(c)) => {
+                //
+            }
+            Stmt::Decl(Decl::Var(v)) => {
+
+                //
+            }
+            _ => {}
+        }
     }
 }

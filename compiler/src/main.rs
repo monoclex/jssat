@@ -144,7 +144,18 @@ fn main() {
     //     .expect("expected file name");
 
     // let content = std::fs::read_to_string(file_name).expect("expected to read file");
-    let content = "print('Hello, World!');".to_owned();
+    let content = r#"
+
+function x() {
+    
+}
+
+x();
+
+print('Hello, World!');
+
+"#
+    .to_owned();
 
     let ir = frontend::js::traverse(content);
     println!("{}", display_jssatir::display(&ir));
