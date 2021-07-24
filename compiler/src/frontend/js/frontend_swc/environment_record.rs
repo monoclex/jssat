@@ -1,9 +1,10 @@
 //! x
 
-use std::rc::Rc;
+use ref_cast::RefCast;
+use std::ops::Deref;
 
 use crate::{
-    frontend::builder::{DynBlockBuilder, FnSignature, FunctionId, ProgramBuilder, RegisterId},
+    frontend::builder::{DynBlockBuilder, FnSignature, ProgramBuilder, RegisterId},
     isa::InternalSlot,
 };
 
@@ -145,7 +146,8 @@ impl EnvironmentRecordFactory {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, RefCast)]
+#[repr(transparent)]
 pub struct EnvironmentRecord {
     pub register: RegisterId,
 }
@@ -160,8 +162,39 @@ impl EnvironmentRecord {
     }
 
     pub fn HasBinding(&self, block: &mut DynBlockBuilder, N: RegisterId) -> RegisterId {
+        block.comment("HasBinding");
+
         let func = block.record_get_slot(self.register, InternalSlot::JSSATHasBinding);
         block.call_virt_with_result(func, [self.register, N])
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct GlobalEnvironmentRecord {
+    pub register: RegisterId,
+}
+
+impl Deref for GlobalEnvironmentRecord {
+    type Target = EnvironmentRecord;
+
+    fn deref(&self) -> &Self::Target {
+        EnvironmentRecord::ref_cast(&self.register)
+    }
+}
+
+#[allow(non_snake_case)]
+impl GlobalEnvironmentRecord {
+    /// This assumes that you have created an [`EnvironmentRecord`] with the
+    /// [`EnvironmentRecordFactory`] before-hand. If you have not done so, this
+    /// API will not behave correctly. Use at your own disgression.
+    pub fn new_with_register_unchecked(record: RegisterId) -> Self {
+        Self { register: record }
+    }
+
+    pub fn HasVarDeclaration(&self, block: &mut DynBlockBuilder, N: RegisterId) -> RegisterId {
+        block.comment("HasVarDeclaration");
+
+        todo!()
     }
 }
 

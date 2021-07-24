@@ -18,7 +18,9 @@ use swc_ecmascript::{
 
 use std::iter::FromIterator;
 
-use self::environment_record::{EnvironmentRecord, EnvironmentRecordFactory};
+use self::environment_record::{
+    EnvironmentRecord, EnvironmentRecordFactory, GlobalEnvironmentRecord,
+};
 use crate::frontend::{builder::*, ir::*};
 use crate::isa::InternalSlot;
 
@@ -484,6 +486,7 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
         self.comment("GlobalDeclarationInstantiation");
 
         //# 1. Assert: env is a global Environment Record.
+        let env = GlobalEnvironmentRecord::new_with_register_unchecked(env.register);
 
         //# 2. Let lexNames be the LexicallyDeclaredNames of script.
         let lexNames = LexicallyDeclaredNames::compute(script);
