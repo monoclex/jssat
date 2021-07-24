@@ -460,6 +460,10 @@ impl DynBlockBuilder {
         result
     }
 
+    pub fn make_bool(&mut self, value: bool) -> RegisterId {
+        todo!();
+    }
+
     pub fn make_null(&mut self) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions

@@ -12,7 +12,7 @@ pub struct EnvironmentRecordFactory {
     declarative_environment_vtable: EnvironmentRecordVTable,
     object_environment_vtable: EnvironmentRecordVTable,
     function_environment_vtable: EnvironmentRecordVTable,
-    global_environment_vtable: EnvironmentRecordVTable,
+    global_environment_vtable: GlobalEnvironmentRecordVTable,
     // module_environment_vtable: EnvironmentRecordVTable,
 }
 
@@ -46,8 +46,40 @@ impl EnvironmentRecordFactory {
         self.make_env_rec(block, &self.function_environment_vtable)
     }
 
-    pub fn make_global_env_rec(&self, block: &mut DynBlockBuilder) -> EnvironmentRecord {
-        self.make_env_rec(block, &self.global_environment_vtable)
+    pub fn make_global_env_rec(&self, block: &mut DynBlockBuilder) -> GlobalEnvironmentRecord {
+        let vtable = &self.global_environment_vtable;
+        let env_rec = self.make_env_rec(block, &self.global_environment_vtable.normal);
+
+        let decl_rec = self.make_decl_env_rec(block);
+        block.record_set_slot(
+            env_rec.register,
+            InternalSlot::DeclarativeRecord,
+            decl_rec.register,
+        );
+
+        let has_var_declaration = block.make_fnptr(vtable.has_var_declaration.id);
+        block.record_set_slot(
+            env_rec.register,
+            InternalSlot::JSSATHasVarDeclaration,
+            has_var_declaration,
+        );
+
+        let has_lexical_declaration = block.make_fnptr(vtable.has_lexical_declaration.id);
+        block.record_set_slot(
+            env_rec.register,
+            InternalSlot::JSSATHasLexicalDeclaration,
+            has_lexical_declaration,
+        );
+
+        let has_restricted_global_property =
+            block.make_fnptr(vtable.has_restricted_global_property.id);
+        block.record_set_slot(
+            env_rec.register,
+            InternalSlot::JSSATHasRestrictedGlobalProperty,
+            has_restricted_global_property,
+        );
+
+        GlobalEnvironmentRecord::new_with_register_unchecked(env_rec.register)
     }
 
     fn make_env_rec(
@@ -72,8 +104,9 @@ impl EnvironmentRecordFactory {
             // TODO: instruction to see if key/value exists
 
             //# 2. Return false.
+            let result = w.make_bool(false);
 
-            f.end_block(w.ret(None));
+            f.end_block(w.ret(Some(result)));
             writer.end_function(f)
         };
 
@@ -117,7 +150,7 @@ impl EnvironmentRecordFactory {
         }
     }
 
-    fn init_vtable_global(writer: &mut ProgramBuilder) -> EnvironmentRecordVTable {
+    fn init_vtable_global(writer: &mut ProgramBuilder) -> GlobalEnvironmentRecordVTable {
         let has_binding = {
             let (mut f, [envRec, N]) = writer.start_function();
             let mut w = f.start_block_main();
@@ -142,7 +175,56 @@ impl EnvironmentRecordFactory {
             writer.end_function(f)
         };
 
-        EnvironmentRecordVTable { has_binding }
+        let has_var_declaration = {
+            let (mut f, [envRec, N]) = writer.start_function();
+            let mut w = f.start_block_main();
+
+            //# 1. Let varDeclaredNames be envRec.[[VarNames]].
+            //# 2. If varDeclaredNames contains N, return true.
+            //# 3. Return false.
+            let result = w.make_bool(false);
+
+            f.end_block(w.ret(Some(result)));
+            writer.end_function(f)
+        };
+
+        let has_lexical_declaration = {
+            let (mut f, [envRec, N]) = writer.start_function();
+            let mut w = f.start_block_main();
+
+            //# 1. Let DclRec be envRec.[[DeclarativeRecord]].
+            let DclRec = w.record_get_slot(envRec, InternalSlot::DeclarativeRecord);
+
+            //# 2. Return DclRec.HasBinding(N).
+            let DclRec = EnvironmentRecord::new_with_register_unchecked(DclRec);
+            let result = DclRec.HasBinding(&mut w, N);
+
+            f.end_block(w.ret(Some(result)));
+            writer.end_function(f)
+        };
+
+        let has_restricted_global_property = {
+            let (mut f, [envRec, N]) = writer.start_function();
+            let mut w = f.start_block_main();
+
+            //# 1. Let ObjRec be envRec.[[ObjectRecord]].
+            //# 2. Let globalObject be ObjRec.[[BindingObject]].
+            //# 3. Let existingProp be ? globalObject.[[GetOwnProperty]](N).
+            //# 4. If existingProp is undefined, return false.
+            //# 5. If existingProp.[[Configurable]] is true, return false.
+            //# 6. Return true.
+            let result = w.make_bool(false);
+
+            f.end_block(w.ret(Some(result)));
+            writer.end_function(f)
+        };
+
+        GlobalEnvironmentRecordVTable {
+            normal: EnvironmentRecordVTable { has_binding },
+            has_var_declaration,
+            has_lexical_declaration,
+            has_restricted_global_property,
+        }
     }
 }
 
@@ -194,7 +276,29 @@ impl GlobalEnvironmentRecord {
     pub fn HasVarDeclaration(&self, block: &mut DynBlockBuilder, N: RegisterId) -> RegisterId {
         block.comment("HasVarDeclaration");
 
-        todo!()
+        let fn_ptr = block.record_get_slot(self.register, InternalSlot::JSSATHasVarDeclaration);
+        block.call_virt_with_result(fn_ptr, [self.register, N])
+    }
+
+    pub fn HasLexicalDeclaration(&self, block: &mut DynBlockBuilder, N: RegisterId) -> RegisterId {
+        block.comment("HasLexicalDeclaration");
+
+        let fn_ptr = block.record_get_slot(self.register, InternalSlot::JSSATHasLexicalDeclaration);
+        block.call_virt_with_result(fn_ptr, [self.register, N])
+    }
+
+    pub fn HasRestrictedGlobalProperty(
+        &self,
+        block: &mut DynBlockBuilder,
+        N: RegisterId,
+    ) -> RegisterId {
+        block.comment("HasRestrictedGlobalProperty");
+
+        let fn_ptr = block.record_get_slot(
+            self.register,
+            InternalSlot::JSSATHasRestrictedGlobalProperty,
+        );
+        block.call_virt_with_result(fn_ptr, [self.register, N])
     }
 }
 
@@ -215,4 +319,17 @@ struct EnvironmentRecordVTable {
     // has_this_binding: FnSignature<1>,
     // has_super_binding: FnSignature<1>,
     // with_base_object: FnSignature<1>,
+}
+
+/// Has fields for every method specified in
+/// <https://tc39.es/ecma262/#table-additional-methods-of-global-environment-records>.
+///
+/// Every function has one parameter for the environment record itself to be
+/// passed in, and the remaining parameters are dedicated to what's specified
+/// in the specification.
+struct GlobalEnvironmentRecordVTable {
+    normal: EnvironmentRecordVTable,
+    has_var_declaration: FnSignature<2>,
+    has_lexical_declaration: FnSignature<2>,
+    has_restricted_global_property: FnSignature<2>,
 }

@@ -313,7 +313,7 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
         &mut self,
         G: RegisterId,
         thisValue: RegisterId,
-    ) -> EnvironmentRecord {
+    ) -> GlobalEnvironmentRecord {
         //# 1. Let objRec be NewObjectEnvironment(G, false, null).
         //# 2. Let dclRec be a new declarative Environment Record containing no bindings.
         let dclRec = self.env_factory.make_decl_env_rec(&mut self.block);
@@ -513,11 +513,51 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
         for elem in lexNames {
             let name = self.bld.constant_str_utf16(elem);
             let name = self.make_string(name);
+
             //# a. If env.HasVarDeclaration(name) is true, throw a SyntaxError exception.
+            let cond = env.HasVarDeclaration(&mut self.block, name);
+            self.perform_if(cond, |me| {
+                // TODO: throw a SyntaxError properly
+                let constant = me.bld.constant_str_utf16("SyntaxError occurred".into());
+                let syntax_error = me.make_string(constant);
+                let completion = me.ThrowCompletion(syntax_error);
+
+                let (mut hack, []) = me.bld_fn.start_block();
+                std::mem::swap(&mut me.block, &mut hack);
+                me.bld_fn.end_block(hack.ret(Some(completion)));
+                // me.ret(Some(completion));
+            });
+
             //# b. If env.HasLexicalDeclaration(name) is true, throw a SyntaxError exception.
+            let cond = env.HasLexicalDeclaration(&mut self.block, name);
+            self.perform_if(cond, |me| {
+                // TODO: throw a SyntaxError properly
+                let constant = me.bld.constant_str_utf16("SyntaxError occurred".into());
+                let syntax_error = me.make_string(constant);
+                let completion = me.ThrowCompletion(syntax_error);
+
+                let (mut hack, []) = me.bld_fn.start_block();
+                std::mem::swap(&mut me.block, &mut hack);
+                me.bld_fn.end_block(hack.ret(Some(completion)));
+                // me.ret(Some(completion));
+            });
+
             //# c. Let hasRestrictedGlobal be ? env.HasRestrictedGlobalProperty(name).
+            let hasRestrictedGlobal_try = env.HasRestrictedGlobalProperty(&mut self.block, name);
+            let hasRestrictedGlobal = self.ReturnIfAbrupt(hasRestrictedGlobal_try);
+
             //# d. If hasRestrictedGlobal is true, throw a SyntaxError exception.
-            todo!();
+            self.perform_if(cond, |me| {
+                // TODO: throw a SyntaxError properly
+                let constant = me.bld.constant_str_utf16("SyntaxError occurred".into());
+                let syntax_error = me.make_string(constant);
+                let completion = me.ThrowCompletion(syntax_error);
+
+                let (mut hack, []) = me.bld_fn.start_block();
+                std::mem::swap(&mut me.block, &mut hack);
+                me.bld_fn.end_block(hack.ret(Some(completion)));
+                // me.ret(Some(completion));
+            });
         }
 
         //# 5. For each element name of varNames, do
@@ -969,6 +1009,24 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
         let normal = self
             .block
             .make_string(self.bld.constant_str("normal".into()));
+        self.record_set_slot(completion_record, InternalSlot::Type, normal);
+        self.record_set_slot(completion_record, InternalSlot::Value, argument);
+        let empty = self
+            .block
+            .make_string(self.bld.constant_str("empty".into()));
+        self.record_set_slot(completion_record, InternalSlot::Target, empty);
+        completion_record
+    }
+
+    /// <https://tc39.es/ecma262/#sec-throwcompletion>
+    pub fn ThrowCompletion(&mut self, argument: RegisterId) -> RegisterId {
+        self.comment("ThrowCompletion");
+
+        //# 1. Return Completion { [[Type]]: throw, [[Value]]: argument, [[Target]]: empty }.
+        let completion_record = self.record_new();
+        let normal = self
+            .block
+            .make_string(self.bld.constant_str("throw".into()));
         self.record_set_slot(completion_record, InternalSlot::Type, normal);
         self.record_set_slot(completion_record, InternalSlot::Value, argument);
         let empty = self

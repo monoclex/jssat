@@ -706,6 +706,9 @@ impl<C: Tag> RecordKey<C> {
 pub enum InternalSlot {
     JSSATRandomDebugSlot,
     JSSATHasBinding,
+    JSSATHasVarDeclaration,
+    JSSATHasLexicalDeclaration,
+    JSSATHasRestrictedGlobalProperty,
     // TODO: expand this to all ecmascript internal slot types
     // (should this even be here?)
     Function,
