@@ -78,11 +78,12 @@ impl ProgramBuilder {
         ConstantId::new_with_value(id)
     }
 
-    pub fn constant_str(&mut self, message: String) -> ConstantId {
-        self.constant(message.into_bytes())
+    pub fn constant_str<S: Into<String>>(&mut self, message: S) -> ConstantId {
+        self.constant(message.into().into_bytes())
     }
 
-    pub fn constant_str_utf16(&mut self, message: String) -> ConstantId {
+    pub fn constant_str_utf16<S: Into<String>>(&mut self, message: S) -> ConstantId {
+        let message = message.into();
         let mut payload = Vec::with_capacity(message.len() * 2);
 
         let utf16_payload = message

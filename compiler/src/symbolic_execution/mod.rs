@@ -4,6 +4,7 @@ use std::sync::TryLockError;
 
 use crate::frontend::assembler;
 use crate::id::*;
+use crate::isa;
 use crate::lifted::LiftedProgram;
 use crate::retag::ExtFnPassRetagger;
 use crate::retag::ExtFnRetagger;
@@ -90,7 +91,7 @@ pub fn execute(program: &'static LiftedProgram) -> assembler::Program {
             };
 
             // print `n` instructions before and after the instruction we're on
-            let n = 5;
+            let n = 7;
 
             let idx = match w.inst_on {
                 CurrentInstruction::None => {
@@ -117,6 +118,8 @@ pub fn execute(program: &'static LiftedProgram) -> assembler::Program {
                 Some(idx) => idx.saturating_sub(n)..idx.saturating_add(n),
                 None => 0..5,
             };
+
+            println!("fn @{}({})", w.id, isa::Registers(&w.func.parameters));
 
             if !inst_range.contains(&0) {
                 println!("| ...");

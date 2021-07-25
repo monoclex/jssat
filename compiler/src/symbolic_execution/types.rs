@@ -22,6 +22,18 @@ pub enum ReturnType {
     Never,
 }
 
+impl ReturnType {
+    pub fn map<F>(self, map: F) -> ReturnType
+    where
+        F: FnOnce(RegisterType) -> RegisterType,
+    {
+        match self {
+            ReturnType::Value(v) => ReturnType::Value(map(v)),
+            other => other,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum RegisterType {
     Any,
@@ -341,11 +353,17 @@ impl TypeBag {
             // TODO: don't duplicate this code with the hunk at the bottom
             let new_tp = match typ {
                 RegisterType::Record(a) => {
-                    need_to_shape.push_back(a);
-                    let new_a = new.alloc_allocation();
+                    if let Some(alloc) = alloc_map.get(&a) {
+                        // i want a warning
+                        let WE_SHOULDNT_HAVE_TO_DO_THIS = true;
+                        RegisterType::Record(*alloc)
+                    } else {
+                        need_to_shape.push_back(a);
+                        let new_a = new.alloc_allocation();
 
-                    alloc_map.insert(a, new_a);
-                    RegisterType::Record(new_a)
+                        alloc_map.insert(a, new_a).expect_none("");
+                        RegisterType::Record(new_a)
+                    }
                 }
                 RegisterType::Byts(c) => {
                     RegisterType::Byts(new.intern_constant(self.unintern_const(c)))
@@ -353,7 +371,13 @@ impl TypeBag {
                 other => other,
             };
 
-            new.assign_type(d_reg, new_tp);
+            if let Some(exists) = new.registers.get(&d_reg) {
+                // i want a warning
+                let WE_SHOULDNT_HAVE_TO_DO_THIS = true;
+                debug_assert_eq!(new_tp, *exists, "if we're re-assigning a type to a register it should at least be the same time");
+            } else {
+                new.assign_type(d_reg, new_tp);
+            }
         }
 
         let mut shape_map = FxHashMap::default();
@@ -404,6 +428,76 @@ impl TypeBag {
         }
 
         new
+    }
+
+    // TODO: deduplicate this code
+    pub fn pull_type_into(&self, typ: RegisterType, into: &mut TypeBag) -> RegisterType {
+        let mut alloc_map = FxHashMap::default();
+        let mut need_to_shape = VecDeque::new();
+
+        // TODO: don't duplicate this code with the hunk at the bottom
+        let new_tp = match typ {
+            RegisterType::Record(a) => {
+                need_to_shape.push_back(a);
+                let new_a = into.alloc_allocation();
+
+                alloc_map.insert(a, new_a);
+                RegisterType::Record(new_a)
+            }
+            RegisterType::Byts(c) => {
+                RegisterType::Byts(into.intern_constant(self.unintern_const(c)))
+            }
+            other => other,
+        };
+
+        let mut shape_map = FxHashMap::default();
+
+        while let Some(alloc_id) = need_to_shape.pop_front() {
+            let shape_id = self.get_shape_id(alloc_id);
+
+            let mapped_alloc_id = *alloc_map.get(&alloc_id).unwrap();
+
+            if let Some(id) = shape_map.get(&shape_id) {
+                into.push_shape(mapped_alloc_id, *id);
+                continue;
+            }
+
+            let mut new_shape = Shape::default();
+            let shape = self.get_shape(shape_id);
+
+            for (&k, &v) in shape.fields.iter() {
+                let k = match k {
+                    ShapeKey::Str(c) => ShapeKey::Str(into.intern_constant(self.unintern_const(c))),
+                    ShapeKey::Slot(s) => ShapeKey::Slot(s),
+                };
+
+                // TOPDO: don't duplicate this code with the hunk at the top
+                let v = match v {
+                    RegisterType::Record(a) => {
+                        if let Some(a) = alloc_map.get(&a) {
+                            RegisterType::Record(*a)
+                        } else {
+                            let new_alloc_id = into.alloc_allocation();
+                            need_to_shape.push_back(a);
+                            alloc_map.insert(a, new_alloc_id);
+                            RegisterType::Record(new_alloc_id)
+                        }
+                    }
+                    RegisterType::Byts(c) => {
+                        RegisterType::Byts(into.intern_constant(self.unintern_const(c)))
+                    }
+                    other => other,
+                };
+
+                new_shape.fields.insert(k, v);
+            }
+
+            let new_shape_id = into.new_shape(new_shape);
+            shape_map.insert(shape_id, new_shape_id);
+            into.push_shape(mapped_alloc_id, new_shape_id);
+        }
+
+        new_tp
     }
 }
 

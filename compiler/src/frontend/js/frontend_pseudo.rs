@@ -92,7 +92,7 @@ pub fn traverse(source: String) -> IR {
 
         let mut block = func.start_block_main();
 
-        let key = block.make_string(builder.constant_str_utf16("key".into()));
+        let key = block.make_string(builder.constant_str_utf16("key"));
         let prop_at_key = block.record_get_prop(record, key);
         let prop_at_slot = block.record_get_slot(record, InternalSlot::HostDefined);
         let call_it = block.record_get_slot(record, InternalSlot::Call);
@@ -110,14 +110,14 @@ pub fn traverse(source: String) -> IR {
         let mut block = main.start_block_main();
 
         // TODO: make compiling `sum` and hello world a test
-        let hello_world = builder.constant_str_utf16("Hello, World!".into());
+        let hello_world = builder.constant_str_utf16("Hello, World!");
         let hello_world = block.make_string(hello_world);
         block.call(print_stub, [hello_world]);
         let max = block.make_number_decimal(3);
         block.call(sum, [max]);
 
         let obj = block.record_new();
-        let key = block.make_string(builder.constant_str_utf16("key".into()));
+        let key = block.make_string(builder.constant_str_utf16("key"));
         let value = block.make_number_decimal(69);
         block.record_set_prop(obj, key, value);
         let value = block.make_number_decimal(1);

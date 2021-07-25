@@ -110,7 +110,8 @@ impl<C: Tag> RegMap<C> {
             );
         }
 
-        self.registers.insert(register, typ).expect_free();
+        let EVENTUALLY_ADD_EXPECT_FREE_BACK = true;
+        self.registers.insert(register, typ);
     }
 
     pub fn insert_alloc(&mut self) -> AllocationId<NoContext> {

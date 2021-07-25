@@ -168,6 +168,7 @@ where
             let mut current_frame = (**callstack).clone();
 
             while let CallStack::Child {
+                level: _,
                 previous,
                 frame,
                 worker,
@@ -185,6 +186,7 @@ where
 enum CallStack<W, F: Clone> {
     Root,
     Child {
+        level: usize,
         previous: Arc<CallStack<W, F>>,
         frame: F,
         worker: Arc<SuperUnsafeCell<W>>,
@@ -196,10 +198,12 @@ impl<W, F: Clone> Clone for CallStack<W, F> {
         match self {
             Self::Root => Self::Root,
             Self::Child {
+                level,
                 previous,
                 frame,
                 worker,
             } => Self::Child {
+                level: *level,
                 previous: previous.clone(),
                 frame: frame.clone(),
                 worker: worker.clone(),
@@ -240,6 +244,13 @@ where
         callstack: &Arc<CallStack<W, W::Id>>,
         global_callstack: &Arc<Mutex<Arc<CallStack<W, W::Id>>>>,
     ) -> Arc<W::Result> {
+        match &**callstack {
+            CallStack::Child { level, .. } if *level >= 1000 => {
+                panic!("program appears to be deeply nested program - terminating early as a precaution")
+            }
+            _ => {}
+        };
+
         let mut workers = me.workers.try_lock().expect("should be contentionless");
 
         // check if we've already executed this worker
@@ -266,6 +277,10 @@ where
 
         // update the callstack for panic info
         let callstack = Arc::new(CallStack::Child {
+            level: match &**callstack {
+                CallStack::Root => 1,
+                CallStack::Child { level, .. } => *level + 1,
+            },
             frame: id,
             previous: callstack.clone(),
             worker: worker.clone(),

@@ -16,7 +16,7 @@ use crate::id::{BlockId, IdCompat};
 
 use crate::retag::{BlkRetagger, BlkToFn, CnstRetagger, ExtFnRetagger, FnRetagger, RegRetagger};
 
-struct Registers<'a, R: Tag>(&'a Vec<RegisterId<R>>);
+pub struct Registers<'a, R: Tag>(pub &'a Vec<RegisterId<R>>);
 
 impl<R: Tag> Display for Registers<'_, R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -422,6 +422,10 @@ pub enum TrivialItem {
     Undefined,
     /// ECMAScript "empty"
     Empty,
+    /// Completion record "throw"
+    Throw,
+    /// Reference Record "unresolvable"
+    Unresolvable,
 }
 
 impl<C: Tag> ISAInstruction<C> for MakeTrivial<C> {
@@ -740,7 +744,7 @@ pub enum InternalSlot {
     LexicalEnvironment,
     PrivateEnvironment,
     Base,
-    ReferenceName,
+    ReferencedName,
     Strict,
     ThisValue,
     Value,
@@ -750,6 +754,8 @@ pub enum InternalSlot {
     DeclarativeRecord,
     ObjectRecord,
     OuterEnv,
+    IsWithEnvironment,
+    GlobalThisValue,
     /// `%Function.prototype%`
     FunctionPrototype,
 }

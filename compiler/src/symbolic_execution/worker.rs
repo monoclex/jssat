@@ -92,10 +92,12 @@ impl<'p> Worker for SymbWorker<'p> {
         // to cleanly see where all teh mess is
         // <assember>
         for p in self.func.parameters.iter() {
+            // asm_reg_map.ignore_checks();
             blk.parameters.push(assembler::Parameter {
                 typ: map_reg_assembler(&mut self.types, &mut asm_typs, *p),
                 register: asm_reg_map.retag_new(*p),
             });
+            // asm_reg_map.unignore_checks();
         }
         // </assember>
 
@@ -170,6 +172,13 @@ impl<'p> Worker for SymbWorker<'p> {
                         (RegisterType::Trivial(a), RegisterType::Trivial(b)) => {
                             RegisterType::Bool(a == b)
                         }
+                        // TODO: should we allow equality like this?
+                        (RegisterType::Trivial(_), RegisterType::Record(_)) => {
+                            RegisterType::Bool(false)
+                        }
+                        (RegisterType::Record(_), RegisterType::Trivial(_)) => {
+                            RegisterType::Bool(false)
+                        }
                         (a, b) => panic!("cannot equals for {:?} and {:?}", a, b),
                     };
 
@@ -210,7 +219,11 @@ impl<'p> Worker for SymbWorker<'p> {
                     let id = self.fn_ids.id_of(fn_id, types, true);
                     let r = system.spawn(id);
 
-                    match (i.result, r.return_type) {
+                    let return_type = r
+                        .return_type
+                        .map(|typ| r.types.pull_type_into(typ, &mut self.types));
+
+                    match (i.result, return_type) {
                         (_, ReturnType::Never) => {
                             never_infected = true;
                             break;
@@ -232,7 +245,11 @@ impl<'p> Worker for SymbWorker<'p> {
                     let id = self.fn_ids.id_of(i.fn_id, types, true);
                     let r = system.spawn(id);
 
-                    match (i.result, r.return_type) {
+                    let return_type = r
+                        .return_type
+                        .map(|typ| r.types.pull_type_into(typ, &mut self.types));
+
+                    match (i.result, return_type) {
                         (_, ReturnType::Never) => {
                             never_infected = true;
                             break;
@@ -402,8 +419,11 @@ impl<'p> Worker for SymbWorker<'p> {
                         let id = self.fn_ids.id_of(func, types, true);
 
                         // TODO: worry about `Never`
-                        // TODO: handle return values
-                        assert!(matches!(i.result, None));
+                        if let Some(result) = i.result {
+                            let typ = self.types.get(inst.result.unwrap());
+                            let typ = map_typ_assembler(&mut self.types, &mut asm_typs, typ);
+                            asm_typs.insert(result, typ);
+                        }
 
                         blk.instructions.push(assembler::Instruction::Call(
                             i.result,
@@ -639,8 +659,7 @@ impl<'p> Worker for SymbWorker<'p> {
         };
         // </assembler>
 
-        let mut types = Default::default();
-        std::mem::swap(&mut self.types, &mut types);
+        let types = self.types.clone();
 
         WorkerResults {
             is_entry_fn: self.is_entry_fn,
@@ -705,6 +724,7 @@ fn map_typ_assembler(
             TrivialItem::Null => type_annotater::ValueType::Null,
             TrivialItem::Undefined => type_annotater::ValueType::Undefined,
             TrivialItem::Empty => todo!("trivial `Empty` not mapped yett"),
+            _ => todo!("unsupported trivial item"),
         },
         RegisterType::Bytes => type_annotater::ValueType::String,
         RegisterType::Byts(c) => {

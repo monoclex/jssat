@@ -54,9 +54,17 @@ impl<A: Tag, B: Tag> RegPassRetagger<A, B> {
     #[cfg(not(debug_assertions))]
     pub fn ignore_checks(&mut self) {}
 
+    #[cfg(not(debug_assertions))]
+    pub fn unignore_checks(&mut self) {}
+
     #[cfg(debug_assertions)]
     pub fn ignore_checks(&mut self) {
         self.0.ignore_check = true;
+    }
+
+    #[cfg(debug_assertions)]
+    pub fn unignore_checks(&mut self) {
+        self.0.ignore_check = false;
     }
 }
 

@@ -39,26 +39,27 @@ fn doesnt_panic() {
         bld_fn: &mut main,
         block,
         // the value doesn't matter, it gets set on ScriptEvalution
-        running_execution_context_lexical_environment: RegisterId::default(),
+        running_execution_context_lexical_environment:
+            EnvironmentRecord::new_with_register_unchecked(RegisterId::default()),
         env_factory,
     };
 
-    let s = frontend.bld.constant_str("a string".into());
+    let s = frontend.bld.constant_str("a string");
     let s = frontend.make_string(s);
     let condition = frontend.compare_equal(s, s);
     let r = frontend.perform_if_else_w_value(
         condition,
         |me| {
-            let constant = me.bld.constant_str("yes".into());
+            let constant = me.bld.constant_str("yes");
             me.make_string(constant)
         },
         |me| {
-            let constant = me.bld.constant_str("no".into());
+            let constant = me.bld.constant_str("no");
             me.make_string(constant)
         },
     );
 
-    let cmp_const = frontend.bld.constant_str("yes".into());
+    let cmp_const = frontend.bld.constant_str("yes");
     let cmp_const = frontend.make_string(cmp_const);
     frontend.compare_equal(r, cmp_const);
 
@@ -105,7 +106,8 @@ pub fn traverse(source: String) -> IR {
         bld_fn: &mut main,
         block,
         // the value doesn't matter, it gets set on ScriptEvalution
-        running_execution_context_lexical_environment: RegisterId::default(),
+        running_execution_context_lexical_environment:
+            EnvironmentRecord::new_with_register_unchecked(RegisterId::default()),
         env_factory,
     };
 
@@ -126,7 +128,7 @@ struct JsWriter<'builder, const PARAMETERS: usize> {
     bld_fn: &'builder mut FunctionBuilder<PARAMETERS>,
     block: DynBlockBuilder,
     /// this is a hack, shouldn't be here... probably
-    running_execution_context_lexical_environment: RegisterId,
+    running_execution_context_lexical_environment: EnvironmentRecord,
     env_factory: EnvironmentRecordFactory,
 }
 
@@ -198,9 +200,7 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
 
         //# 12. Return NormalCompletion(empty).
         // TODO: use TrivialItem::Empty
-        let empty = self
-            .block
-            .make_string(self.bld.constant_str("empty".into()));
+        let empty = self.block.make_string(self.bld.constant_str("empty"));
         (self.NormalCompletion(empty), realm)
     }
 
@@ -314,7 +314,13 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
         G: RegisterId,
         thisValue: RegisterId,
     ) -> GlobalEnvironmentRecord {
+        self.comment("NewGlobalEnvironment");
+
         //# 1. Let objRec be NewObjectEnvironment(G, false, null).
+        let r#false = self.make_bool(false);
+        let null = self.make_null();
+        let objRec = self.NewObjectEnvironment(G, r#false, null);
+
         //# 2. Let dclRec be a new declarative Environment Record containing no bindings.
         let dclRec = self.env_factory.make_decl_env_rec(&mut self.block);
 
@@ -322,7 +328,11 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
         let env = self.env_factory.make_global_env_rec(&mut self.block);
 
         //# 4. Set env.[[ObjectRecord]] to objRec.
+        self.record_set_slot(env.register, InternalSlot::ObjectRecord, objRec.register);
+
         //# 5. Set env.[[GlobalThisValue]] to thisValue.
+        self.record_set_slot(env.register, InternalSlot::GlobalThisValue, thisValue);
+
         //# 6. Set env.[[DeclarativeRecord]] to dclRec.
         self.record_set_slot(
             env.register,
@@ -336,6 +346,31 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
         self.record_set_slot(env.register, InternalSlot::OuterEnv, null);
 
         //# 9. Return env.
+        env
+    }
+
+    /// <https://tc39.es/ecma262/#sec-newobjectenvironment>
+    pub fn NewObjectEnvironment(
+        &mut self,
+        O: RegisterId,
+        W: RegisterId,
+        E: RegisterId,
+    ) -> EnvironmentRecord {
+        self.comment("NewObjectEnvironment");
+
+        //# 1. Let env be a new object Environment Record.
+        let env = self.env_factory.make_obj_env_rec(&mut self.block);
+
+        //# 2. Set env.[[BindingObject]] to O.
+        self.record_set_slot(env.register, InternalSlot::BindingObject, O);
+
+        //# 3. Set env.[[IsWithEnvironment]] to W.
+        self.record_set_slot(env.register, InternalSlot::IsWithEnvironment, W);
+
+        //# 4. Set env.[[OuterEnv]] to E.
+        self.record_set_slot(env.register, InternalSlot::OuterEnv, E);
+
+        //# 5. Return env.
         env
     }
 
@@ -434,11 +469,7 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
 
         //# 10. Push scriptContext onto the execution context stack; scriptContext is now the running execution context.
         // TODO: this is a hack, should be using proepr execution context stack things
-        // NOTE: `globalEnv` is NOT THE GLOBAL OBJECT.
-        let theActualGlobalObject = self
-            .block
-            .record_get_slot(scriptRecordRealm, InternalSlot::GlobalObject);
-        self.running_execution_context_lexical_environment = theActualGlobalObject;
+        self.running_execution_context_lexical_environment = globalEnv;
 
         //# 11. Let scriptBody be scriptRecord.[[ECMAScriptCode]].
         let scriptBody = script;
@@ -518,7 +549,7 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
             let cond = env.HasVarDeclaration(&mut self.block, name);
             self.perform_if(cond, |me| {
                 // TODO: throw a SyntaxError properly
-                let constant = me.bld.constant_str_utf16("SyntaxError occurred".into());
+                let constant = me.bld.constant_str_utf16("SyntaxError occurred");
                 let syntax_error = me.make_string(constant);
                 let completion = me.ThrowCompletion(syntax_error);
 
@@ -531,7 +562,7 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
             let cond = env.HasLexicalDeclaration(&mut self.block, name);
             self.perform_if(cond, |me| {
                 // TODO: throw a SyntaxError properly
-                let constant = me.bld.constant_str_utf16("SyntaxError occurred".into());
+                let constant = me.bld.constant_str_utf16("SyntaxError occurred");
                 let syntax_error = me.make_string(constant);
                 let completion = me.ThrowCompletion(syntax_error);
 
@@ -547,7 +578,7 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
             //# d. If hasRestrictedGlobal is true, throw a SyntaxError exception.
             self.perform_if(cond, |me| {
                 // TODO: throw a SyntaxError properly
-                let constant = me.bld.constant_str_utf16("SyntaxError occurred".into());
+                let constant = me.bld.constant_str_utf16("SyntaxError occurred");
                 let syntax_error = me.make_string(constant);
                 let completion = me.ThrowCompletion(syntax_error);
 
@@ -664,7 +695,9 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
             let N = self.make_string(n_const);
             let D = self.make_bool(false);
             let completion = env.CreateGlobalFunctionBinding(&mut self.block, N, fo, D);
+            self.comment("Returning if Abrupt from completion");
             self.ReturnIfAbrupt(completion);
+            self.comment("Done Returning if Abrupt from completion");
         }
 
         //# 18. For each String vn of declaredVarNames, do
@@ -757,13 +790,8 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
             env_value = self.running_execution_context_lexical_environment;
         } else {
             panic!("what");
-            // unidiomatic, idc
-            env_value = match env {
-                Some(it) => it,
-                _ => unreachable!(),
-            };
         }
-        let env = EnvironmentRecord::new_with_register_unchecked(env_value);
+        let env = env_value;
 
         //# 2. Assert: env is an Environment Record.
         //# 3. If the code matching the syntactic production that is being
@@ -773,10 +801,7 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
         let strict = true;
 
         //# 4. Return ? GetIdentifierReference(env, name, strict).
-        let completion_record = self.GetIdentifierReference(env, name, strict);
-        let result = self.ReturnIfAbrupt(completion_record);
-        // TODO: is this the right thing to do?
-        self.NormalCompletion(result)
+        self.GetIdentifierReference(env, name, strict)
     }
 
     /// <https://tc39.es/ecma262/#sec-getidentifierreference>
@@ -788,42 +813,75 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
     ) -> RegisterId {
         let k = self.running_execution_context_lexical_environment;
         self.comment("GetIdentifierReference");
-        self
-            .comment(Box::leak(Box::new(format!("ok we are calling GetIdentifierRef with {:?}, {:?}, {:?} and globalEnv should be {:?}", env, name, strict, k))).as_str());
-
-        // TODO: properly do stuff
-        // for now, just always return `env[name]`
-        let func = self.record_get_prop(env.register, name);
-        return self.NormalCompletion(func);
 
         //# 1. If env is the value null, then
         let null = self.make_null();
         let condition = self.compare_equal(env.register, null);
         self.perform_if(condition, |me| {
             //# a. Return the Reference Record { [[Base]]: unresolvable, [[ReferencedName]]: name, [[Strict]]: strict, [[ThisValue]]: empty }.
-            // TODO: return that reference record
-            // this involves some weird control flow, idk how to handle it rn
+            let completion = me.record_new();
+
+            // TODO: trivial item 'unresolvable"
+            let unresolvable = me.bld.constant_str("unresolvable");
+            let unresolvable = me.make_string(unresolvable);
+
+            let strict = me.make_bool(strict);
+
+            // TODO: trivial item 'empty'
+            let empty = me.bld.constant_str("empty");
+            let empty = me.make_string(empty);
+
+            me.record_set_slot(completion, InternalSlot::Base, unresolvable);
+            me.record_set_slot(completion, InternalSlot::ReferencedName, name);
+            me.record_set_slot(completion, InternalSlot::Strict, strict);
+            me.record_set_slot(completion, InternalSlot::ThisValue, empty);
+
+            // TODO: cleaner way to return from an if
+            let (mut hack, []) = me.bld_fn.start_block();
+            std::mem::swap(&mut me.block, &mut hack);
+            me.bld_fn.end_block(hack.ret(Some(completion)));
         });
+
         //# 2. Let exists be ? env.HasBinding(name).
-        // TODO: figure this out
+        let exists_try = env.HasBinding(&mut self.block, name);
+        let exists = self.ReturnIfAbrupt(exists_try);
+
         //# 3. If exists is true, then
-        //# a. Return the Reference Record { [[Base]]: env, [[ReferencedName]]: name, [[Strict]]: strict, [[ThisValue]]: empty }.
-        // TODO: we assume that we'll always have it
-        let record = self.record_new();
-        self.record_set_slot(record, InternalSlot::Base, env.register);
-        self.record_set_slot(record, InternalSlot::ReferenceName, name);
-        // TODO: make boolean
-        let strict = self.make_undefined();
-        self.record_set_slot(record, InternalSlot::Strict, strict);
-        // TODO: make `empty`
-        let empty = self.make_undefined();
-        self.record_set_slot(record, InternalSlot::ThisValue, empty);
-        // TODO: the `NormalCompletion` was added becuase code was wrong
-        // are we wrong or is the spec wrong idk, maybe ill find out l8r
-        self.NormalCompletion(record)
+        self.perform_if(exists, |me| {
+            //# a. Return the Reference Record { [[Base]]: env, [[ReferencedName]]: name, [[Strict]]: strict, [[ThisValue]]: empty }.
+            // TODO: we assume that we'll always have it
+            let record = me.record_new();
+
+            let strict = me.make_bool(strict);
+
+            // TODO: trivial item 'empty'
+            let empty = me.bld.constant_str("empty");
+            let empty = me.make_string(empty);
+
+            me.record_set_slot(record, InternalSlot::Base, env.register);
+            me.record_set_slot(record, InternalSlot::ReferencedName, name);
+            me.record_set_slot(record, InternalSlot::Strict, strict);
+            me.record_set_slot(record, InternalSlot::ThisValue, empty);
+
+            let completion = me.NormalCompletion(record);
+
+            // TODO: cleaner way to return from an if
+            let (mut hack, []) = me.bld_fn.start_block();
+            std::mem::swap(&mut me.block, &mut hack);
+            me.bld_fn.end_block(hack.ret(Some(completion)));
+        });
+
         //# 4. Else,
+
         //# a. Let outer be env.[[OuterEnv]].
+        let outer = self.record_get_slot(env.register, InternalSlot::OuterEnv);
+        let outer = EnvironmentRecord::new_with_register_unchecked(outer);
+
         //# b. Return ? GetIdentifierReference(outer, name, strict).
+        // TODO: this causes a recursion exception
+        // we should make this a seperate function in the future
+        // self.GetIdentifierReference(outer, name, strict)
+        self.ThrowCompletion(outer.register)
     }
 
     /// <https://tc39.es/ecma262/#sec-evaluatecall>
@@ -868,7 +926,7 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
         let fnptr = self.make_fnptr(print.id);
         self.record_set_slot(func_obj, InternalSlot::Call, fnptr);
 
-        let print_text = self.bld.constant_str_utf16("print".into());
+        let print_text = self.bld.constant_str_utf16("print");
         let key = self.make_string(print_text);
         self.record_set_prop(global, key, func_obj);
     }
@@ -973,15 +1031,17 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
 
                 //# 2. Let func be ? GetValue(ref).
                 let func = self.GetValue(r#ref);
+                self.comment("after gettr val");
 
                 // TODO: do arguments
-                let hello_world = self.bld.constant_str_utf16("Hello, World!".into());
+                let hello_world = self.bld.constant_str_utf16("Hello, World!");
                 let hello_world = self.make_string(hello_world);
 
                 //# 3. Let thisCall be this CallExpression.
                 //# 4. Let tailCall be IsInTailPosition(thisCall).
                 //# 5. Return ? EvaluateCall(func, ref, Arguments, tailCall).
                 let completion_record = self.EvaluateCall(func, hello_world, args, ());
+                self.comment("after eval call");
                 let result = self.ReturnIfAbrupt(completion_record);
                 self.NormalCompletion(result)
                 /*
@@ -1001,6 +1061,7 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
                 let string_value = self.bld.constant_str_utf16(string_value);
                 let name = self.make_string(string_value);
                 let resolve_binding = self.ResolveBinding(name, None);
+                self.comment("after resolve binding");
                 let inner_value = self.ReturnIfAbrupt(resolve_binding);
                 self.NormalCompletion(inner_value)
             }
@@ -1031,6 +1092,7 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
     // ecmascript helpers
 
     /// <https://tc39.es/ecma262/#sec-returnifabrupt>
+    #[track_caller]
     pub fn ReturnIfAbrupt(&mut self, argument: RegisterId) -> RegisterId {
         self.comment("ReturnIfAbrupt");
 
@@ -1074,20 +1136,7 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
 
     /// <https://tc39.es/ecma262/#sec-normalcompletion>
     pub fn NormalCompletion(&mut self, argument: RegisterId) -> RegisterId {
-        self.comment("NormalCompletion");
-
-        //# 1. Return Completion { [[Type]]: normal, [[Value]]: argument, [[Target]]: empty }.
-        let completion_record = self.record_new();
-        let normal = self
-            .block
-            .make_string(self.bld.constant_str("normal".into()));
-        self.record_set_slot(completion_record, InternalSlot::Type, normal);
-        self.record_set_slot(completion_record, InternalSlot::Value, argument);
-        let empty = self
-            .block
-            .make_string(self.bld.constant_str("empty".into()));
-        self.record_set_slot(completion_record, InternalSlot::Target, empty);
-        completion_record
+        self.block.NormalCompletion(self.bld, argument)
     }
 
     /// <https://tc39.es/ecma262/#sec-throwcompletion>
@@ -1096,14 +1145,10 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
 
         //# 1. Return Completion { [[Type]]: throw, [[Value]]: argument, [[Target]]: empty }.
         let completion_record = self.record_new();
-        let normal = self
-            .block
-            .make_string(self.bld.constant_str("throw".into()));
+        let normal = self.block.make_string(self.bld.constant_str("throw"));
         self.record_set_slot(completion_record, InternalSlot::Type, normal);
         self.record_set_slot(completion_record, InternalSlot::Value, argument);
-        let empty = self
-            .block
-            .make_string(self.bld.constant_str("empty".into()));
+        let empty = self.block.make_string(self.bld.constant_str("empty"));
         self.record_set_slot(completion_record, InternalSlot::Target, empty);
         completion_record
     }
@@ -1206,9 +1251,7 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
         self.comment("is_normal_completion");
 
         let completion_type = self.record_get_slot(record, InternalSlot::Type);
-        let normal_completion = self
-            .block
-            .make_string(self.bld.constant_str("normal".into()));
+        let normal_completion = self.block.make_string(self.bld.constant_str("normal"));
         self.compare_equal(completion_type, normal_completion)
     }
 
@@ -1217,6 +1260,27 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
 
         let is_normal_completion = self.is_normal_completion(record);
         self.negate(is_normal_completion)
+    }
+}
+
+impl DynBlockBuilder {
+    /// <https://tc39.es/ecma262/#sec-normalcompletion>
+    pub fn NormalCompletion(
+        &mut self,
+        // TODO: remove this when `normal` and `empty` get turned into trivial items
+        bld: &mut ProgramBuilder,
+        argument: RegisterId,
+    ) -> RegisterId {
+        self.comment("NormalCompletion");
+
+        //# 1. Return Completion { [[Type]]: normal, [[Value]]: argument, [[Target]]: empty }.
+        let completion_record = self.record_new();
+        let normal = self.make_string(bld.constant_str("normal"));
+        self.record_set_slot(completion_record, InternalSlot::Type, normal);
+        self.record_set_slot(completion_record, InternalSlot::Value, argument);
+        let empty = self.make_string(bld.constant_str("empty"));
+        self.record_set_slot(completion_record, InternalSlot::Target, empty);
+        completion_record
     }
 }
 

@@ -107,6 +107,7 @@ impl EnvironmentRecordFactory {
         let has_binding = {
             let (mut f, [env, N]) = writer.start_function();
             let mut w = f.start_block_main();
+            w.comment("DeclarativeEnvironmentRecord::HasBinding");
 
             //# 1. If envRec has a binding for the name that is the value of N, return true.
             // TODO: instruction to see if key/value exists
@@ -125,6 +126,7 @@ impl EnvironmentRecordFactory {
         let has_binding = {
             let (mut f, [envRec, N]) = writer.start_function();
             let mut w = f.start_block_main();
+            w.comment("ObjectEnvironmentRecord::HasBinding");
 
             //# 1. Let bindingObject be envRec.[[BindingObject]].
             let bindingObject = w.record_get_slot(envRec, InternalSlot::BindingObject);
@@ -140,7 +142,10 @@ impl EnvironmentRecordFactory {
             //# b. If blocked is true, return false.
             //# 7. Return true.
 
-            f.end_block(w.ret(None));
+            let r#true = w.make_bool(true);
+            let completion = w.NormalCompletion(writer, r#true);
+
+            f.end_block(w.ret(Some(completion)));
             writer.end_function(f)
         };
 
@@ -179,10 +184,9 @@ impl EnvironmentRecordFactory {
 
             //# 4. Return ? ObjRec.HasBinding(N).
             let ObjRec = EnvironmentRecord::new_with_register_unchecked(ObjRec);
-            // TODO: use result somehow
-            ObjRec.HasBinding(&mut w, N);
+            let result = ObjRec.HasBinding(&mut w, N);
 
-            f.end_block(w.ret(None));
+            f.end_block(w.ret(Some(result)));
             writer.end_function(f)
         };
 
@@ -260,7 +264,10 @@ impl EnvironmentRecordFactory {
             //# a. Append N to varDeclaredNames.
             //# 10. Return NormalCompletion(empty).
 
-            f.end_block(w.ret(None));
+            let argument = w.make_undefined();
+            let completion = w.NormalCompletion(writer, argument);
+
+            f.end_block(w.ret(Some(completion)));
             writer.end_function(f)
         };
 
