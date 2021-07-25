@@ -11,8 +11,8 @@ use crate::id::RegisterId;
 
 use crate::isa::{
     Add, BlockJump, CallExtern, CallStatic, CallVirt, Equals, GetFnPtr, ISAInstruction, Jump,
-    JumpIf, LessThan, MakeBytes, MakeInteger, MakeTrivial, Negate, NewRecord, RecordGet, RecordSet,
-    Return,
+    JumpIf, LessThan, MakeBoolean, MakeBytes, MakeInteger, MakeTrivial, Negate, NewRecord,
+    RecordGet, RecordSet, Return,
 };
 use crate::retag::{BlkRetagger, CnstRetagger, ExtFnRetagger, FnRetagger, RegRetagger};
 type PlainRegisterId = RegisterId<IrCtx>;
@@ -119,7 +119,9 @@ pub enum Instruction<C: Tag = crate::id::IrCtx, F: Tag = crate::id::IrCtx> {
     // /// This is used to implement functions that recurse an unknown amount of
     // /// times.
     // Unreachable,
+    // TODO: should these be TrivialItems?
     MakeInteger(MakeInteger<C>),
+    MakeBoolean(MakeBoolean<C>),
     LessThan(LessThan<C>),
     Equals(Equals<C>),
     Negate(Negate<C>),
@@ -169,6 +171,7 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::CallVirt(inst) => Instruction::CallVirt(inst.retag(retagger)),
             Instruction::MakeTrivial(inst) => Instruction::MakeTrivial(inst.retag(retagger)),
             Instruction::MakeInteger(inst) => Instruction::MakeInteger(inst.retag(retagger)),
+            Instruction::MakeBoolean(inst) => Instruction::MakeBoolean(inst.retag(retagger)),
             Instruction::Equals(inst) => Instruction::Equals(inst.retag(retagger)),
             Instruction::Negate(inst) => Instruction::Negate(inst.retag(retagger)),
             Instruction::Add(inst) => Instruction::Add(inst.retag(retagger)),
@@ -211,6 +214,7 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::RecordGet(inst) => inst.declared_register(),
             Instruction::RecordSet(inst) => inst.declared_register(),
             Instruction::MakeInteger(inst) => inst.declared_register(),
+            Instruction::MakeBoolean(inst) => inst.declared_register(),
             Instruction::Equals(inst) => inst.declared_register(),
             Instruction::Negate(inst) => inst.declared_register(),
             Instruction::Add(inst) => inst.declared_register(),
@@ -231,6 +235,7 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::RecordGet(inst) => inst.used_registers().to_vec(),
             Instruction::RecordSet(inst) => inst.used_registers().to_vec(),
             Instruction::MakeInteger(inst) => inst.used_registers().to_vec(),
+            Instruction::MakeBoolean(inst) => inst.used_registers().to_vec(),
             Instruction::Equals(inst) => inst.used_registers().to_vec(),
             Instruction::Negate(inst) => inst.used_registers().to_vec(),
             Instruction::Add(inst) => inst.used_registers().to_vec(),
@@ -251,6 +256,7 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::RecordGet(inst) => inst.used_registers_mut(),
             Instruction::RecordSet(inst) => inst.used_registers_mut(),
             Instruction::MakeInteger(inst) => inst.used_registers_mut(),
+            Instruction::MakeBoolean(inst) => inst.used_registers_mut(),
             Instruction::Equals(inst) => inst.used_registers_mut(),
             Instruction::Negate(inst) => inst.used_registers_mut(),
             Instruction::Add(inst) => inst.used_registers_mut(),
@@ -275,6 +281,7 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::RecordGet(inst) => inst.display(w),
             Instruction::RecordSet(inst) => inst.display(w),
             Instruction::MakeInteger(inst) => inst.display(w),
+            Instruction::MakeBoolean(inst) => inst.display(w),
             Instruction::Equals(inst) => inst.display(w),
             Instruction::Negate(inst) => inst.display(w),
             Instruction::Add(inst) => inst.display(w),

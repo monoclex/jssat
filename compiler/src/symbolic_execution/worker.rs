@@ -134,6 +134,10 @@ impl<'p> Worker for SymbWorker<'p> {
                 ir::Instruction::MakeInteger(i) => {
                     self.types.assign_type(i.result, RegisterType::Int(i.value));
                 }
+                ir::Instruction::MakeBoolean(i) => {
+                    self.types
+                        .assign_type(i.result, RegisterType::Bool(i.value));
+                }
                 ir::Instruction::LessThan(i) => {
                     let (lhs, rhs) = (self.types.get(i.lhs), self.types.get(i.rhs));
 
@@ -447,6 +451,17 @@ impl<'p> Worker for SymbWorker<'p> {
                         blk.instructions
                             .push(assembler::Instruction::MakeNumber(i.result, i.value));
                         asm_typs.insert(i.result, type_annotater::ValueType::ExactInteger(i.value));
+                    } else {
+                        unreachable!();
+                    }
+                }
+                ir::Instruction::MakeBoolean(i) => {
+                    if let ir::Instruction::MakeBoolean(inst) = inst {
+                        let res_typ = self.types.get(inst.result);
+
+                        blk.instructions
+                            .push(assembler::Instruction::MakeBoolean(i.result, i.value));
+                        asm_typs.insert(i.result, type_annotater::ValueType::Bool(i.value));
                     } else {
                         unreachable!();
                     }

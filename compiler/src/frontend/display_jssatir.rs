@@ -60,8 +60,11 @@ pub fn display(program: &IR) -> String {
                     Instruction::CallExtern(t) => iwl!(text, "    CallExtern {:?}", t),
                     Instruction::CallStatic(t) => iwl!(text, "    CallStatic {:?}", t),
                     Instruction::MakeTrivial(t) => iwl!(text, "    MakeTrivial {:?}", t),
+                    Instruction::MakeBoolean(instt) => iwl!(text, "    MakeBoolean {:?}", instt),
                     Instruction::MakeBytes(instt) => iwl!(text, "    MakeString {:?}", instt),
-                    Instruction::GetFnPtr(_) => iwl!(text, "todo"),
+                    Instruction::GetFnPtr(inst) => {
+                        iwl!(text, "    %{} = MakeFnPtr {:?}", inst.result, inst)
+                    }
                     Instruction::LessThan(inst) => {
                         let r = inst.result;
                         let l = inst.lhs;

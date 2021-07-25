@@ -9,8 +9,8 @@ use crate::UnwrapNone;
 
 use crate::isa::{
     Add, BlockJump, CallExtern, CallStatic, CallVirt, Equals, GetFnPtr, InternalSlot, Jump, JumpIf,
-    LessThan, MakeBytes, MakeInteger, MakeTrivial, Negate, NewRecord, RecordGet, RecordKey,
-    RecordSet, Return, TrivialItem,
+    LessThan, MakeBoolean, MakeBytes, MakeInteger, MakeTrivial, Negate, NewRecord, RecordGet,
+    RecordKey, RecordSet, Return, TrivialItem,
 };
 
 pub type BlockId = crate::id::BlockId<crate::id::IrCtx>;
@@ -461,7 +461,10 @@ impl DynBlockBuilder {
     }
 
     pub fn make_bool(&mut self, value: bool) -> RegisterId {
-        todo!();
+        let result = self.gen_register_id.next();
+        self.instructions
+            .push(Instruction::MakeBoolean(MakeBoolean { result, value }));
+        result
     }
 
     pub fn make_null(&mut self) -> RegisterId {

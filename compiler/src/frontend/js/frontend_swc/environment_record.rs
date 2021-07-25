@@ -79,6 +79,14 @@ impl EnvironmentRecordFactory {
             has_restricted_global_property,
         );
 
+        let create_global_function_binding =
+            block.make_fnptr(vtable.create_global_function_binding.id);
+        block.record_set_slot(
+            env_rec.register,
+            InternalSlot::JSSATCreateGlobalFunctionBinding,
+            create_global_function_binding,
+        );
+
         GlobalEnvironmentRecord::new_with_register_unchecked(env_rec.register)
     }
 
@@ -155,6 +163,9 @@ impl EnvironmentRecordFactory {
             let (mut f, [envRec, N]) = writer.start_function();
             let mut w = f.start_block_main();
 
+            // <https://tc39.es/ecma262/#sec-global-environment-records-hasbinding-n>
+            w.comment("GlobalEnvironmentRecord::HasBinding");
+
             //# 1. Let DclRec be envRec.[[DeclarativeRecord]].
             let DclRec = w.record_get_slot(envRec, InternalSlot::DeclarativeRecord);
 
@@ -179,6 +190,9 @@ impl EnvironmentRecordFactory {
             let (mut f, [envRec, N]) = writer.start_function();
             let mut w = f.start_block_main();
 
+            // <https://tc39.es/ecma262/#sec-hasvardeclaration>
+            w.comment("GlobalEnvironmentRecord::HasVarDeclaration");
+
             //# 1. Let varDeclaredNames be envRec.[[VarNames]].
             //# 2. If varDeclaredNames contains N, return true.
             //# 3. Return false.
@@ -191,6 +205,9 @@ impl EnvironmentRecordFactory {
         let has_lexical_declaration = {
             let (mut f, [envRec, N]) = writer.start_function();
             let mut w = f.start_block_main();
+
+            // <https://tc39.es/ecma262/#sec-haslexicaldeclaration>
+            w.comment("GlobalEnvironmentRecord::HasLexicalDeclaration");
 
             //# 1. Let DclRec be envRec.[[DeclarativeRecord]].
             let DclRec = w.record_get_slot(envRec, InternalSlot::DeclarativeRecord);
@@ -207,6 +224,9 @@ impl EnvironmentRecordFactory {
             let (mut f, [envRec, N]) = writer.start_function();
             let mut w = f.start_block_main();
 
+            // <https://tc39.es/ecma262/#sec-hasrestrictedglobalproperty>
+            w.comment("GlobalEnvironmentRecord::HasRestrictedGlobalProperty");
+
             //# 1. Let ObjRec be envRec.[[ObjectRecord]].
             //# 2. Let globalObject be ObjRec.[[BindingObject]].
             //# 3. Let existingProp be ? globalObject.[[GetOwnProperty]](N).
@@ -219,11 +239,37 @@ impl EnvironmentRecordFactory {
             writer.end_function(f)
         };
 
+        let create_global_function_binding = {
+            let (mut f, [envRec, N, V, D]) = writer.start_function();
+            let mut w = f.start_block_main();
+
+            // <https://tc39.es/ecma262/#sec-createglobalfunctionbinding>
+            w.comment("GlobalEnvironmentRecord::CreateGlobalFunctionBinding");
+
+            //# 1. Let ObjRec be envRec.[[ObjectRecord]].
+            //# 2. Let globalObject be ObjRec.[[BindingObject]].
+            //# 3. Let existingProp be ? globalObject.[[GetOwnProperty]](N).
+            //# 4. If existingProp is undefined or existingProp.[[Configurable]] is true, then
+            //# a. Let desc be the PropertyDescriptor { [[Value]]: V, [[Writable]]: true, [[Enumerable]]: true, [[Configurable]]: D }.
+            //# 5. Else,
+            //# a. Let desc be the PropertyDescriptor { [[Value]]: V }.
+            //# 6. Perform ? DefinePropertyOrThrow(globalObject, N, desc).
+            //# 7. Perform ? Set(globalObject, N, V, false).
+            //# 8. Let varDeclaredNames be envRec.[[VarNames]].
+            //# 9. If varDeclaredNames does not contain N, then
+            //# a. Append N to varDeclaredNames.
+            //# 10. Return NormalCompletion(empty).
+
+            f.end_block(w.ret(None));
+            writer.end_function(f)
+        };
+
         GlobalEnvironmentRecordVTable {
             normal: EnvironmentRecordVTable { has_binding },
             has_var_declaration,
             has_lexical_declaration,
             has_restricted_global_property,
+            create_global_function_binding,
         }
     }
 }
@@ -300,6 +346,22 @@ impl GlobalEnvironmentRecord {
         );
         block.call_virt_with_result(fn_ptr, [self.register, N])
     }
+
+    pub fn CreateGlobalFunctionBinding(
+        &self,
+        block: &mut DynBlockBuilder,
+        N: RegisterId,
+        V: RegisterId,
+        D: RegisterId,
+    ) -> RegisterId {
+        block.comment("CreateGlobalFunctionBinding");
+
+        let fn_ptr = block.record_get_slot(
+            self.register,
+            InternalSlot::JSSATCreateGlobalFunctionBinding,
+        );
+        block.call_virt_with_result(fn_ptr, [self.register, N, V, D])
+    }
 }
 
 /// Has fields for every method specified in
@@ -332,4 +394,5 @@ struct GlobalEnvironmentRecordVTable {
     has_var_declaration: FnSignature<2>,
     has_lexical_declaration: FnSignature<2>,
     has_restricted_global_property: FnSignature<2>,
+    create_global_function_binding: FnSignature<4>,
 }

@@ -8,8 +8,8 @@ use swc_common::{
     FileName, SourceMap,
 };
 use swc_ecmascript::ast::{
-    BindingIdent, BlockStmt, CallExpr, ClassDecl, Decl, Expr, ExprOrSpread, FnDecl, Ident,
-    LabeledStmt, ObjectPatProp, Pat, PatOrExpr, Stmt, VarDecl, VarDeclKind, VarDeclOrExpr,
+    BindingIdent, BlockStmt, CallExpr, ClassDecl, Decl, Expr, ExprOrSpread, FnDecl, Function,
+    Ident, LabeledStmt, ObjectPatProp, Pat, PatOrExpr, Stmt, VarDecl, VarDeclKind, VarDeclOrExpr,
     VarDeclOrPat, VarDeclarator,
 };
 use swc_ecmascript::{
@@ -525,7 +525,6 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
                 let (mut hack, []) = me.bld_fn.start_block();
                 std::mem::swap(&mut me.block, &mut hack);
                 me.bld_fn.end_block(hack.ret(Some(completion)));
-                // me.ret(Some(completion));
             });
 
             //# b. If env.HasLexicalDeclaration(name) is true, throw a SyntaxError exception.
@@ -539,7 +538,6 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
                 let (mut hack, []) = me.bld_fn.start_block();
                 std::mem::swap(&mut me.block, &mut hack);
                 me.bld_fn.end_block(hack.ret(Some(completion)));
-                // me.ret(Some(completion));
             });
 
             //# c. Let hasRestrictedGlobal be ? env.HasRestrictedGlobalProperty(name).
@@ -556,7 +554,6 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
                 let (mut hack, []) = me.bld_fn.start_block();
                 std::mem::swap(&mut me.block, &mut hack);
                 me.bld_fn.end_block(hack.ret(Some(completion)));
-                // me.ret(Some(completion));
             });
         }
 
@@ -659,9 +656,15 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
             let r#fn = BoundNames::compute_fn(f).remove(0);
 
             //# b. Let fo be InstantiateFunctionObject of f with arguments env and privateEnv.
-            todo!();
+            let fo_try = self.InstantiateFunctionObject(f, env, privateEnv);
+            let fo = self.ReturnIfAbrupt(fo_try);
 
             //# c. Perform ? env.CreateGlobalFunctionBinding(fn, fo, false).
+            let n_const = self.bld.constant_str_utf16(r#fn);
+            let N = self.make_string(n_const);
+            let D = self.make_bool(false);
+            let completion = env.CreateGlobalFunctionBinding(&mut self.block, N, fo, D);
+            self.ReturnIfAbrupt(completion);
         }
 
         //# 18. For each String vn of declaredVarNames, do
@@ -698,6 +701,49 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
         //# a. Let base be V.[[Base]].
         //# b. Assert: base is an Environment Record.
         //# c. Return ? base.GetBindingValue(V.[[ReferencedName]], V.[[Strict]]) (see 9.1).
+    }
+
+    /// <https://tc39.es/ecma262/#sec-runtime-semantics-instantiatefunctionobject>
+    pub fn InstantiateFunctionObject(
+        &mut self,
+        f: &FnDecl,
+        scope: GlobalEnvironmentRecord,
+        privateScope: RegisterId,
+    ) -> RegisterId {
+        let f = &f.function;
+        match (f.is_async, f.is_generator) {
+            (false, false) => {
+                let instance = self.InstantiateOrdinaryFunctionObject(f, scope, privateScope);
+                self.NormalCompletion(instance)
+            }
+            _ => todo!(),
+        }
+    }
+
+    /// <https://tc39.es/ecma262/#sec-runtime-semantics-instantiateordinaryfunctionobject>
+    pub fn InstantiateOrdinaryFunctionObject(
+        &mut self,
+        f: &Function,
+        scope: GlobalEnvironmentRecord,
+        privateScope: RegisterId,
+    ) -> RegisterId {
+        // TODO: implement lmao
+
+        //# FunctionDeclaration : function BindingIdentifier ( FormalParameters ) { FunctionBody }
+        //# 1. Let name be StringValue of BindingIdentifier.
+        //# 2. Let sourceText be the source text matched by FunctionDeclaration.
+        //# 3. Let F be OrdinaryFunctionCreate(%Function.prototype%, sourceText, FormalParameters, FunctionBody, non-lexical-this, scope, privateScope).
+        //# 4. Perform SetFunctionName(F, name).
+        //# 5. Perform MakeConstructor(F).
+        //# 6. Return F.
+        //# FunctionDeclaration : function ( FormalParameters ) { FunctionBody }
+        //# 1. Let sourceText be the source text matched by FunctionDeclaration.
+        //# 2. Let F be OrdinaryFunctionCreate(%Function.prototype%, sourceText, FormalParameters, FunctionBody, non-lexical-this, scope, privateScope).
+        //# 3. Perform SetFunctionName(F, "default").
+        //# 4. Perform MakeConstructor(F).
+        //# 5. Return F.
+
+        self.record_new()
     }
 
     /// <https://tc39.es/ecma262/#sec-resolvebinding>
@@ -868,6 +914,32 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
             Stmt::For(_) => todo!(),
             Stmt::ForIn(_) => todo!(),
             Stmt::ForOf(_) => todo!(),
+            Stmt::Decl(Decl::Fn(f)) => {
+                let f = &f.function;
+                match (f.is_async, f.is_generator) {
+                    (false, false) => {
+                        //# HoistableDeclaration : FunctionDeclaration
+                        //# 1. Return the result of evaluating FunctionDeclaration.
+
+                        //# 15.2.6 Runtime Semantics: Evaluation
+                        //# FunctionDeclaration : function BindingIdentifier ( FormalParameters ) { FunctionBody }
+                        //# 1. Return NormalCompletion(empty).
+                        //# FunctionDeclaration : function ( FormalParameters ) { FunctionBody }
+                        //# 1. Return NormalCompletion(empty).
+                        let empty = self.make_null();
+                        self.NormalCompletion(empty)
+                    }
+                    _ => {
+                        //# HoistableDeclaration :
+                        //#     GeneratorDeclaration
+                        //#     AsyncFunctionDeclaration
+                        //#     AsyncGeneratorDeclaration
+                        //# 1. Return NormalCompletion(empty).
+                        let empty = self.make_null();
+                        self.NormalCompletion(empty)
+                    }
+                }
+            }
             Stmt::Decl(_) => todo!(),
             Stmt::Expr(e) => self.evaluate_expr(&*e.expr),
         }
