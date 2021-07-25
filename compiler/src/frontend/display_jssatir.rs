@@ -1,4 +1,7 @@
-use crate::frontend::ir::{ControlFlowInstruction, Instruction};
+use crate::{
+    frontend::ir::{ControlFlowInstruction, Instruction},
+    isa::ISAInstruction,
+};
 
 use super::ir::{FFIValueType, IR};
 use std::fmt::Write;
@@ -49,42 +52,17 @@ pub fn display(program: &IR) -> String {
             iw!(text, "):\n");
 
             for inst in block.instructions.iter() {
-                match inst {
-                    Instruction::Comment(s, l) => iwl!(text, "    -- {}, {}", s, l),
-                    Instruction::NewRecord(r) => {
-                        iwl!(text, "    %{} = RecordNew", r.result,)
-                    }
-                    Instruction::RecordGet(t) => iwl!(text, "    RecordGet {:?}", t),
-                    Instruction::RecordSet(t) => iwl!(text, "    RecordSet {:?}", t),
-                    Instruction::CallVirt(t) => iwl!(text, "    CallVirt {:?}", t),
-                    Instruction::CallExtern(t) => iwl!(text, "    CallExtern {:?}", t),
-                    Instruction::CallStatic(t) => iwl!(text, "    CallStatic {:?}", t),
-                    Instruction::MakeTrivial(t) => iwl!(text, "    MakeTrivial {:?}", t),
-                    Instruction::MakeBoolean(instt) => iwl!(text, "    MakeBoolean {:?}", instt),
-                    Instruction::MakeBytes(instt) => iwl!(text, "    MakeString {:?}", instt),
-                    Instruction::GetFnPtr(inst) => {
-                        iwl!(text, "    %{} = MakeFnPtr {:?}", inst.result, inst)
-                    }
-                    Instruction::LessThan(inst) => {
-                        let r = inst.result;
-                        let l = inst.lhs;
-                        let rr = inst.rhs;
-                        iwl!(text, "    %{} = CompareLessThan %{}, %{}", r, l, rr)
-                    }
-                    Instruction::MakeInteger(t) => iwl!(text, "    MakeInteger {:?}", t),
-                    Instruction::Equals(t) => iwl!(text, "    CompareEqual {:?}", t),
-                    Instruction::Negate(t) => iwl!(text, "    Negate {:?}", t),
-                    Instruction::Add(t) => iwl!(text, "    Add {:?}", t),
-                }
+                iwl!(text, "    {}", inst.as_display());
             }
 
+            iw!(text, "    ");
             match &block.end {
-                ControlFlowInstruction::Jmp(inst) => iwl!(text, "    {:?}", inst),
-                ControlFlowInstruction::JmpIf(inst) => iwl!(text, "    {:?}", inst),
-                ControlFlowInstruction::Ret(r) => {
-                    iwl!(text, "    Ret {:?}", r)
-                }
-            };
+                ControlFlowInstruction::Jmp(inst) => inst.display(&mut text),
+                ControlFlowInstruction::JmpIf(inst) => inst.display(&mut text),
+                ControlFlowInstruction::Ret(inst) => inst.display(&mut text),
+            }
+            .unwrap();
+            iwl!(text);
         }
 
         iw!(text, "}}\n\n");

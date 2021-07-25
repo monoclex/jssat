@@ -8,8 +8,8 @@ use crate::{
     id::{Counter, IrCtx, LiftedCtx},
     isa::{BlockJump, ISAInstruction, Jump, JumpIf, Return},
     retag::{
-        BlkToFn, CnstPassRetagger, CnstRetagger, ExtFnPassRetagger, ExtFnRetagger, FnMapRetagger,
-        FnRetagger, RegPassRetagger, RegRetagger,
+        BlkToFn, CnstPassRetagger, CnstRetagger, ExtFnPassRetagger, ExtFnRetagger, FnGenRetagger,
+        FnMapRetagger, FnRetagger, RegPassRetagger, RegRetagger,
     },
     UnwrapNone,
 };
@@ -147,23 +147,6 @@ pub fn lift(ir: IR) -> LiftedProgram {
         fn_retagger.retag_new(*id);
     }
 
-    // create function id generator to generate function ids after the highest
-    // retagged function id (meaning we'll only get unique function ids)
-    let fn_id_gen = Counter::new_with_value(fn_retagger.counter());
-
-    // assert that any function ids generated with `new_fn_ids`
-    // will not overlap with any existing function ids
-    if cfg!(debug_assertions) {
-        let mut retagger = fn_retagger.clone();
-        let new_fn_ids = fn_id_gen.clone();
-
-        assert_eq!(
-            retagger.retag_new(retagger.free()),
-            new_fn_ids.next(),
-            "newly generated function ids should start right after all retagged functions"
-        );
-    }
-
     // lift functions
     let mut functions = FxHashMap::default();
     for (id, func) in ir.functions.into_iter() {
@@ -171,8 +154,7 @@ pub fn lift(ir: IR) -> LiftedProgram {
             id,
             func,
             fn_retagger.retag_old(id),
-            &fn_id_gen,
-            &fn_retagger,
+            &mut fn_retagger,
             &e_retagger,
             &c_retagger,
         );
@@ -194,8 +176,7 @@ fn lift_function(
     ir_fn_id: crate::id::FunctionId<IrCtx>,
     function: ir::Function,
     fn_id: FunctionId,
-    fn_id_gen: &Counter<FunctionId>,
-    fn_retagger: &impl FnRetagger<IrCtx, LiftedCtx>,
+    fn_retagger: &mut impl FnGenRetagger<IrCtx, LiftedCtx>,
     e_retagger: &impl ExtFnRetagger<IrCtx, LiftedCtx>,
     c_retagger: &impl CnstRetagger<IrCtx, LiftedCtx>,
 ) -> FxHashMap<FunctionId, Function> {
@@ -205,7 +186,7 @@ fn lift_function(
         // id for it - we want to use the function id provided for it
         let key = match *id == function.entry_block {
             true => fn_id,
-            false => fn_id_gen.next(),
+            false => fn_retagger.gen(),
         };
 
         lifted_ids.insert(*id, key);
@@ -219,8 +200,16 @@ fn lift_function(
 
     let mut lifted = FxHashMap::default();
 
-    for (id, blk) in function.blocks.into_iter() {
+    for (id, mut blk) in function.blocks.into_iter() {
         let lifted_id = *lifted_ids.get(&id).unwrap();
+
+        // since entry blocks don't have the parameters of the function,
+        // this gives the entry block the parameters it needs
+        if id == function.entry_block {
+            debug_assert_eq!(blk.parameters.len(), 0);
+            blk.parameters
+                .extend(function.parameters.iter().map(|p| p.register));
+        }
 
         let mut lifted_blk = fn_block_to_fn(
             ir_fn_id,
@@ -260,7 +249,7 @@ fn fn_block_to_fn(
     fn_blk: ir::FunctionBlock,
     blk_to_fn: &impl BlkToFn<IrCtx, LiftedCtx>,
     retagger: &mut impl RegRetagger<IrCtx, LiftedCtx>,
-    fn_retagger: &impl FnRetagger<IrCtx, LiftedCtx>,
+    fn_retagger: &impl FnGenRetagger<IrCtx, LiftedCtx>,
     e_retagger: &impl ExtFnRetagger<IrCtx, LiftedCtx>,
     c_retagger: &impl CnstRetagger<IrCtx, LiftedCtx>,
 ) -> Function {

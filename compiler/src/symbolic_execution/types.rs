@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::fmt::Display;
 use std::sync::{Arc, Mutex};
 
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -222,6 +223,98 @@ impl TypeBag {
 
     pub fn unintern_const(&self, id: ConstantId) -> &Vec<u8> {
         self.with_looking_up(LookingUp::Constant(id), || self.consts.get(&id).unwrap())
+    }
+
+    pub fn display(&self, register: RegisterId) -> String {
+        let mut s = String::new();
+
+        match self.registers.get(&register) {
+            Some(t) => match self.display_typ(&mut s, t) {
+                Ok(_) => {}
+                Err(e) => {
+                    let reason = e.to_string();
+                    s.push_str(&reason);
+                }
+            },
+            None => s.push('?'),
+        };
+
+        s
+    }
+
+    fn display_typ(&self, w: &mut String, reg_typ: &RegisterType) -> std::fmt::Result {
+        use std::fmt::Write;
+
+        match *reg_typ {
+            RegisterType::Any
+            | RegisterType::Bytes
+            | RegisterType::Number
+            | RegisterType::Boolean => write!(w, "{:?}", reg_typ)?,
+            RegisterType::Trivial(t) => write!(w, "{:?}", t)?,
+            RegisterType::Byts(p) => {
+                w.push_str("Bytes(");
+                self.display_cnst(w, p)?;
+                w.push(')');
+            }
+            RegisterType::Int(v) => write!(w, "Int({})", v)?,
+            RegisterType::Bool(v) => write!(w, "Boolean({})", v)?,
+            RegisterType::FnPtr(f) => write!(w, "FnPtr(@{})", f)?,
+            RegisterType::Record(r) => {
+                w.push_str("{ ");
+
+                let shape = (self.alloc_shapes.get(&r))
+                    .and_then(|h| h.last())
+                    .and_then(|id| self.shapes.get(id));
+
+                if let Some(shape) = shape {
+                    for (key, typ) in shape.fields.iter() {
+                        match *key {
+                            ShapeKey::Str(s) => self.display_cnst(w, s)?,
+                            ShapeKey::Slot(s) => write!(w, "[[{}]]", s)?,
+                        };
+
+                        w.push_str(": ");
+
+                        self.display_typ(w, typ)?;
+                        w.push_str(", ");
+                    }
+                } else {
+                    w.push('?');
+                }
+
+                w.push_str(" }");
+            }
+        };
+
+        Ok(())
+    }
+
+    fn display_cnst(&self, w: &mut String, cnst: ConstantId) -> std::fmt::Result {
+        use std::fmt::Write;
+
+        let payload = match self.consts.get(&cnst) {
+            Some(p) => p,
+            None => {
+                w.push('?');
+                return Ok(());
+            }
+        };
+
+        if let Ok(str) = std::str::from_utf8(payload) {
+            write!(w, "{:?}", str)?;
+            return Ok(());
+        }
+
+        let (pre, bytes, post) = unsafe { payload.align_to() };
+
+        if pre.is_empty() && post.is_empty() {
+            if let Ok(s) = String::from_utf16(bytes) {
+                write!(w, "{:?}", s)?;
+                return Ok(());
+            }
+        }
+
+        write!(w, "{:?}", payload)
     }
 
     /// Given a set of registers, will pull out the types of those registers

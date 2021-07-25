@@ -49,6 +49,9 @@ pub fn execute(program: &'static LiftedProgram) -> assembler::Program {
         println!("=== ERROR DURING SYMBOLIC EXECUTION ===");
         orig_hook(panic_info);
         println!();
+        println!("! note: at this time, type information is inaccurate");
+        println!("! as it only reflects the most current state of abstract interpretation");
+        println!();
 
         println!("callstack:");
         for (_, worker) in callstack {
@@ -130,6 +133,14 @@ pub fn execute(program: &'static LiftedProgram) -> assembler::Program {
                     true => println!("> {}", inst.as_display()),
                     false => println!("| {}", inst.as_display()),
                 };
+
+                if let Some(reg) = inst.assigned_to() {
+                    println!("# %{} : {}", reg, w.types.display(reg))
+                }
+
+                for reg in inst.used_registers() {
+                    println!("# %{} : {}", reg, w.types.display(reg))
+                }
             }
 
             let last_idx = w.func.instructions.len();
