@@ -99,26 +99,39 @@ pub fn traverse(source: String) -> IR {
     let mut builder = ProgramBuilder::new();
     let env_factory = EnvironmentRecordFactory::new(&mut builder);
 
-    let mut main = builder.start_function_main();
-    let block = main.start_block_main().into_dynamic();
-    let mut frontend = JsWriter {
-        bld: &mut builder,
-        bld_fn: &mut main,
-        block,
-        // the value doesn't matter, it gets set on ScriptEvalution
-        running_execution_context_lexical_environment:
-            EnvironmentRecord::new_with_register_unchecked(RegisterId::default()),
-        env_factory,
+    let js_machinery = {
+        let (mut main, []) = builder.start_function();
+        let block = main.start_block_main().into_dynamic();
+        let mut frontend = JsWriter {
+            bld: &mut builder,
+            bld_fn: &mut main,
+            block,
+            // the value doesn't matter, it gets set on ScriptEvalution
+            running_execution_context_lexical_environment:
+                EnvironmentRecord::new_with_register_unchecked(RegisterId::default()),
+            env_factory,
+        };
+
+        let (_, realm) = frontend.InitializeHostDefinedRealm();
+        let undefined = frontend.block.make_undefined();
+        let script_record = frontend.ParseScript((), realm, undefined);
+        frontend.ScriptEvaluation(script_record, &script);
+
+        let empty = frontend.block.make_undefined();
+        let completion = frontend.NormalCompletion(empty);
+        let block = frontend.block.ret(Some(completion));
+        main.end_block_dyn(block);
+
+        builder.end_function(main)
     };
 
-    let (_, realm) = frontend.InitializeHostDefinedRealm();
-    let undefined = frontend.block.make_undefined();
-    let script_record = frontend.ParseScript((), realm, undefined);
-    frontend.ScriptEvaluation(script_record, &script);
+    let mut main = builder.start_function_main();
+    let mut block = main.start_block_main();
 
-    let block = frontend.block.ret(None);
-    main.end_block_dyn(block);
+    block.call(js_machinery, []);
 
+    // TODO: make forgetting to call `end_block` a panic
+    main.end_block(block.ret(None));
     builder.end_function(main);
     builder.finish()
 }
@@ -1092,7 +1105,6 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
     // ecmascript helpers
 
     /// <https://tc39.es/ecma262/#sec-returnifabrupt>
-    #[track_caller]
     pub fn ReturnIfAbrupt(&mut self, argument: RegisterId) -> RegisterId {
         self.comment("ReturnIfAbrupt");
 

@@ -376,8 +376,14 @@ fn patch_child_flow(
                     panic!("error: used-but-not-declared register reached entrypoint of function but found no declaration.");
                 }
 
+                debug_assert!(!function.parameters.contains(&unpassed_register));
+
                 fn_params_modified = true;
                 function.parameters.push(unpassed_register);
+
+                // once we pass a refister to the function via param, we can say
+                // it's declared for future note
+                declared.insert(unpassed_register);
             }
         }
     }

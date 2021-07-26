@@ -158,7 +158,7 @@ impl<C: Tag> ISAInstruction<C> for Return<C> {
 
     fn display(&self, w: &mut impl Write) -> std::fmt::Result {
         match self.0 {
-            Some(r) => write!(w, "Return {};", r),
+            Some(r) => write!(w, "Return %{};", r),
             None => write!(w, "Return;"),
         }
     }

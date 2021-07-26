@@ -353,17 +353,11 @@ impl TypeBag {
             // TODO: don't duplicate this code with the hunk at the bottom
             let new_tp = match typ {
                 RegisterType::Record(a) => {
-                    if let Some(alloc) = alloc_map.get(&a) {
-                        // i want a warning
-                        let WE_SHOULDNT_HAVE_TO_DO_THIS = true;
-                        RegisterType::Record(*alloc)
-                    } else {
-                        need_to_shape.push_back(a);
-                        let new_a = new.alloc_allocation();
+                    need_to_shape.push_back(a);
+                    let new_a = new.alloc_allocation();
 
-                        alloc_map.insert(a, new_a).expect_none("");
-                        RegisterType::Record(new_a)
-                    }
+                    alloc_map.insert(a, new_a).expect_none("");
+                    RegisterType::Record(new_a)
                 }
                 RegisterType::Byts(c) => {
                     RegisterType::Byts(new.intern_constant(self.unintern_const(c)))
@@ -371,13 +365,7 @@ impl TypeBag {
                 other => other,
             };
 
-            if let Some(exists) = new.registers.get(&d_reg) {
-                // i want a warning
-                let WE_SHOULDNT_HAVE_TO_DO_THIS = true;
-                debug_assert_eq!(new_tp, *exists, "if we're re-assigning a type to a register it should at least be the same time");
-            } else {
-                new.assign_type(d_reg, new_tp);
-            }
+            new.assign_type(d_reg, new_tp);
         }
 
         let mut shape_map = FxHashMap::default();

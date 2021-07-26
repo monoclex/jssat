@@ -1,7 +1,7 @@
 use rustc_hash::FxHashMap;
 
 use super::{
-    assembler::{Block, Function, Program},
+    assembler::{Block, Function, Program, ReturnType},
     old_types::{RegMap, ShapeKey},
     type_annotater::ValueType,
 };
@@ -37,11 +37,11 @@ pub fn opt_constant_elimination(program: Program) -> Program {
 
 fn opt_fn(f: &mut Function, cnsts: &Cnsts) {
     for (_, b) in f.blocks.iter_mut() {
-        opt_blk(cnsts, b);
+        opt_blk(cnsts, b, &mut f.return_type);
     }
 }
 
-fn opt_blk(cnsts: &Cnsts, b: &mut Block) {
+fn opt_blk(cnsts: &Cnsts, b: &mut Block, ret_typ: &mut ReturnType) {
     let regs = &mut b.register_types;
     // remove const params
     let const_params = b
@@ -70,6 +70,11 @@ fn opt_blk(cnsts: &Cnsts, b: &mut Block) {
         args.into_iter().filter(|r| !regs.is_const(*r)).collect()
     };
 
+    let ret_typ_is_const = match ret_typ {
+        ReturnType::Void => true,
+        ReturnType::Value(v) => regs.is_const_typ(v),
+    };
+
     // remove const params when jumping to other blocks
     b.end = match b.end.clone() {
         EndInstruction::Unreachable => EndInstruction::Unreachable,
@@ -85,6 +90,13 @@ fn opt_blk(cnsts: &Cnsts, b: &mut Block) {
             true_path: BlockJump(t_id, filter_args(t_args)),
             false_path: BlockJump(f_id, filter_args(f_args)),
         },
+        // returning a register of a constant value can be removed
+        // IFF all constant usages of it are propagated
+        // ^ TODO: ensure the above is done (i think it already is though)
+        EndInstruction::Return(Some(r)) if regs.is_const(r) && ret_typ_is_const => {
+            *ret_typ = ReturnType::Void;
+            EndInstruction::Return(None)
+        }
         EndInstruction::Return(r) => EndInstruction::Return(r),
     };
 
