@@ -120,6 +120,14 @@ impl<'p> Worker for SymbWorker<'p> {
                         shape.new_with(self.types.conv_key(i.key), self.types.get(i.value));
                     self.types.append_shape(i.record, new_shape);
                 }
+                ir::Instruction::RecordHasKey(i) => {
+                    let shape = self.types.record_shape(i.record);
+                    let has_field = match self.types.has_field(shape, i.key) {
+                        Some(b) => RegisterType::Bool(b),
+                        None => RegisterType::Boolean,
+                    };
+                    self.types.assign_type(i.result, has_field);
+                }
                 ir::Instruction::GetFnPtr(i) => {
                     self.types
                         .assign_type(i.result, RegisterType::FnPtr(i.function));
@@ -327,6 +335,25 @@ impl<'p> Worker for SymbWorker<'p> {
                             key: i.key,
                             value: i.value,
                         });
+                    } else {
+                        unreachable!();
+                    }
+                }
+                ir::Instruction::RecordHasKey(i) => {
+                    if let ir::Instruction::RecordHasKey(inst) = inst {
+                        let result = self.types.get(inst.result);
+
+                        match result {
+                            RegisterType::Bool(b) => {
+                                asm_typs.insert(i.result, type_annotater::ValueType::Bool(b));
+                                blk.instructions
+                                    .push(assembler::Instruction::MakeBoolean(i.result, b));
+                            }
+                            RegisterType::Boolean => {
+                                todo!("cannot accomodate non-const field lookups")
+                            }
+                            _ => unreachable!("recordhaskey result should only be bool"),
+                        }
                     } else {
                         unreachable!();
                     }

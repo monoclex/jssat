@@ -187,6 +187,20 @@ impl TypeBag {
         self.with_looking_up(LookingUp::ShapeKey(key), || shape.get_typ(key))
     }
 
+    pub fn has_field(&self, shape: &Shape, key: RecordKey<LiftedCtx>) -> Option<bool> {
+        let key = self.conv_key(key);
+
+        // at this time, there is no possibility for a field key to not exist
+        // because we only deal with constant types
+        // when unions come along, then i'll have to add that logic (as well as
+        // logic for supporting generic keys like `String`)
+        if let Some(_) = shape.fields.get(&key) {
+            Some(true)
+        } else {
+            Some(false)
+        }
+    }
+
     pub fn record_shape(&self, register: RegisterId) -> &Shape {
         if let RegisterType::Record(a) = self.get(register) {
             let shape_id = self.get_shape_id(a);

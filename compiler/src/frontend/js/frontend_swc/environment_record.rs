@@ -110,12 +110,10 @@ impl EnvironmentRecordFactory {
             w.comment("DeclarativeEnvironmentRecord::HasBinding");
 
             //# 1. If envRec has a binding for the name that is the value of N, return true.
-            // TODO: instruction to see if key/value exists
-
             //# 2. Return false.
-            let result = w.make_bool(false);
+            let has_binding = w.record_has_prop(env, N);
 
-            f.end_block(w.ret(Some(result)));
+            f.end_block(w.ret(Some(has_binding)));
             writer.end_function(f)
         };
 
@@ -142,8 +140,8 @@ impl EnvironmentRecordFactory {
             //# b. If blocked is true, return false.
             //# 7. Return true.
 
-            let r#true = w.make_bool(true);
-            let completion = w.NormalCompletion(writer, r#true);
+            let r#false = w.make_bool(false);
+            let completion = w.NormalCompletion(writer, r#false);
 
             f.end_block(w.ret(Some(completion)));
             writer.end_function(f)
@@ -176,17 +174,18 @@ impl EnvironmentRecordFactory {
 
             //# 2. If DclRec.HasBinding(N) is true, return true.
             let DclRec = EnvironmentRecord::new_with_register_unchecked(DclRec);
-            // TODO: use result somehow
-            DclRec.HasBinding(&mut w, N);
+            let has_binding = DclRec.HasBinding(&mut w, N);
+            // TODO: check in the object record as well
+            f.end_block(w.ret(Some(has_binding)));
 
-            //# 3. Let ObjRec be envRec.[[ObjectRecord]].
-            let ObjRec = w.record_get_slot(envRec, InternalSlot::ObjectRecord);
+            // //# 3. Let ObjRec be envRec.[[ObjectRecord]].
+            // let ObjRec = w.record_get_slot(envRec, InternalSlot::ObjectRecord);
 
-            //# 4. Return ? ObjRec.HasBinding(N).
-            let ObjRec = EnvironmentRecord::new_with_register_unchecked(ObjRec);
-            let result = ObjRec.HasBinding(&mut w, N);
+            // //# 4. Return ? ObjRec.HasBinding(N).
+            // let ObjRec = EnvironmentRecord::new_with_register_unchecked(ObjRec);
+            // let result = ObjRec.HasBinding(&mut w, N);
 
-            f.end_block(w.ret(Some(result)));
+            // f.end_block(w.ret(Some(result)));
             writer.end_function(f)
         };
 
@@ -198,11 +197,13 @@ impl EnvironmentRecordFactory {
             w.comment("GlobalEnvironmentRecord::HasVarDeclaration");
 
             //# 1. Let varDeclaredNames be envRec.[[VarNames]].
+            let varDeclaredNames = w.record_get_slot(envRec, InternalSlot::VarNames);
+
             //# 2. If varDeclaredNames contains N, return true.
             //# 3. Return false.
-            let result = w.make_bool(false);
-
+            let result = w.record_has_prop(varDeclaredNames, N);
             f.end_block(w.ret(Some(result)));
+
             writer.end_function(f)
         };
 
@@ -232,7 +233,11 @@ impl EnvironmentRecordFactory {
             w.comment("GlobalEnvironmentRecord::HasRestrictedGlobalProperty");
 
             //# 1. Let ObjRec be envRec.[[ObjectRecord]].
+            let ObjRec = w.record_get_slot(envRec, InternalSlot::ObjectRecord);
+
             //# 2. Let globalObject be ObjRec.[[BindingObject]].
+            let globalObject = w.record_get_slot(ObjRec, InternalSlot::BindingObject);
+
             //# 3. Let existingProp be ? globalObject.[[GetOwnProperty]](N).
             //# 4. If existingProp is undefined, return false.
             //# 5. If existingProp.[[Configurable]] is true, return false.
@@ -251,7 +256,11 @@ impl EnvironmentRecordFactory {
             w.comment("GlobalEnvironmentRecord::CreateGlobalFunctionBinding");
 
             //# 1. Let ObjRec be envRec.[[ObjectRecord]].
+            let ObjRec = w.record_get_slot(envRec, InternalSlot::ObjectRecord);
+
             //# 2. Let globalObject be ObjRec.[[BindingObject]].
+            let globalObject = w.record_get_slot(ObjRec, InternalSlot::BindingObject);
+
             //# 3. Let existingProp be ? globalObject.[[GetOwnProperty]](N).
             //# 4. If existingProp is undefined or existingProp.[[Configurable]] is true, then
             //# a. Let desc be the PropertyDescriptor { [[Value]]: V, [[Writable]]: true, [[Enumerable]]: true, [[Configurable]]: D }.

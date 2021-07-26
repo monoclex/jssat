@@ -10,7 +10,7 @@ use crate::UnwrapNone;
 use crate::isa::{
     Add, BlockJump, CallExtern, CallStatic, CallVirt, Equals, GetFnPtr, InternalSlot, Jump, JumpIf,
     LessThan, MakeBoolean, MakeBytes, MakeInteger, MakeTrivial, Negate, NewRecord, RecordGet,
-    RecordKey, RecordSet, Return, TrivialItem,
+    RecordHasKey, RecordKey, RecordSet, Return, TrivialItem,
 };
 
 pub type BlockId = crate::id::BlockId<crate::id::IrCtx>;
@@ -540,6 +540,30 @@ impl DynBlockBuilder {
             key: RecordKey::Slot(slot),
             value,
         }));
+    }
+
+    pub fn record_has_prop(&mut self, record: RegisterId, property: RegisterId) -> RegisterId {
+        let result = self.gen_register_id.next();
+        self.instructions
+            .push(Instruction::RecordHasKey(RecordHasKey {
+                result,
+                shape: (),
+                record,
+                key: RecordKey::Prop(property),
+            }));
+        result
+    }
+
+    pub fn record_has_slot(&mut self, record: RegisterId, slot: InternalSlot) -> RegisterId {
+        let result = self.gen_register_id.next();
+        self.instructions
+            .push(Instruction::RecordHasKey(RecordHasKey {
+                result,
+                shape: (),
+                record,
+                key: RecordKey::Slot(slot),
+            }));
+        result
     }
 
     pub fn add(&mut self, lhs: RegisterId, rhs: RegisterId) -> RegisterId {

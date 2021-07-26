@@ -4,6 +4,7 @@ use rustc_hash::FxHashSet;
 use swc_common::{
     errors::{ColorConfig, Handler},
     input::StringInput,
+    pass::define,
     sync::Lrc,
     FileName, SourceMap,
 };
@@ -304,8 +305,22 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
 
         // TODO: implement this
         //# 1. If globalObj is undefined, then
-        //# a. Let intrinsics be realmRec.[[Intrinsics]].
-        //# b. Set globalObj to ! OrdinaryObjectCreate(intrinsics.[[%Object.prototype%]]).
+        let undefined = self.make_undefined();
+        let is_undefined = self.compare_equal(globalObj, undefined);
+
+        let globalObj = self.perform_if_else_w_value(
+            is_undefined,
+            |me| {
+                //# a. Let intrinsics be realmRec.[[Intrinsics]].
+                let intrinsics = me.record_get_slot(realmRec, InternalSlot::Intrinsics);
+
+                //# b. Set globalObj to ! OrdinaryObjectCreate(intrinsics.[[%Object.prototype%]]).
+                let proto = me.record_get_slot(intrinsics, InternalSlot::ObjectPrototype);
+                me.OrdinaryObjectCreate(proto, Vec::new())
+            },
+            |me| globalObj,
+        );
+
         //# 2. Assert: Type(globalObj) is Object.
         //# 3. If thisValue is undefined, set thisValue to globalObj.
         //# 4. Set realmRec.[[GlobalObject]] to globalObj.
@@ -319,6 +334,62 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
 
         //# 7. Return realmRec.
         realmRec
+    }
+
+    /// <https://tc39.es/ecma262/#sec-ordinaryobjectcreate>
+    pub fn OrdinaryObjectCreate(
+        &mut self,
+        proto: RegisterId,
+        additionalInternalSlotsList: Vec<InternalSlot>,
+    ) -> RegisterId {
+        //# 1. Let internalSlotsList be « [[Prototype]], [[Extensible]] ».
+        let mut internalSlotsList = vec![InternalSlot::Prototype, InternalSlot::Extensible];
+
+        //# 2. If additionalInternalSlotsList is present, append each of its elements to internalSlotsList.
+        internalSlotsList.extend(additionalInternalSlotsList);
+
+        //# 3. Let O be ! MakeBasicObject(internalSlotsList).
+        let O = self.MakeBasicObject(internalSlotsList);
+
+        //# 4. Set O.[[Prototype]] to proto.
+        self.record_set_slot(O, InternalSlot::Prototype, proto);
+
+        //# 5. Return O.
+        O
+    }
+
+    /// <https://tc39.es/ecma262/#sec-makebasicobject>
+    pub fn MakeBasicObject(&mut self, internalSlotsList: Vec<InternalSlot>) -> RegisterId {
+        //# 1. Assert: internalSlotsList is a List of internal slot names.
+
+        //# 2. Let obj be a newly created object with an internal slot for each name in internalSlotsList.
+        let obj = self.record_new();
+        // we don't need to set the fields here, because the caller will do so
+
+        //# 3. Set obj's essential internal methods to the default ordinary object definitions specified in 10.1.
+        // TODO: clean this up
+        let OrdinaryDefineOwnProperty = {
+            let (mut f, [O, P, Desc]) = self.bld.start_function();
+
+            self.bld.end_function(f)
+        };
+
+        //# 4. Assert: If the caller will not be overriding both obj's
+        //#    [[GetPrototypeOf]] and [[SetPrototypeOf]] essential internal
+        //#    methods, then internalSlotsList contains [[Prototype]].
+        //# 5. Assert: If the caller will not be overriding all of obj's
+        //#    [[SetPrototypeOf]], [[IsExtensible]], and [[PreventExtensions]]
+        //#    essential internal methods, then internalSlotsList contains
+        //#    [[Extensible]].
+
+        //# 6. If internalSlotsList contains [[Extensible]], set obj.[[Extensible]] to true.
+        if internalSlotsList.contains(&InternalSlot::Extensible) {
+            let r#true = self.make_bool(true);
+            self.record_set_slot(obj, InternalSlot::Extensible, r#true);
+        }
+
+        //# 7. Return obj.
+        obj
     }
 
     /// <https://tc39.es/ecma262/#sec-newglobalenvironment>
@@ -396,11 +467,66 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
             .block
             .record_get_slot(realmRec, InternalSlot::GlobalObject);
         //# 2. For each property of the Global Object specified in clause 19, do
-        //# a. Let name be the String value of the property name.
-        //# b. Let desc be the fully populated data Property Descriptor for the property, containing the specified attributes for the property. For properties listed in 19.2, 19.3, or 19.4 the value of the [[Value]] attribute is the corresponding intrinsic object from realmRec.
-        //# c. Perform ? DefinePropertyOrThrow(global, name, desc).
+        // // TODO: do this for all properties and not just `print`
+
+        // //# a. Let name be the String value of the property name.
+        // let print = self.bld.constant_str_utf16("print");
+        // let name = self.make_string(print);
+
+        // //# b. Let desc be the fully populated data Property Descriptor for the
+        // //# property, containing the specified attributes for the property. For
+        // //# properties listed in 19.2, 19.3, or 19.4 the value of the [[Value]]
+        // //# attribute is the corresponding intrinsic object from realmRec.
+        // // let r#true = self.make_bool(true);
+        // let r#false = self.make_bool(false);
+
+        // let value =
+
+        // let desc = self.record_new();
+        // self.record_set_slot(desc, InternalSlot::Writable, r#false);
+        // self.record_set_slot(desc, InternalSlot::Enumerable, r#false);
+        // self.record_set_slot(desc, InternalSlot::Configurable, r#false);
+
+        // //# c. Perform ? DefinePropertyOrThrow(global, name, desc).
+        // let result = self.DefinePropertyOrThrow(global, name, desc);
+        // self.ReturnIfAbrupt(result);
+
         //# 3. Return global.
         self.NormalCompletion(global)
+    }
+
+    /// <https://tc39.es/ecma262/#sec-definepropertyorthrow>
+    pub fn DefinePropertyOrThrow(
+        &mut self,
+        O: RegisterId,
+        P: RegisterId,
+        desc: RegisterId,
+    ) -> RegisterId {
+        self.comment("DefinePropertyOrThrow");
+
+        //# 1. Assert: Type(O) is Object.
+        //# 2. Assert: IsPropertyKey(P) is true.
+
+        //# 3. Let success be ? O.[[DefineOwnProperty]](P, desc).
+        let define_own_property = self.record_get_slot(O, InternalSlot::DefineOwnProperty);
+        let success_try = self.call_virt_with_result(define_own_property, [O, P, desc]);
+        let success = self.ReturnIfAbrupt(success_try);
+
+        //# 4. If success is false, throw a TypeError exception.
+        let success_false = self.negate(success);
+        self.perform_if(success_false, |me| {
+            // TODO: throw a type error properly
+            let argument = me.make_undefined();
+            let completion = me.ThrowCompletion(argument);
+
+            // TODO: dont have this hack
+            let (mut hack, []) = me.bld_fn.start_block();
+            std::mem::swap(&mut me.block, &mut hack);
+            me.bld_fn.end_block(hack.ret(Some(completion)));
+        });
+
+        //# 5. Return success.
+        self.NormalCompletion(success)
     }
 
     /// <https://tc39.es/ecma262/#sec-parse-script>
@@ -917,7 +1043,7 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
 
     // host-defined
     pub fn create_host_defined_global_object_property_print(&mut self, global: RegisterId) {
-        let print = {
+        let print_fn = {
             let (mut print, [arg]) = self.bld.start_function();
 
             let jssatrt_print = self.bld.external_function(
@@ -934,14 +1060,33 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
             self.bld.end_function(print)
         };
 
+        // TODO: do this for all properties and not just `print`
+
+        //# a. Let name be the String value of the property name.
+        let print = self.bld.constant_str_utf16("print");
+        let name = self.make_string(print);
+
+        //# b. Let desc be the fully populated data Property Descriptor for the
+        //# property, containing the specified attributes for the property. For
+        //# properties listed in 19.2, 19.3, or 19.4 the value of the [[Value]]
+        //# attribute is the corresponding intrinsic object from realmRec.
+        // let r#true = self.make_bool(true);
+        let r#false = self.make_bool(false);
+
         // TODO: properly make a function
         let func_obj = self.record_new();
-        let fnptr = self.make_fnptr(print.id);
+        let fnptr = self.make_fnptr(print_fn.id);
         self.record_set_slot(func_obj, InternalSlot::Call, fnptr);
+        let value = func_obj;
 
-        let print_text = self.bld.constant_str_utf16("print");
-        let key = self.make_string(print_text);
-        self.record_set_prop(global, key, func_obj);
+        let desc = self.record_new();
+        self.record_set_slot(desc, InternalSlot::Writable, r#false);
+        self.record_set_slot(desc, InternalSlot::Enumerable, r#false);
+        self.record_set_slot(desc, InternalSlot::Configurable, r#false);
+
+        //# c. Perform ? DefinePropertyOrThrow(global, name, desc).
+        let result = self.DefinePropertyOrThrow(global, name, desc);
+        self.ReturnIfAbrupt(result);
     }
 
     // RUNTIME SEMANTICS OF SCRIPT
