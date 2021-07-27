@@ -763,6 +763,10 @@ pub enum InternalSlot {
     DefineOwnProperty,
     Prototype,
     Extensible,
+    GetOwnProperty,
+    IsExtensible,
+    Get,
+    Set,
     /// `%Function.prototype%`
     FunctionPrototype,
     /// `%Object.prototype%`

@@ -20,17 +20,61 @@ use swc_ecmascript::{
 
 use std::iter::FromIterator;
 
-use self::environment_record::{
-    EnvironmentRecord, EnvironmentRecordFactory, GlobalEnvironmentRecord,
+use self::{
+    environment_record::{EnvironmentRecord, EnvironmentRecordFactory, GlobalEnvironmentRecord},
+    ordinary_object_behaviors::{create_ordinary_internal_methods, OrdinaryInternalMethods},
 };
 use crate::frontend::{builder::*, ir::*};
 use crate::isa::InternalSlot;
 
+pub mod abstract_operations;
 pub mod environment_record;
+pub mod ordinary_object_behaviors;
+
+pub struct Emitter<'program, const P: usize> {
+    pub program: &'program mut ProgramBuilder,
+    pub function: FunctionBuilder<P>,
+    pub block: DynBlockBuilder,
+}
+
+impl<const P: usize> Deref for Emitter<'_, P> {
+    type Target = DynBlockBuilder;
+
+    fn deref(&self) -> &Self::Target {
+        &self.block
+    }
+}
+
+impl<const P: usize> DerefMut for Emitter<'_, P> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.block
+    }
+}
+
+impl<'p, const P: usize> Emitter<'p, P> {
+    pub fn new(program: &'p mut ProgramBuilder, mut function: FunctionBuilder<P>) -> Self {
+        let block = function.start_block_main().into_dynamic();
+        Self {
+            program,
+            function,
+            block,
+        }
+    }
+
+    pub fn finish<F>(mut self, finish: F) -> FnSignature<P>
+    where
+        F: FnOnce(DynBlockBuilder) -> DynFinalizedBlockBuilder,
+    {
+        self.function.end_block_dyn(finish(self.block));
+        self.program.end_function(self.function)
+    }
+}
 
 #[test]
 fn doesnt_panic() {
     let mut builder = ProgramBuilder::new();
+    let ordinary = create_ordinary_internal_methods(&mut builder);
+
     let env_factory = EnvironmentRecordFactory::new(&mut builder);
 
     let mut main = builder.start_function_main();
@@ -43,6 +87,7 @@ fn doesnt_panic() {
         running_execution_context_lexical_environment:
             EnvironmentRecord::new_with_register_unchecked(RegisterId::default()),
         env_factory,
+        ordinary,
     };
 
     let s = frontend.bld.constant_str("a string");
@@ -98,6 +143,8 @@ pub fn traverse(source: String) -> IR {
     let script = to_script(source);
 
     let mut builder = ProgramBuilder::new();
+    let ordinary = create_ordinary_internal_methods(&mut builder);
+
     let env_factory = EnvironmentRecordFactory::new(&mut builder);
 
     let js_machinery = {
@@ -111,6 +158,7 @@ pub fn traverse(source: String) -> IR {
             running_execution_context_lexical_environment:
                 EnvironmentRecord::new_with_register_unchecked(RegisterId::default()),
             env_factory,
+            ordinary,
         };
 
         let (_, realm) = frontend.InitializeHostDefinedRealm();
@@ -144,6 +192,7 @@ struct JsWriter<'builder, const PARAMETERS: usize> {
     /// this is a hack, shouldn't be here... probably
     running_execution_context_lexical_environment: EnvironmentRecord,
     env_factory: EnvironmentRecordFactory,
+    ordinary: OrdinaryInternalMethods,
 }
 
 impl<const P: usize> Deref for JsWriter<'_, P> {
@@ -367,12 +416,13 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
         // we don't need to set the fields here, because the caller will do so
 
         //# 3. Set obj's essential internal methods to the default ordinary object definitions specified in 10.1.
-        // TODO: clean this up
-        let OrdinaryDefineOwnProperty = {
-            let (mut f, [O, P, Desc]) = self.bld.start_function();
-
-            self.bld.end_function(f)
-        };
+        let id = self.ordinary.OrdinaryDefineOwnProperty.id;
+        let ordinary_define_own_property = self.make_fnptr(id);
+        self.record_set_slot(
+            obj,
+            InternalSlot::DefineOwnProperty,
+            ordinary_define_own_property,
+        );
 
         //# 4. Assert: If the caller will not be overriding both obj's
         //#    [[GetPrototypeOf]] and [[SetPrototypeOf]] essential internal
@@ -715,7 +765,7 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
             let hasRestrictedGlobal = self.ReturnIfAbrupt(hasRestrictedGlobal_try);
 
             //# d. If hasRestrictedGlobal is true, throw a SyntaxError exception.
-            self.perform_if(cond, |me| {
+            self.perform_if(hasRestrictedGlobal, |me| {
                 // TODO: throw a SyntaxError properly
                 let constant = me.bld.constant_str_utf16("SyntaxError occurred");
                 let syntax_error = me.make_string(constant);
