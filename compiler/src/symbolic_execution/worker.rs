@@ -59,6 +59,16 @@ pub struct WorkerResults {
     pub assembler_piece: assembler::Function,
 }
 
+impl WorkerResults {
+    fn clone_ret_typ(&self, target_bag: &mut TypeBag) -> ReturnType {
+        match self.return_type {
+            ReturnType::Void => ReturnType::Void,
+            ReturnType::Never => ReturnType::Never,
+            ReturnType::Value(v) => ReturnType::Value(self.types.pull_type_into(v, target_bag)),
+        }
+    }
+}
+
 impl Bogusable for WorkerResults {
     fn bogus() -> Self {
         panic!("bogusability should not be required yet");
@@ -264,9 +274,7 @@ impl<'p> Worker for SymbWorker<'p> {
                     let id = self.fn_ids.id_of(fn_id, types, true);
                     let r = system.spawn(id);
 
-                    let return_type = r
-                        .return_type
-                        .map(|typ| r.types.pull_type_into(typ, &mut self.types));
+                    let return_type = r.clone_ret_typ(&mut self.types);
 
                     match (i.result, return_type) {
                         (_, ReturnType::Never) => {
@@ -290,9 +298,7 @@ impl<'p> Worker for SymbWorker<'p> {
                     let id = self.fn_ids.id_of(i.fn_id, types, true);
                     let r = system.spawn(id);
 
-                    let return_type = r
-                        .return_type
-                        .map(|typ| r.types.pull_type_into(typ, &mut self.types));
+                    let return_type = r.clone_ret_typ(&mut self.types);
 
                     match (i.result, return_type) {
                         (_, ReturnType::Never) => {
@@ -680,7 +686,7 @@ impl<'p> Worker for SymbWorker<'p> {
                 let types = self.types.extract_map(map_args);
                 let id = self.fn_ids.id_of(i.0 .0, types, false);
                 let r = system.spawn(id);
-                self.return_type = r.return_type;
+                self.return_type = r.clone_ret_typ(&mut self.types);
                 // <assembler>
                 blk.end = assembler::EndInstruction::Jump(assembler::BlockJump(
                     BlockId::new_with_value_raw(id.raw_value()),
@@ -698,7 +704,7 @@ impl<'p> Worker for SymbWorker<'p> {
                     let types = self.types.extract_map(map_args);
                     let id = self.fn_ids.id_of(i.if_so.0, types, false);
                     let r = system.spawn(id);
-                    self.return_type = r.return_type;
+                    self.return_type = r.clone_ret_typ(&mut self.types);
                     // <assembler>
                     blk.end = assembler::EndInstruction::Jump(assembler::BlockJump(
                         BlockId::new_with_value_raw(id.raw_value()),
@@ -715,7 +721,7 @@ impl<'p> Worker for SymbWorker<'p> {
                     let types = self.types.extract_map(map_args);
                     let id = self.fn_ids.id_of(i.other.0, types, false);
                     let r = system.spawn(id);
-                    self.return_type = r.return_type;
+                    self.return_type = r.clone_ret_typ(&mut self.types);
                     // <assembler>
                     blk.end = assembler::EndInstruction::Jump(assembler::BlockJump(
                         BlockId::new_with_value_raw(id.raw_value()),
@@ -745,6 +751,7 @@ impl<'p> Worker for SymbWorker<'p> {
         let return_type = match self.return_type {
             ReturnType::Void => assembler::ReturnType::Void,
             ReturnType::Value(v) => {
+                println!("i am getting it: {:#?}", self.id);
                 assembler::ReturnType::Value(map_typ_assembler(&mut self.types, &mut asm_typs, v))
             }
             ReturnType::Never => assembler::ReturnType::Void,

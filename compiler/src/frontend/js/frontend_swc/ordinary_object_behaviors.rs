@@ -45,6 +45,7 @@ pub fn create_ordinary_internal_methods(
             OrdinarySetWithOwnDescriptor,
         ),
         OrdinarySetWithOwnDescriptor,
+        OrdinaryHasProperty: OrdinaryInternalMethods::make_OrdinaryHasProperty(builder),
     }
 }
 
@@ -60,10 +61,51 @@ pub struct OrdinaryInternalMethods {
     pub OrdinarySetWithOwnDescriptor: FnSignature<5>,
     pub OrdinarySet: FnSignature<4>,
     pub CreateDataProperty: FnSignature<3>,
+    pub OrdinaryHasProperty: FnSignature<2>,
 }
 
 #[allow(non_snake_case)]
 impl OrdinaryInternalMethods {
+    /// <https://tc39.es/ecma262/#sec-ordinaryhasproperty>
+    fn make_OrdinaryHasProperty(builder: &mut ProgramBuilder) -> FnSignature<2> {
+        let (f, [O, P]) = builder.start_function();
+        let mut b = Emitter::new(builder, f);
+
+        let r#true = b.make_bool(true);
+        let r#false = b.make_bool(false);
+
+        //# 1. Assert: IsPropertyKey(P) is true.
+        //# 2. Let hasOwn be ? O.[[GetOwnProperty]](P).
+        // TODO: handle fallibility
+        let get_own_prop = b.record_get_slot(O, InternalSlot::GetOwnProperty);
+        let hasOwn = b.call_virt_with_result(get_own_prop, [O, P]);
+
+        //# 3. If hasOwn is not undefined, return true.
+        let undef = b.make_undefined();
+        let is_undef = b.compare_equal(hasOwn, undef);
+        let is_not_undef = b.negate(is_undef);
+        b.if_then_end(is_not_undef, |_| |b| b.ret(Some(r#true)));
+
+        //# 4. Let parent be ? O.[[GetPrototypeOf]]().
+        // TODO: falliblity
+        let get_prot_of = b.record_get_slot(O, InternalSlot::GetPrototypeOf);
+        let parent = b.call_virt_with_result(get_prot_of, [O]);
+
+        //# 5. If parent is not null, then
+        let null = b.make_null();
+        let is_null = b.compare_equal(parent, null);
+        let not_null = b.negate(is_null);
+        b.if_then_end(not_null, |b| {
+            //# a. Return ? parent.[[HasProperty]](P).
+            let has_prop = b.record_get_slot(parent, InternalSlot::HasProperty);
+            let result = b.call_virt_with_result(has_prop, [parent, P]);
+            move |b| b.ret(Some(result))
+        });
+
+        //# 6. Return false.
+        b.finish(|b| b.ret(Some(r#false)))
+    }
+
     /// <https://tc39.es/ecma262/#sec-createdataproperty>
     fn make_CreateDataProperty(builder: &mut ProgramBuilder) -> FnSignature<3> {
         let (f, [O, P, V]) = builder.start_function();

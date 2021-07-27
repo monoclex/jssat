@@ -848,6 +848,7 @@ pub enum InternalSlot {
     Get,
     Set,
     GetPrototypeOf,
+    HasProperty,
     /// `%Function.prototype%`
     FunctionPrototype,
     /// `%Object.prototype%`

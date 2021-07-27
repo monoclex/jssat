@@ -125,17 +125,35 @@ impl EnvironmentRecordFactory {
     fn init_vtable_object(writer: &mut ProgramBuilder) -> EnvironmentRecordVTable {
         let has_binding = {
             let (mut f, [envRec, N]) = writer.start_function();
-            let mut w = f.start_block_main();
+            let mut w = Emitter::new(writer, f);
             w.comment("ObjectEnvironmentRecord::HasBinding");
 
             //# 1. Let bindingObject be envRec.[[BindingObject]].
             let bindingObject = w.record_get_slot(envRec, InternalSlot::BindingObject);
 
             //# 2. Let foundBinding be ? HasProperty(bindingObject, N).
-            // TODO: some way to invoke `HasProperty`
+            // TODO: pull `HasProperty` into a function
+            // TODO: care about fallibleness
+            let has_prop = w.record_get_slot(bindingObject, InternalSlot::HasProperty);
+            let foundBinding = w.call_virt_with_result(has_prop, [bindingObject, N]);
 
             //# 3. If foundBinding is false, return false.
+            let fnd_bnd_false = w.negate(foundBinding);
+            let r#false = w.make_bool(false);
+            w.if_then_end(fnd_bnd_false, |w| {
+                let completion = w.NormalCompletion(r#false);
+                move |b| b.ret(Some(completion))
+            });
+
             //# 4. If envRec.[[IsWithEnvironment]] is false, return true.
+            let with_env = w.record_get_slot(envRec, InternalSlot::IsWithEnvironment);
+            let not_with_env = w.negate(with_env);
+            let r#true = w.make_bool(true);
+            w.if_then_end(not_with_env, |w| {
+                let completion = w.NormalCompletion(r#true);
+                move |b| b.ret(Some(completion))
+            });
+
             //# 5. Let unscopables be ? Get(bindingObject, @@unscopables).
             //# 6. If Type(unscopables) is Object, then
             //# a. Let blocked be ! ToBoolean(? Get(unscopables, N)).
@@ -143,10 +161,9 @@ impl EnvironmentRecordFactory {
             //# 7. Return true.
 
             let r#false = w.make_bool(false);
-            let completion = w.NormalCompletion(writer, r#false);
+            let completion = w.NormalCompletion(r#false);
 
-            f.end_block(w.ret(Some(completion)));
-            writer.end_function(f)
+            w.finish(|w| w.ret(Some(completion)))
         };
 
         EnvironmentRecordVTable { has_binding }
@@ -166,10 +183,12 @@ impl EnvironmentRecordFactory {
     fn init_vtable_global(writer: &mut ProgramBuilder) -> GlobalEnvironmentRecordVTable {
         let has_binding = {
             let (mut f, [envRec, N]) = writer.start_function();
-            let mut w = f.start_block_main();
+            let mut w = Emitter::new(writer, f);
 
             // <https://tc39.es/ecma262/#sec-global-environment-records-hasbinding-n>
             w.comment("GlobalEnvironmentRecord::HasBinding");
+
+            let r#true = w.make_bool(true);
 
             //# 1. Let DclRec be envRec.[[DeclarativeRecord]].
             let DclRec = w.record_get_slot(envRec, InternalSlot::DeclarativeRecord);
@@ -177,18 +196,16 @@ impl EnvironmentRecordFactory {
             //# 2. If DclRec.HasBinding(N) is true, return true.
             let DclRec = EnvironmentRecord::new_with_register_unchecked(DclRec);
             let has_binding = DclRec.HasBinding(&mut w, N);
-            // TODO: check in the object record as well
-            f.end_block(w.ret(Some(has_binding)));
+            w.if_then_end(has_binding, |_| |b| b.ret(Some(r#true)));
 
             // //# 3. Let ObjRec be envRec.[[ObjectRecord]].
-            // let ObjRec = w.record_get_slot(envRec, InternalSlot::ObjectRecord);
+            let ObjRec = w.record_get_slot(envRec, InternalSlot::ObjectRecord);
 
             // //# 4. Return ? ObjRec.HasBinding(N).
-            // let ObjRec = EnvironmentRecord::new_with_register_unchecked(ObjRec);
-            // let result = ObjRec.HasBinding(&mut w, N);
+            let ObjRec = EnvironmentRecord::new_with_register_unchecked(ObjRec);
+            let result = ObjRec.HasBinding(&mut w, N);
 
-            // f.end_block(w.ret(Some(result)));
-            writer.end_function(f)
+            w.finish(|w| w.ret(Some(result)))
         };
 
         let has_var_declaration = {

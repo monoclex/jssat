@@ -81,6 +81,7 @@ impl<'p, const P: usize> Emitter<'p, P> {
     }
 }
 
+/// Tests that `perform_if_else_w_value` works i guess?
 #[test]
 fn doesnt_panic() {
     let mut builder = ProgramBuilder::new();
@@ -126,6 +127,36 @@ fn doesnt_panic() {
     main.end_block_dyn(block);
 
     builder.end_function(main);
+    let ir = builder.finish();
+
+    let program = crate::lifted::lift(ir);
+    let lifted = Box::leak(Box::new(program));
+    crate::symbolic_execution::execute(lifted);
+}
+
+/// Tests that, after execution of a function, type information regarding records
+/// is propagated.
+#[test]
+fn deosnt_panic() {
+    let mut builder = ProgramBuilder::new();
+
+    let second_fn = {
+        let (mut second_fn, [record]) = builder.start_function();
+        let mut block = second_fn.start_block_main();
+        let r#true = block.make_bool(true);
+        block.record_set_slot(record, InternalSlot::JSSATRandomDebugSlot, r#true);
+        second_fn.end_block(block.ret(None));
+        builder.end_function(second_fn)
+    };
+
+    let mut main_fn = builder.start_function_main();
+    let mut block = main_fn.start_block_main();
+    let record = block.record_new();
+    block.call(second_fn, [record]);
+    block.record_get_slot(record, InternalSlot::JSSATRandomDebugSlot);
+    main_fn.end_block(block.ret(None));
+    builder.end_function(main_fn);
+
     let ir = builder.finish();
 
     let program = crate::lifted::lift(ir);
@@ -459,6 +490,9 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
 
         let fnptr = self.make_fnptr(ordinary.OrdinaryGetPrototypeOf.id);
         self.record_set_slot(obj, InternalSlot::GetPrototypeOf, fnptr);
+
+        let fnptr = self.make_fnptr(ordinary.OrdinaryHasProperty.id);
+        self.record_set_slot(obj, InternalSlot::HasProperty, fnptr);
 
         //# 4. Assert: If the caller will not be overriding both obj's
         //#    [[GetPrototypeOf]] and [[SetPrototypeOf]] essential internal
