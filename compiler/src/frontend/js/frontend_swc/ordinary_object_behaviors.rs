@@ -117,8 +117,9 @@ impl OrdinaryInternalMethods {
 
             //# b. Assert: extensible is true.
             //# c. If IsGenericDescriptor(Desc) is true or IsDataDescriptor(Desc) is true, then
-            let TODO_OR = todo!("or");
-            let is_generic_or_data = RegisterId::new();
+            let is_generic = b.IsGenericDescriptor(Desc);
+            let is_data = b.IsDataDescriptor(Desc);
+            let is_generic_or_data = b.or(is_generic, is_data);
 
             b.if_then_else(
                 is_generic_or_data,
@@ -187,7 +188,12 @@ impl OrdinaryInternalMethods {
         let is_false = b.compare_equal(configurable, r#false);
         b.if_then(is_false, |b| {
             //# a. If Desc.[[Configurable]] is present and its value is true, return false.
-            // TODO: OR/AND
+            let has_configurable = b.record_has_slot(Desc, InternalSlot::Configurable);
+            b.if_then(has_configurable, |b| {
+                let value = b.record_get_slot(Desc, InternalSlot::Configurable);
+                let value_is_true = b.compare_equal(value, r#true);
+                b.if_then_end(value_is_true, |_| |b| b.ret(Some(r#false)));
+            })
 
             //# b. If Desc.[[Enumerable]] is present and ! SameValue(Desc.[[Enumerable]], current.[[Enumerable]]) is false, return false.
         });

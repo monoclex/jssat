@@ -1,7 +1,7 @@
 //! <https://tc39.es/ecma262/#sec-abstract-operations>
 
 use crate::{
-    frontend::builder::{DynBlockBuilder, DynFinalizedBlockBuilder, RegisterId},
+    frontend::builder::{DynBlockBuilder, DynFinalizedBlockBuilder, ProgramBuilder, RegisterId},
     isa::InternalSlot,
 };
 
@@ -75,6 +75,90 @@ pub trait EmitterExt {
     fn is_abrupt_completion(&mut self, completion: RegisterId) -> RegisterId;
 }
 
+#[test]
+fn manual_test_if_then() {
+    let mut program = ProgramBuilder::new();
+    let mut main = program.start_function_main();
+    let b = main.start_block_main();
+    main.end_block(b.ret(None));
+    program.end_function(main);
+    let (f, [cond]) = program.start_function();
+    let mut e = Emitter::new(&mut program, f);
+    e.comment("if");
+    e.if_then(cond, |e| e.comment("then"));
+    e.comment("end");
+    e.finish(|b| b.ret(None));
+    let ir = program.finish();
+    panic!("{}", crate::frontend::display_jssatir::display(&ir));
+}
+
+#[test]
+fn manual_test_if_then_else() {
+    let mut program = ProgramBuilder::new();
+    let mut main = program.start_function_main();
+    let b = main.start_block_main();
+    main.end_block(b.ret(None));
+    program.end_function(main);
+    let (f, [cond]) = program.start_function();
+    let mut e = Emitter::new(&mut program, f);
+    e.comment("if");
+    e.if_then_else(cond, |e| e.comment("then"), |e| e.comment("else"));
+    e.comment("end");
+    e.finish(|b| b.ret(None));
+    let ir = program.finish();
+    panic!("{}", crate::frontend::display_jssatir::display(&ir));
+}
+
+#[test]
+fn manual_test_if_then_x_else_y() {
+    let mut program = ProgramBuilder::new();
+    let mut main = program.start_function_main();
+    let b = main.start_block_main();
+    main.end_block(b.ret(None));
+    program.end_function(main);
+    let (f, [cond, x, y]) = program.start_function();
+    let mut e = Emitter::new(&mut program, f);
+    e.comment("if");
+    let z = e.if_then_x_else_y(
+        cond,
+        |e| {
+            e.comment("then");
+            x
+        },
+        |e| {
+            e.comment("else");
+            y
+        },
+    );
+    e.comment("end");
+    e.finish(|b| b.ret(None));
+    let ir = program.finish();
+    panic!("{}", crate::frontend::display_jssatir::display(&ir));
+}
+
+#[test]
+fn manual_test_if_then_end() {
+    let mut program = ProgramBuilder::new();
+    let mut main = program.start_function_main();
+    let b = main.start_block_main();
+    main.end_block(b.ret(None));
+    program.end_function(main);
+    let (f, [cond]) = program.start_function();
+    let mut e = Emitter::new(&mut program, f);
+    e.comment("if");
+    e.if_then_end(cond, |e| {
+        e.comment("then");
+        |mut e| {
+            e.comment("end");
+            e.ret(None)
+        }
+    });
+    e.comment("done");
+    e.finish(|b| b.ret(None));
+    let ir = program.finish();
+    panic!("{}", crate::frontend::display_jssatir::display(&ir));
+}
+
 #[allow(non_snake_case)]
 impl<const P: usize> EmitterExt for Emitter<'_, P> {
     fn IsAccessorDescriptor(&mut self, Desc: RegisterId) -> RegisterId {
@@ -90,8 +174,11 @@ impl<const P: usize> EmitterExt for Emitter<'_, P> {
 
         //# 2. If both Desc.[[Get]] and Desc.[[Set]] are absent, return false.
         let has_get = self.record_has_slot(Desc, InternalSlot::Get);
+        let get_absent = self.negate(has_get);
         let has_set = self.record_has_slot(Desc, InternalSlot::Set);
-        let TODO_AND_OPERATION = 0;
+        let set_absent = self.negate(has_set);
+        let both_are_absent = self.and(get_absent, set_absent);
+        self.if_then_end(both_are_absent, |_| |b| b.ret(Some(r#false)));
 
         //# 3. Return true.
         r#true
@@ -110,8 +197,11 @@ impl<const P: usize> EmitterExt for Emitter<'_, P> {
 
         //# 2. If both Desc.[[Value]] and Desc.[[Writable]] are absent, return false.
         let has_value = self.record_has_slot(Desc, InternalSlot::Value);
+        let value_absent = self.negate(has_value);
         let has_writable = self.record_has_slot(Desc, InternalSlot::Writable);
-        let TODO_AND_OPERATION = 0;
+        let writable_absent = self.negate(has_writable);
+        let both_are_absent = self.and(value_absent, writable_absent);
+        self.if_then_end(both_are_absent, |_| |b| b.ret(Some(r#false)));
 
         //# 3. Return true.
         r#true
@@ -129,8 +219,11 @@ impl<const P: usize> EmitterExt for Emitter<'_, P> {
 
         //# 2. If IsAccessorDescriptor(Desc) and IsDataDescriptor(Desc) are both false, return true.
         let is_accessor = self.IsAccessorDescriptor(Desc);
+        let is_accessor_false = self.compare_equal(is_accessor, r#false);
         let is_data = self.IsDataDescriptor(Desc);
-        let TODO_AND_OPERATION = 0;
+        let is_data_false = self.compare_equal(is_data, r#false);
+        let both_false = self.and(is_accessor_false, is_data_false);
+        self.if_then_end(both_false, |_| |b| b.ret(Some(r#true)));
 
         //# 3. Return false.
         r#false
@@ -193,6 +286,8 @@ impl<const P: usize> EmitterExt for Emitter<'_, P> {
         std::mem::swap(&mut self.block, &mut end_path);
         then(self);
         std::mem::swap(&mut self.block, &mut end_path);
+        self.function
+            .end_block_dyn(end_path.jmp_dynargs(self.block.id, vec![]));
     }
 
     fn if_then_else<T, E>(&mut self, condition: RegisterId, then: T, r#else: E)
@@ -211,7 +306,7 @@ impl<const P: usize> EmitterExt for Emitter<'_, P> {
 
         let (else_path, []) = self.function.start_block();
         let mut else_path = else_path.into_dynamic();
-        let else_path_id = then_path.id;
+        let else_path_id = else_path.id;
 
         std::mem::swap(&mut self.block, &mut okay_path);
 
@@ -227,12 +322,14 @@ impl<const P: usize> EmitterExt for Emitter<'_, P> {
         std::mem::swap(&mut self.block, &mut then_path);
         then(self);
         std::mem::swap(&mut self.block, &mut then_path);
+        debug_assert_eq!(okay_path_id, self.block.id);
         let finalized = then_path.jmp_dynargs(self.block.id, Vec::new());
         self.function.end_block_dyn(finalized);
 
         std::mem::swap(&mut self.block, &mut else_path);
         r#else(self);
         std::mem::swap(&mut self.block, &mut else_path);
+        debug_assert_eq!(okay_path_id, self.block.id);
         let finalized = else_path.jmp_dynargs(self.block.id, Vec::new());
         self.function.end_block_dyn(finalized);
     }
@@ -253,7 +350,7 @@ impl<const P: usize> EmitterExt for Emitter<'_, P> {
 
         let (else_path, []) = self.function.start_block();
         let mut else_path = else_path.into_dynamic();
-        let else_path_id = then_path.id;
+        let else_path_id = else_path.id;
 
         std::mem::swap(&mut self.block, &mut okay_path);
 
@@ -269,12 +366,14 @@ impl<const P: usize> EmitterExt for Emitter<'_, P> {
         std::mem::swap(&mut self.block, &mut then_path);
         let then_val = then(self);
         std::mem::swap(&mut self.block, &mut then_path);
+        debug_assert_eq!(okay_path_id, self.block.id);
         let finalized = then_path.jmp_dynargs(self.block.id, vec![then_val]);
         self.function.end_block_dyn(finalized);
 
         std::mem::swap(&mut self.block, &mut else_path);
         let else_val = r#else(self);
         std::mem::swap(&mut self.block, &mut else_path);
+        debug_assert_eq!(okay_path_id, self.block.id);
         let finalized = else_path.jmp_dynargs(self.block.id, vec![else_val]);
         self.function.end_block_dyn(finalized);
 

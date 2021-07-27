@@ -252,13 +252,14 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
         let thisValue = self.make_undefined();
 
         //# 9. Perform SetRealmGlobalObject(realm, global, thisValue).
-        self.SetRealmGlobalObject(realm, global, thisValue);
+        let realm = self.SetRealmGlobalObject(realm, global, thisValue);
 
         //# 10. Let globalObj be ? SetDefaultGlobalBindings(realm).
         let try_globalObj = self.SetDefaultGlobalBindings(realm);
         let globalObj = self.ReturnIfAbrupt(try_globalObj);
 
         //# 11. Create any host-defined global object properties on globalObj.
+        let define_own_property = self.record_get_slot(globalObj, InternalSlot::DefineOwnProperty);
         self.create_host_defined_global_object_property_print(globalObj);
 
         //# 12. Return NormalCompletion(empty).
@@ -367,11 +368,15 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
                 let proto = me.record_get_slot(intrinsics, InternalSlot::ObjectPrototype);
                 me.OrdinaryObjectCreate(proto, Vec::new())
             },
-            |me| globalObj,
+            |_| globalObj,
         );
 
         //# 2. Assert: Type(globalObj) is Object.
         //# 3. If thisValue is undefined, set thisValue to globalObj.
+        let is_undefined = self.compare_equal(thisValue, undefined);
+
+        let thisValue = self.perform_if_else_w_value(is_undefined, |_| globalObj, |_| thisValue);
+
         //# 4. Set realmRec.[[GlobalObject]] to globalObj.
         self.record_set_slot(realmRec, InternalSlot::GlobalObject, globalObj);
 
@@ -391,6 +396,8 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
         proto: RegisterId,
         additionalInternalSlotsList: Vec<InternalSlot>,
     ) -> RegisterId {
+        self.comment("OrdinaryObjectCreate");
+
         //# 1. Let internalSlotsList be « [[Prototype]], [[Extensible]] ».
         let mut internalSlotsList = vec![InternalSlot::Prototype, InternalSlot::Extensible];
 
@@ -409,8 +416,9 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
 
     /// <https://tc39.es/ecma262/#sec-makebasicobject>
     pub fn MakeBasicObject(&mut self, internalSlotsList: Vec<InternalSlot>) -> RegisterId {
-        //# 1. Assert: internalSlotsList is a List of internal slot names.
+        self.comment("MakeBasicObject");
 
+        //# 1. Assert: internalSlotsList is a List of internal slot names.
         //# 2. Let obj be a newly created object with an internal slot for each name in internalSlotsList.
         let obj = self.record_new();
         // we don't need to set the fields here, because the caller will do so
