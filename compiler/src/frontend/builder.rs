@@ -8,9 +8,9 @@ use crate::id::{Counter, IdCompat};
 use crate::UnwrapNone;
 
 use crate::isa::{
-    Add, BlockJump, CallExtern, CallStatic, CallVirt, Equals, GetFnPtr, InternalSlot, Jump, JumpIf,
-    LessThan, MakeBoolean, MakeBytes, MakeInteger, MakeTrivial, Negate, NewRecord, RecordGet,
-    RecordHasKey, RecordKey, RecordSet, Return, TrivialItem,
+    Add, And, BlockJump, CallExtern, CallStatic, CallVirt, Comment, Equals, GetFnPtr, InternalSlot,
+    Jump, JumpIf, LessThan, MakeBoolean, MakeBytes, MakeInteger, MakeTrivial, Negate, NewRecord,
+    Or, RecordGet, RecordHasKey, RecordKey, RecordSet, Return, TrivialItem,
 };
 
 pub type BlockId = crate::id::BlockId<crate::id::IrCtx>;
@@ -428,11 +428,11 @@ impl DynBlockBuilder {
     }
 
     #[track_caller]
-    pub fn comment(&mut self, comment: &'static str) {
-        self.instructions.push(Instruction::Comment(
-            comment,
-            std::panic::Location::caller(),
-        ));
+    pub fn comment(&mut self, message: &'static str) {
+        self.instructions.push(Instruction::Comment(Comment {
+            message,
+            location: std::panic::Location::caller(),
+        }));
     }
 
     pub fn get_runtime(&mut self) -> RegisterId {
@@ -584,6 +584,20 @@ impl DynBlockBuilder {
         let result = self.gen_register_id.next();
         self.instructions
             .push(Instruction::LessThan(LessThan { result, lhs, rhs }));
+        result
+    }
+
+    pub fn or(&mut self, lhs: RegisterId, rhs: RegisterId) -> RegisterId {
+        let result = self.gen_register_id.next();
+        self.instructions
+            .push(Instruction::Or(Or { result, lhs, rhs }));
+        result
+    }
+
+    pub fn and(&mut self, lhs: RegisterId, rhs: RegisterId) -> RegisterId {
+        let result = self.gen_register_id.next();
+        self.instructions
+            .push(Instruction::And(And { result, lhs, rhs }));
         result
     }
 

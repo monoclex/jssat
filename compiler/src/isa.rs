@@ -3,6 +3,7 @@
 //! own in-house ISAs.
 
 use std::fmt::{Display, Write};
+use std::panic::Location;
 
 use derive_more::Display;
 use tinyvec::{tiny_vec, TinyVec};
@@ -125,6 +126,37 @@ impl<C: Tag> ISAInstruction<C> for Unreachable {
 
     fn display(&self, w: &mut impl Write) -> std::fmt::Result {
         write!(w, "Unreachable;")
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Comment {
+    pub message: &'static str,
+    pub location: &'static Location<'static>,
+}
+
+impl<T: Tag> ISAInstruction<T> for Comment {
+    fn declared_register(&self) -> Option<RegisterId<T>> {
+        None
+    }
+
+    fn used_registers(&self) -> TinyVec<[RegisterId<T>; 3]> {
+        TinyVec::new()
+    }
+
+    fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<T>> {
+        Vec::new()
+    }
+
+    fn display(&self, w: &mut impl Write) -> std::fmt::Result {
+        write!(w, "-- {}, {}", self.message, self.location)
+    }
+}
+
+impl Comment {
+    #[track_caller]
+    pub fn retag(self) -> Comment {
+        self
     }
 }
 
@@ -602,6 +634,7 @@ impl<C: Tag> Add<C> {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Or<C: Tag> {
     pub result: RegisterId<C>,
     pub lhs: RegisterId<C>,
@@ -623,6 +656,53 @@ impl<C: Tag> ISAInstruction<C> for Or<C> {
 
     fn display(&self, w: &mut impl Write) -> std::fmt::Result {
         write!(w, "%{} = Or %{}, %{};", self.result, self.lhs, self.rhs)
+    }
+}
+
+impl<T: Tag> Or<T> {
+    #[track_caller]
+    pub fn retag<T2: Tag>(self, retagger: &mut impl RegRetagger<T, T2>) -> Or<T2> {
+        Or {
+            result: retagger.retag_new(self.result),
+            lhs: retagger.retag_old(self.lhs),
+            rhs: retagger.retag_old(self.rhs),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct And<C: Tag> {
+    pub result: RegisterId<C>,
+    pub lhs: RegisterId<C>,
+    pub rhs: RegisterId<C>,
+}
+
+impl<C: Tag> ISAInstruction<C> for And<C> {
+    fn declared_register(&self) -> Option<RegisterId<C>> {
+        Some(self.result)
+    }
+
+    fn used_registers(&self) -> TinyVec<[RegisterId<C>; 3]> {
+        tiny_vec![self.lhs, self.rhs]
+    }
+
+    fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
+        vec![&mut self.lhs, &mut self.rhs]
+    }
+
+    fn display(&self, w: &mut impl Write) -> std::fmt::Result {
+        write!(w, "%{} = Or %{}, %{};", self.result, self.lhs, self.rhs)
+    }
+}
+
+impl<T: Tag> And<T> {
+    #[track_caller]
+    pub fn retag<T2: Tag>(self, retagger: &mut impl RegRetagger<T, T2>) -> And<T2> {
+        And {
+            result: retagger.retag_new(self.result),
+            lhs: retagger.retag_old(self.lhs),
+            rhs: retagger.retag_old(self.rhs),
+        }
     }
 }
 

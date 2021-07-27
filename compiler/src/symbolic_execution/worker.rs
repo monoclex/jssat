@@ -105,7 +105,7 @@ impl<'p> Worker for SymbWorker<'p> {
             self.inst_on = CurrentInstruction::Sequential(inst);
 
             match inst {
-                ir::Instruction::Comment(_, _) => {}
+                ir::Instruction::Comment(_) => {}
                 ir::Instruction::NewRecord(i) => {
                     self.types.new_record(i.result);
                 }
@@ -216,6 +216,36 @@ impl<'p> Worker for SymbWorker<'p> {
 
                     self.types.assign_type(i.result, res_typ);
                 }
+                ir::Instruction::Or(i) => {
+                    let (lhs, rhs) = (self.types.get(i.lhs), self.types.get(i.rhs));
+
+                    let res_typ = match (lhs, rhs) {
+                        (RegisterType::Boolean, RegisterType::Boolean)
+                        | (RegisterType::Bool(_), RegisterType::Boolean)
+                        | (RegisterType::Boolean, RegisterType::Bool(_)) => RegisterType::Boolean,
+                        (RegisterType::Bool(a), RegisterType::Bool(b)) => {
+                            RegisterType::Bool(a || b)
+                        }
+                        (a, b) => panic!("cannot OR for {:?} and {:?}", a, b),
+                    };
+
+                    self.types.assign_type(i.result, res_typ);
+                }
+                ir::Instruction::And(i) => {
+                    let (lhs, rhs) = (self.types.get(i.lhs), self.types.get(i.rhs));
+
+                    let res_typ = match (lhs, rhs) {
+                        (RegisterType::Boolean, RegisterType::Boolean)
+                        | (RegisterType::Bool(_), RegisterType::Boolean)
+                        | (RegisterType::Boolean, RegisterType::Bool(_)) => RegisterType::Boolean,
+                        (RegisterType::Bool(a), RegisterType::Bool(b)) => {
+                            RegisterType::Bool(a && b)
+                        }
+                        (a, b) => panic!("cannot AND for {:?} and {:?}", a, b),
+                    };
+
+                    self.types.assign_type(i.result, res_typ);
+                }
                 ir::Instruction::CallVirt(i) => {
                     let fn_id = self.types.get_fnptr(i.fn_ptr);
 
@@ -297,8 +327,9 @@ impl<'p> Worker for SymbWorker<'p> {
                 &fn_retagger,
                 &c_retagger,
             ) {
-                ir::Instruction::Comment(m, l) => {
-                    blk.instructions.push(assembler::Instruction::Comment(m, l));
+                ir::Instruction::Comment(i) => {
+                    blk.instructions
+                        .push(assembler::Instruction::Comment(i.message, i.location));
                 }
                 ir::Instruction::NewRecord(i) => {
                     let a = asm_typs.insert_alloc();
@@ -581,6 +612,42 @@ impl<'p> Worker for SymbWorker<'p> {
                         };
 
                         asm_typs.insert(i.result, type_annotater::ValueType::ExactInteger(b));
+                    } else {
+                        unreachable!();
+                    }
+                }
+                ir::Instruction::Or(i) => {
+                    if let ir::Instruction::Or(inst) = inst {
+                        let res_typ = self.types.get(inst.result);
+
+                        let b = match res_typ {
+                            RegisterType::Bool(b) => {
+                                blk.instructions
+                                    .push(assembler::Instruction::MakeBoolean(i.result, b));
+                                b
+                            }
+                            _ => todo!("assembler boilerpalte cant hande this atm"),
+                        };
+
+                        asm_typs.insert(i.result, type_annotater::ValueType::Bool(b));
+                    } else {
+                        unreachable!();
+                    }
+                }
+                ir::Instruction::And(i) => {
+                    if let ir::Instruction::And(inst) = inst {
+                        let res_typ = self.types.get(inst.result);
+
+                        let b = match res_typ {
+                            RegisterType::Bool(b) => {
+                                blk.instructions
+                                    .push(assembler::Instruction::MakeBoolean(i.result, b));
+                                b
+                            }
+                            _ => todo!("assembler boilerpalte cant hande this atm"),
+                        };
+
+                        asm_typs.insert(i.result, type_annotater::ValueType::Bool(b));
                     } else {
                         unreachable!();
                     }

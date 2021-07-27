@@ -2,6 +2,7 @@ use std::fmt::Display;
 use std::hash::Hash;
 
 use rustc_hash::FxHashMap;
+use tinyvec::TinyVec;
 
 use crate::id::{IrCtx, Tag};
 type BlockId = crate::id::BlockId<IrCtx>;
@@ -10,9 +11,9 @@ type ConstantId = crate::id::ConstantId<IrCtx>;
 use crate::id::RegisterId;
 
 use crate::isa::{
-    Add, BlockJump, CallExtern, CallStatic, CallVirt, Equals, GetFnPtr, ISAInstruction, Jump,
-    JumpIf, LessThan, MakeBoolean, MakeBytes, MakeInteger, MakeTrivial, Negate, NewRecord,
-    RecordGet, RecordHasKey, RecordSet, Return,
+    Add, And, BlockJump, CallExtern, CallStatic, CallVirt, Comment, Equals, GetFnPtr,
+    ISAInstruction, Jump, JumpIf, LessThan, MakeBoolean, MakeBytes, MakeInteger, MakeTrivial,
+    Negate, NewRecord, Or, RecordGet, RecordHasKey, RecordSet, Return,
 };
 use crate::retag::{BlkRetagger, CnstRetagger, ExtFnRetagger, FnRetagger, RegRetagger};
 type PlainRegisterId = RegisterId<IrCtx>;
@@ -89,7 +90,7 @@ pub struct FunctionBlock {
 
 #[derive(Debug, Clone)]
 pub enum Instruction<C: Tag = crate::id::IrCtx, F: Tag = crate::id::IrCtx> {
-    Comment(&'static str, &'static std::panic::Location<'static>),
+    Comment(Comment),
     NewRecord(NewRecord<C>),
     RecordGet(RecordGet<C>),
     RecordSet(RecordSet<C>),
@@ -127,6 +128,8 @@ pub enum Instruction<C: Tag = crate::id::IrCtx, F: Tag = crate::id::IrCtx> {
     Equals(Equals<C>),
     Negate(Negate<C>),
     Add(Add<C>),
+    And(And<C>),
+    Or(Or<C>),
 }
 
 pub struct DisplayInst<'instruction, C: Tag, F: Tag>(&'instruction Instruction<C, F>);
@@ -154,7 +157,7 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
         const_retagger: &impl CnstRetagger<F, F2>,
     ) -> Instruction<C2, F2> {
         match self {
-            Instruction::Comment(c, l) => Instruction::Comment(c, l),
+            Instruction::Comment(c) => Instruction::Comment(c.retag()),
             Instruction::MakeBytes(inst) => {
                 Instruction::MakeBytes(inst.retag(retagger, const_retagger))
             }
@@ -177,6 +180,8 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::Equals(inst) => Instruction::Equals(inst.retag(retagger)),
             Instruction::Negate(inst) => Instruction::Negate(inst.retag(retagger)),
             Instruction::Add(inst) => Instruction::Add(inst.retag(retagger)),
+            Instruction::Or(inst) => Instruction::Or(inst.retag(retagger)),
+            Instruction::And(inst) => Instruction::And(inst.retag(retagger)),
         }
     }
 }
@@ -204,7 +209,7 @@ impl<CO: Tag, PO: Tag> ControlFlowInstruction<CO, PO> {
 impl<C: Tag, F: Tag> Instruction<C, F> {
     pub fn assigned_to(&self) -> Option<RegisterId<C>> {
         match self {
-            Instruction::Comment(_, _) => None,
+            Instruction::Comment(inst) => inst.declared_register(),
             Instruction::GetFnPtr(inst) => inst.declared_register(),
             Instruction::MakeBytes(inst) => inst.declared_register(),
             Instruction::NewRecord(isa) => isa.declared_register(),
@@ -221,34 +226,38 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::Equals(inst) => inst.declared_register(),
             Instruction::Negate(inst) => inst.declared_register(),
             Instruction::Add(inst) => inst.declared_register(),
+            Instruction::Or(inst) => inst.declared_register(),
+            Instruction::And(inst) => inst.declared_register(),
         }
     }
 
-    pub fn used_registers(&self) -> Vec<RegisterId<C>> {
+    pub fn used_registers(&self) -> TinyVec<[RegisterId<C>; 3]> {
         match self {
-            Instruction::Comment(_, _) => Vec::new(),
-            Instruction::GetFnPtr(inst) => inst.used_registers().to_vec(),
-            Instruction::MakeBytes(inst) => inst.used_registers().to_vec(),
-            Instruction::NewRecord(inst) => inst.used_registers().to_vec(),
-            Instruction::LessThan(inst) => inst.used_registers().to_vec(),
-            Instruction::CallStatic(inst) => inst.used_registers().to_vec(),
-            Instruction::CallExtern(inst) => inst.used_registers().to_vec(),
-            Instruction::CallVirt(inst) => inst.used_registers().to_vec(),
-            Instruction::MakeTrivial(inst) => inst.used_registers().to_vec(),
-            Instruction::RecordGet(inst) => inst.used_registers().to_vec(),
-            Instruction::RecordSet(inst) => inst.used_registers().to_vec(),
-            Instruction::RecordHasKey(inst) => inst.used_registers().to_vec(),
-            Instruction::MakeInteger(inst) => inst.used_registers().to_vec(),
-            Instruction::MakeBoolean(inst) => inst.used_registers().to_vec(),
-            Instruction::Equals(inst) => inst.used_registers().to_vec(),
-            Instruction::Negate(inst) => inst.used_registers().to_vec(),
-            Instruction::Add(inst) => inst.used_registers().to_vec(),
+            Instruction::Comment(inst) => inst.used_registers(),
+            Instruction::GetFnPtr(inst) => inst.used_registers(),
+            Instruction::MakeBytes(inst) => inst.used_registers(),
+            Instruction::NewRecord(inst) => inst.used_registers(),
+            Instruction::LessThan(inst) => inst.used_registers(),
+            Instruction::CallStatic(inst) => inst.used_registers(),
+            Instruction::CallExtern(inst) => inst.used_registers(),
+            Instruction::CallVirt(inst) => inst.used_registers(),
+            Instruction::MakeTrivial(inst) => inst.used_registers(),
+            Instruction::RecordGet(inst) => inst.used_registers(),
+            Instruction::RecordSet(inst) => inst.used_registers(),
+            Instruction::RecordHasKey(inst) => inst.used_registers(),
+            Instruction::MakeInteger(inst) => inst.used_registers(),
+            Instruction::MakeBoolean(inst) => inst.used_registers(),
+            Instruction::Equals(inst) => inst.used_registers(),
+            Instruction::Negate(inst) => inst.used_registers(),
+            Instruction::Add(inst) => inst.used_registers(),
+            Instruction::Or(inst) => inst.used_registers(),
+            Instruction::And(inst) => inst.used_registers(),
         }
     }
 
     pub fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
         match self {
-            Instruction::Comment(_, _) => Vec::new(),
+            Instruction::Comment(inst) => inst.used_registers_mut(),
             Instruction::GetFnPtr(inst) => inst.used_registers_mut(),
             Instruction::MakeBytes(inst) => inst.used_registers_mut(),
             Instruction::NewRecord(inst) => inst.used_registers_mut(),
@@ -265,6 +274,8 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::Equals(inst) => inst.used_registers_mut(),
             Instruction::Negate(inst) => inst.used_registers_mut(),
             Instruction::Add(inst) => inst.used_registers_mut(),
+            Instruction::Or(inst) => inst.used_registers_mut(),
+            Instruction::And(inst) => inst.used_registers_mut(),
         }
     }
 
@@ -274,7 +285,7 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
 
     pub fn display(&self, w: &mut impl std::fmt::Write) -> std::fmt::Result {
         match self {
-            Instruction::Comment(comment, location) => write!(w, "-- {}, {}", comment, location),
+            Instruction::Comment(inst) => ISAInstruction::<crate::id::NoContext>::display(inst, w),
             Instruction::GetFnPtr(inst) => inst.display(w),
             Instruction::MakeBytes(inst) => inst.display(w),
             Instruction::NewRecord(inst) => inst.display(w),
@@ -291,6 +302,8 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::Equals(inst) => inst.display(w),
             Instruction::Negate(inst) => inst.display(w),
             Instruction::Add(inst) => inst.display(w),
+            Instruction::Or(inst) => inst.display(w),
+            Instruction::And(inst) => inst.display(w),
         }
     }
 }
