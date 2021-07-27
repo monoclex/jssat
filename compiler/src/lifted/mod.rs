@@ -366,9 +366,7 @@ fn patch_child_flow(
             // using the invariant in `lift_used_but_not_declared`, to check if
             // we can pass a register to a child block is as simple as checking
             // if we ourselves have this parameter.
-            if declared.contains(&unpassed_register) {
-                passed_registers.push(unpassed_register);
-            } else {
+            if !declared.contains(&unpassed_register) {
                 // if we're modifying the params of the entrypoint function,
                 // something is wrong; if registers have crept up to the entry
                 // block, we have somehow used a register but never declared it.
@@ -378,6 +376,8 @@ fn patch_child_flow(
 
                 debug_assert!(!function.parameters.contains(&unpassed_register));
 
+                // augment the function to state that it now requests this
+                // unpassed parameter
                 fn_params_modified = true;
                 function.parameters.push(unpassed_register);
 
@@ -385,6 +385,10 @@ fn patch_child_flow(
                 // it's declared for future note
                 declared.insert(unpassed_register);
             }
+
+            // now pass the register since we are guaranteed to have it
+            // at this point
+            passed_registers.push(unpassed_register);
         }
     }
 

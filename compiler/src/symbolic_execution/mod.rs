@@ -91,7 +91,10 @@ pub fn execute(program: &'static LiftedProgram) -> assembler::Program {
             };
 
             // print `n` instructions before and after the instruction we're on
-            let n = 7;
+            let n = std::env::var("JSSAT_VIEW")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(7);
 
             let idx = match w.inst_on {
                 CurrentInstruction::None => {
@@ -112,11 +115,15 @@ pub fn execute(program: &'static LiftedProgram) -> assembler::Program {
                 }
                 // one past last instruction idx == control flow
                 CurrentInstruction::ControlFlow(_) => Some(w.func.instructions.len()),
+                CurrentInstruction::Completed => {
+                    println!("was found completed");
+                    None
+                }
             };
 
             let inst_range = match idx {
                 Some(idx) => idx.saturating_sub(n)..idx.saturating_add(n),
-                None => 0..5,
+                None => 0..n,
             };
 
             println!("fn @{}({})", w.id, isa::Registers(&w.func.parameters));
@@ -137,6 +144,7 @@ pub fn execute(program: &'static LiftedProgram) -> assembler::Program {
                     false => println!("| {}", inst.as_display()),
                 };
 
+                // TODO: setup a `DisplayContext` for self referential structs
                 if let Some(reg) = inst.assigned_to() {
                     println!("# %{} : {}", reg, w.types.display(reg))
                 }

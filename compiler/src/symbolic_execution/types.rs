@@ -252,95 +252,11 @@ impl TypeBag {
     }
 
     pub fn display(&self, register: RegisterId) -> String {
-        let mut s = String::new();
-
-        match self.registers.get(&register) {
-            Some(t) => match self.display_typ(&mut s, t) {
-                Ok(_) => {}
-                Err(e) => {
-                    let reason = e.to_string();
-                    s.push_str(&reason);
-                }
-            },
-            None => s.push('?'),
-        };
-
-        s
-    }
-
-    fn display_typ(&self, w: &mut String, reg_typ: &RegisterType) -> std::fmt::Result {
-        use std::fmt::Write;
-
-        match *reg_typ {
-            RegisterType::Any
-            | RegisterType::Bytes
-            | RegisterType::Number
-            | RegisterType::Boolean => write!(w, "{:?}", reg_typ)?,
-            RegisterType::Trivial(t) => write!(w, "{:?}", t)?,
-            RegisterType::Byts(p) => {
-                w.push_str("Bytes(");
-                self.display_cnst(w, p)?;
-                w.push(')');
-            }
-            RegisterType::Int(v) => write!(w, "Int({})", v)?,
-            RegisterType::Bool(v) => write!(w, "Boolean({})", v)?,
-            RegisterType::FnPtr(f) => write!(w, "FnPtr(@{})", f)?,
-            RegisterType::Record(r) => {
-                w.push_str("{ ");
-
-                let shape = (self.alloc_shapes.get(&r))
-                    .and_then(|h| h.last())
-                    .and_then(|id| self.shapes.get(id));
-
-                if let Some(shape) = shape {
-                    for (key, typ) in shape.fields.iter() {
-                        match *key {
-                            ShapeKey::Str(s) => self.display_cnst(w, s)?,
-                            ShapeKey::Slot(s) => write!(w, "[[{}]]", s)?,
-                        };
-
-                        w.push_str(": ");
-
-                        self.display_typ(w, typ)?;
-                        w.push_str(", ");
-                    }
-                } else {
-                    w.push('?');
-                }
-
-                w.push_str(" }");
-            }
-        };
-
-        Ok(())
-    }
-
-    fn display_cnst(&self, w: &mut String, cnst: ConstantId) -> std::fmt::Result {
-        use std::fmt::Write;
-
-        let payload = match self.consts.get(&cnst) {
-            Some(p) => p,
-            None => {
-                w.push('?');
-                return Ok(());
-            }
-        };
-
-        if let Ok(str) = std::str::from_utf8(payload) {
-            write!(w, "{:?}", str)?;
-            return Ok(());
+        DisplayContext {
+            types: &self,
+            shapes_shown: Vec::new(),
         }
-
-        let (pre, bytes, post) = unsafe { payload.align_to() };
-
-        if pre.is_empty() && post.is_empty() {
-            if let Ok(s) = String::from_utf16(bytes) {
-                write!(w, "{:?}", s)?;
-                return Ok(());
-            }
-        }
-
-        write!(w, "{:?}", payload)
+        .display(register)
     }
 
     /// Given a set of registers, will pull out the types of those registers
@@ -361,17 +277,39 @@ impl TypeBag {
         let mut alloc_map = FxHashMap::default();
         let mut need_to_shape = VecDeque::new();
 
-        for (s_reg, d_reg) in regs {
+        // remove duplicates
+        // ^ note: we actually dont need this code, but we may need it in future
+        // so leaving it here
+        // let regs: Vec<_> = regs.collect();
+        // let mut dest_to_src = FxHashMap::default();
+        // for (src, dest) in regs.iter().copied() {
+        //     let value = dest_to_src.entry(dest).or_insert(src);
+        //     debug_assert_eq!(*value, src);
+        // }
+        // let dedup_regs = dest_to_src.into_iter().map(|(dest, src)| (src, dest));
+
+        // enforce only one source per multiple dests
+        let mut src_to_dests = FxHashMap::default();
+        for (src, dest) in regs {
+            src_to_dests
+                .entry(src)
+                .and_modify(|v: &mut Vec<_>| v.push(dest))
+                .or_insert_with(|| vec![dest]);
+        }
+
+        for (s_reg, d_regs) in src_to_dests {
             let typ = self.get(s_reg);
 
             // TODO: don't duplicate this code with the hunk at the bottom
             let new_tp = match typ {
                 RegisterType::Record(a) => {
-                    need_to_shape.push_back(a);
-                    let new_a = new.alloc_allocation();
-
-                    alloc_map.insert(a, new_a).expect_none("");
-                    RegisterType::Record(new_a)
+                    // it's possible for multiple register types to happen if
+                    // two different registers are the same kind of record
+                    let new_a = alloc_map.entry(a).or_insert_with(|| {
+                        need_to_shape.push_back(a);
+                        new.alloc_allocation()
+                    });
+                    RegisterType::Record(*new_a)
                 }
                 RegisterType::Byts(c) => {
                     RegisterType::Byts(new.intern_constant(self.unintern_const(c)))
@@ -379,7 +317,9 @@ impl TypeBag {
                 other => other,
             };
 
-            new.assign_type(d_reg, new_tp);
+            for d_reg in d_regs {
+                new.assign_type(d_reg, new_tp);
+            }
         }
 
         let mut shape_map = FxHashMap::default();
@@ -595,5 +535,110 @@ impl PartialEq for TypeBag {
         }
 
         try_helper(self, other).map(|_| true).unwrap_or(false)
+    }
+}
+
+pub struct DisplayContext<'types> {
+    types: &'types TypeBag,
+    shapes_shown: Vec<ShapeId>,
+}
+
+impl DisplayContext<'_> {
+    pub fn display(&mut self, register: RegisterId) -> String {
+        let mut s = String::new();
+
+        match self.types.registers.get(&register) {
+            Some(t) => match self.display_typ(&mut s, t) {
+                Ok(_) => {}
+                Err(e) => {
+                    let reason = e.to_string();
+                    s.push_str(&reason);
+                }
+            },
+            None => s.push('?'),
+        };
+
+        s
+    }
+
+    fn display_typ(&mut self, w: &mut String, reg_typ: &RegisterType) -> std::fmt::Result {
+        use std::fmt::Write;
+
+        match *reg_typ {
+            RegisterType::Any
+            | RegisterType::Bytes
+            | RegisterType::Number
+            | RegisterType::Boolean => write!(w, "{:?}", reg_typ)?,
+            RegisterType::Trivial(t) => write!(w, "{:?}", t)?,
+            RegisterType::Byts(p) => {
+                w.push_str("Bytes(");
+                self.display_cnst(w, p)?;
+                w.push(')');
+            }
+            RegisterType::Int(v) => write!(w, "Int({})", v)?,
+            RegisterType::Bool(v) => write!(w, "Boolean({})", v)?,
+            RegisterType::FnPtr(f) => write!(w, "FnPtr(@{})", f)?,
+            RegisterType::Record(r) => {
+                let shape = (self.types.alloc_shapes.get(&r))
+                    .and_then(|h| h.last())
+                    .and_then(|id| self.types.shapes.get(id).map(|s| (*id, s)));
+
+                if let Some((id, shape)) = shape {
+                    write!(w, "{}@{{ ", id)?;
+
+                    if self.shapes_shown.contains(&id) {
+                        w.push_str("...");
+                    } else {
+                        self.shapes_shown.push(id);
+
+                        for (key, typ) in shape.fields.iter() {
+                            match *key {
+                                ShapeKey::Str(s) => self.display_cnst(w, s)?,
+                                ShapeKey::Slot(s) => write!(w, "[[{}]]", s)?,
+                            };
+
+                            w.push_str(": ");
+
+                            self.display_typ(w, typ)?;
+                            w.push_str(", ");
+                        }
+                    }
+
+                    w.push_str(" }");
+                } else {
+                    w.push_str("?@{ ? }");
+                }
+            }
+        };
+
+        Ok(())
+    }
+
+    fn display_cnst(&self, w: &mut String, cnst: ConstantId) -> std::fmt::Result {
+        use std::fmt::Write;
+
+        let payload = match self.types.consts.get(&cnst) {
+            Some(p) => p,
+            None => {
+                w.push('?');
+                return Ok(());
+            }
+        };
+
+        if let Ok(str) = std::str::from_utf8(payload) {
+            write!(w, "{:?}", str)?;
+            return Ok(());
+        }
+
+        let (pre, bytes, post) = unsafe { payload.align_to() };
+
+        if pre.is_empty() && post.is_empty() {
+            if let Ok(s) = String::from_utf16(bytes) {
+                write!(w, "{:?}", s)?;
+                return Ok(());
+            }
+        }
+
+        write!(w, "{:?}", payload)
     }
 }

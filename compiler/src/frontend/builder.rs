@@ -182,11 +182,11 @@ pub struct FunctionBuilder<const PARAMETERS: usize> {
     /// `end_function`. Ideally, this would be done at compile time with ownership
     /// principles, but any design (that I can come up with) that uses mutability
     /// would prevent the builder from being used in a multithreaded environment.
-    is_ok_to_drop: bool,
+    pub(crate) is_ok_to_drop: bool,
 }
 
 impl<const P: usize> FunctionBuilder<P> {
-    fn new(id: FunctionId) -> Self {
+    pub(crate) fn new(id: FunctionId) -> Self {
         Self {
             id,
             gen_block_id: Counter::new(),
@@ -409,7 +409,7 @@ pub struct DynBlockBuilder {
     gen_register_id: Arc<Counter<RegisterId>>,
     parameters: Vec<RegisterId>,
     instructions: Vec<Instruction>,
-    is_ok_to_drop: bool,
+    pub(crate) is_ok_to_drop: bool,
 }
 
 impl DynBlockBuilder {

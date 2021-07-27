@@ -847,6 +847,7 @@ pub enum InternalSlot {
     IsExtensible,
     Get,
     Set,
+    GetPrototypeOf,
     /// `%Function.prototype%`
     FunctionPrototype,
     /// `%Object.prototype%`

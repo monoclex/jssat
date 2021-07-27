@@ -27,22 +27,30 @@ impl BlockBuilderExt for DynBlockBuilder {
 
 #[allow(non_snake_case)]
 pub trait EmitterExt {
-    /// <https://tc39.es/ecma262/#sec-isaccessordescriptor>
-    fn IsAccessorDescriptor(&mut self, Desc: RegisterId) -> RegisterId;
-
-    /// <https://tc39.es/ecma262/#sec-isdatadescriptor>
-    fn IsDataDescriptor(&mut self, Desc: RegisterId) -> RegisterId;
-
-    /// <https://tc39.es/ecma262/#sec-isgenericdescriptor>
-    fn IsGenericDescriptor(&mut self, Desc: RegisterId) -> RegisterId;
-
     /// Performs the ECMAScript operation of `?`
     fn Q<F>(&mut self, invoke: F) -> RegisterId
     where
         F: FnOnce(&mut Self) -> RegisterId;
 
+    /// <https://tc39.es/ecma262/#sec-normalcompletion>
+    fn NormalCompletion(&mut self, argument: RegisterId) -> RegisterId;
+
     /// <https://tc39.es/ecma262/#sec-returnifabrupt>
     fn ReturnIfAbrupt(&mut self, argument: RegisterId) -> RegisterId;
+
+    /// <https://tc39.es/ecma262/#sec-definepropertyorthrow>
+    fn DefinePropertyOrThrow(
+        &mut self,
+        O: RegisterId,
+        P: RegisterId,
+        desc: RegisterId,
+    ) -> RegisterId;
+
+    /// <https://tc39.es/ecma262/#sec-set-o-p-v-throw>
+    fn Set(&mut self, O: RegisterId, P: RegisterId, V: RegisterId, Throw: bool) -> RegisterId;
+
+    /// <https://tc39.es/ecma262/#sec-throwcompletion>
+    fn ThrowCompletion(&mut self, argument: RegisterId) -> RegisterId;
 
     fn if_then<T>(&mut self, condition: RegisterId, then: T)
     where
@@ -69,6 +77,8 @@ pub trait EmitterExt {
         slot: InternalSlot,
         default: RegisterId,
     ) -> RegisterId;
+
+    fn copy_slot(&mut self, src_record: RegisterId, dest_record: RegisterId, slot: InternalSlot);
 
     fn is_normal_completion(&mut self, completion: RegisterId) -> RegisterId;
 
@@ -160,75 +170,7 @@ fn manual_test_if_then_end() {
 }
 
 #[allow(non_snake_case)]
-impl<const P: usize> EmitterExt for Emitter<'_, P> {
-    fn IsAccessorDescriptor(&mut self, Desc: RegisterId) -> RegisterId {
-        self.comment("IsAccessorDescriptor");
-
-        let r#true = self.make_bool(true);
-        let r#false = self.make_bool(false);
-
-        //# 1. If Desc is undefined, return false.
-        let undefined = self.make_undefined();
-        let is_undefined = self.compare_equal(Desc, undefined);
-        self.if_then_end(is_undefined, |_| |b| b.ret(Some(r#false)));
-
-        //# 2. If both Desc.[[Get]] and Desc.[[Set]] are absent, return false.
-        let has_get = self.record_has_slot(Desc, InternalSlot::Get);
-        let get_absent = self.negate(has_get);
-        let has_set = self.record_has_slot(Desc, InternalSlot::Set);
-        let set_absent = self.negate(has_set);
-        let both_are_absent = self.and(get_absent, set_absent);
-        self.if_then_end(both_are_absent, |_| |b| b.ret(Some(r#false)));
-
-        //# 3. Return true.
-        r#true
-    }
-
-    fn IsDataDescriptor(&mut self, Desc: RegisterId) -> RegisterId {
-        self.comment("IsDataDescriptor");
-
-        let r#true = self.make_bool(true);
-        let r#false = self.make_bool(false);
-
-        //# 1. If Desc is undefined, return false.
-        let undefined = self.make_undefined();
-        let is_undefined = self.compare_equal(Desc, undefined);
-        self.if_then_end(is_undefined, |_| |b| b.ret(Some(r#false)));
-
-        //# 2. If both Desc.[[Value]] and Desc.[[Writable]] are absent, return false.
-        let has_value = self.record_has_slot(Desc, InternalSlot::Value);
-        let value_absent = self.negate(has_value);
-        let has_writable = self.record_has_slot(Desc, InternalSlot::Writable);
-        let writable_absent = self.negate(has_writable);
-        let both_are_absent = self.and(value_absent, writable_absent);
-        self.if_then_end(both_are_absent, |_| |b| b.ret(Some(r#false)));
-
-        //# 3. Return true.
-        r#true
-    }
-
-    fn IsGenericDescriptor(&mut self, Desc: RegisterId) -> RegisterId {
-        self.comment("IsGenericDescriptor");
-
-        let r#true = self.make_bool(true);
-        let r#false = self.make_bool(false);
-        //# 1. If Desc is undefined, return false.
-        let undefined = self.make_undefined();
-        let is_undefined = self.compare_equal(Desc, undefined);
-        self.if_then_end(is_undefined, |_| |b| b.ret(Some(r#false)));
-
-        //# 2. If IsAccessorDescriptor(Desc) and IsDataDescriptor(Desc) are both false, return true.
-        let is_accessor = self.IsAccessorDescriptor(Desc);
-        let is_accessor_false = self.compare_equal(is_accessor, r#false);
-        let is_data = self.IsDataDescriptor(Desc);
-        let is_data_false = self.compare_equal(is_data, r#false);
-        let both_false = self.and(is_accessor_false, is_data_false);
-        self.if_then_end(both_false, |_| |b| b.ret(Some(r#true)));
-
-        //# 3. Return false.
-        r#false
-    }
-
+impl<const PARAMS: usize> EmitterExt for Emitter<'_, PARAMS> {
     fn Q<F>(&mut self, invoke: F) -> RegisterId
     where
         F: FnOnce(&mut Self) -> RegisterId,
@@ -419,5 +361,103 @@ impl<const P: usize> EmitterExt for Emitter<'_, P> {
             |b| b.record_get_slot(record, slot),
             |_| default,
         )
+    }
+
+    fn copy_slot(&mut self, src_record: RegisterId, dest_record: RegisterId, slot: InternalSlot) {
+        let value = self.record_get_slot(src_record, slot);
+        self.record_set_slot(dest_record, slot, value);
+    }
+
+    /// <https://tc39.es/ecma262/#sec-normalcompletion>
+    fn NormalCompletion(&mut self, argument: RegisterId) -> RegisterId {
+        self.comment("NormalCompletion");
+
+        //# 1. Return Completion { [[Type]]: normal, [[Value]]: argument, [[Target]]: empty }.
+        let completion_record = self.record_new();
+        let normal = self.program.constant_str("normal");
+        let normal = self.make_string(normal);
+        self.record_set_slot(completion_record, InternalSlot::Type, normal);
+        self.record_set_slot(completion_record, InternalSlot::Value, argument);
+        let empty = self.program.constant_str("empty");
+        let empty = self.make_string(empty);
+        self.record_set_slot(completion_record, InternalSlot::Target, empty);
+        completion_record
+    }
+
+    fn DefinePropertyOrThrow(
+        &mut self,
+        O: RegisterId,
+        P: RegisterId,
+        desc: RegisterId,
+    ) -> RegisterId {
+        self.comment("DefinePropertyOrThrow");
+
+        //# 1. Assert: Type(O) is Object.
+        //# 2. Assert: IsPropertyKey(P) is true.
+
+        //# 3. Let success be ? O.[[DefineOwnProperty]](P, desc).
+        let define_own_property = self.record_get_slot(O, InternalSlot::DefineOwnProperty);
+        // TODO: currently `DefineOwnProperty` can't fail
+        let success = self.call_virt_with_result(define_own_property, [O, P, desc]);
+        // let success = self.ReturnIfAbrupt(success_try);
+
+        //# 4. If success is false, throw a TypeError exception.
+        let success_false = self.negate(success);
+
+        self.if_then_x_else_y(
+            success_false,
+            |b| {
+                // TODO: throw a type error properly
+                let argument = b.make_undefined();
+                b.ThrowCompletion(argument)
+            },
+            |b| {
+                //# 5. Return success.
+                b.NormalCompletion(success)
+            },
+        )
+    }
+
+    /// <https://tc39.es/ecma262/#sec-throwcompletion>
+    fn ThrowCompletion(&mut self, argument: RegisterId) -> RegisterId {
+        self.comment("ThrowCompletion");
+
+        //# 1. Return Completion { [[Type]]: throw, [[Value]]: argument, [[Target]]: empty }.
+        let completion_record = self.record_new();
+        let throw = self.program.constant_str("throw");
+        let normal = self.block.make_string(throw);
+        self.record_set_slot(completion_record, InternalSlot::Type, normal);
+        self.record_set_slot(completion_record, InternalSlot::Value, argument);
+        let empty = self.program.constant_str("empty");
+        let empty = self.block.make_string(empty);
+        self.record_set_slot(completion_record, InternalSlot::Target, empty);
+        completion_record
+    }
+
+    fn Set(&mut self, O: RegisterId, P: RegisterId, V: RegisterId, Throw: bool) -> RegisterId {
+        self.comment("Set");
+
+        //# 1. Assert: Type(O) is Object.
+        //# 2. Assert: IsPropertyKey(P) is true.
+        //# 3. Assert: Type(Throw) is Boolean.
+        //# 4. Let success be ? O.[[Set]](P, V, O).
+        // TODO: use `Q`
+        let set = self.record_get_slot(O, InternalSlot::Set);
+        let success = self.call_virt_with_result(set, [O, P, V, O]);
+
+        //# 5. If success is false and Throw is true, throw a TypeError exception.
+        if Throw {
+            // TODO: do this cleaner
+            let r#false = self.make_bool(false);
+            let cond = self.compare_equal(success, r#false);
+            self.if_then_end(cond, |b| {
+                let argument = b.make_null();
+                let completion = b.ThrowCompletion(argument);
+                move |b| b.ret(Some(completion))
+            });
+        }
+
+        //# 6. Return success.
+        success
     }
 }

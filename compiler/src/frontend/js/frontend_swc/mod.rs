@@ -21,6 +21,8 @@ use swc_ecmascript::{
 use std::iter::FromIterator;
 
 use self::{
+    abstract_operations::EmitterExt,
+    descriptors::Descriptors,
     environment_record::{EnvironmentRecord, EnvironmentRecordFactory, GlobalEnvironmentRecord},
     ordinary_object_behaviors::{create_ordinary_internal_methods, OrdinaryInternalMethods},
 };
@@ -28,6 +30,7 @@ use crate::frontend::{builder::*, ir::*};
 use crate::isa::InternalSlot;
 
 pub mod abstract_operations;
+pub mod descriptors;
 pub mod environment_record;
 pub mod ordinary_object_behaviors;
 
@@ -54,6 +57,14 @@ impl<const P: usize> DerefMut for Emitter<'_, P> {
 impl<'p, const P: usize> Emitter<'p, P> {
     pub fn new(program: &'p mut ProgramBuilder, mut function: FunctionBuilder<P>) -> Self {
         let block = function.start_block_main().into_dynamic();
+        Self::new_with_block(program, function, block)
+    }
+
+    pub fn new_with_block(
+        program: &'p mut ProgramBuilder,
+        function: FunctionBuilder<P>,
+        block: DynBlockBuilder,
+    ) -> Self {
         Self {
             program,
             function,
@@ -73,7 +84,8 @@ impl<'p, const P: usize> Emitter<'p, P> {
 #[test]
 fn doesnt_panic() {
     let mut builder = ProgramBuilder::new();
-    let ordinary = create_ordinary_internal_methods(&mut builder);
+    let descriptors = Descriptors::new(&mut builder);
+    let ordinary = create_ordinary_internal_methods(&mut builder, descriptors);
 
     let env_factory = EnvironmentRecordFactory::new(&mut builder);
 
@@ -81,7 +93,7 @@ fn doesnt_panic() {
     let block = main.start_block_main().into_dynamic();
     let mut frontend = JsWriter {
         bld: &mut builder,
-        bld_fn: &mut main,
+        bld_fn: main,
         block,
         // the value doesn't matter, it gets set on ScriptEvalution
         running_execution_context_lexical_environment:
@@ -110,6 +122,7 @@ fn doesnt_panic() {
     frontend.compare_equal(r, cmp_const);
 
     let block = frontend.block.ret(None);
+    let mut main = frontend.bld_fn;
     main.end_block_dyn(block);
 
     builder.end_function(main);
@@ -143,7 +156,8 @@ pub fn traverse(source: String) -> IR {
     let script = to_script(source);
 
     let mut builder = ProgramBuilder::new();
-    let ordinary = create_ordinary_internal_methods(&mut builder);
+    let descriptors = Descriptors::new(&mut builder);
+    let ordinary = create_ordinary_internal_methods(&mut builder, descriptors);
 
     let env_factory = EnvironmentRecordFactory::new(&mut builder);
 
@@ -152,7 +166,7 @@ pub fn traverse(source: String) -> IR {
         let block = main.start_block_main().into_dynamic();
         let mut frontend = JsWriter {
             bld: &mut builder,
-            bld_fn: &mut main,
+            bld_fn: main,
             block,
             // the value doesn't matter, it gets set on ScriptEvalution
             running_execution_context_lexical_environment:
@@ -169,6 +183,7 @@ pub fn traverse(source: String) -> IR {
         let empty = frontend.block.make_undefined();
         let completion = frontend.NormalCompletion(empty);
         let block = frontend.block.ret(Some(completion));
+        let mut main = frontend.bld_fn;
         main.end_block_dyn(block);
 
         builder.end_function(main)
@@ -187,7 +202,7 @@ pub fn traverse(source: String) -> IR {
 
 struct JsWriter<'builder, const PARAMETERS: usize> {
     bld: &'builder mut ProgramBuilder,
-    bld_fn: &'builder mut FunctionBuilder<PARAMETERS>,
+    bld_fn: FunctionBuilder<PARAMETERS>,
     block: DynBlockBuilder,
     /// this is a hack, shouldn't be here... probably
     running_execution_context_lexical_environment: EnvironmentRecord,
@@ -211,6 +226,10 @@ impl<const P: usize> DerefMut for JsWriter<'_, P> {
 
 #[allow(non_snake_case)]
 impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
+    pub fn into_fn(self) -> FunctionBuilder<PARAMS> {
+        self.bld_fn
+    }
+
     /// <https://tc39.es/ecma262/#sec-initializehostdefinedrealm>
     pub fn InitializeHostDefinedRealm(&mut self) -> (RegisterId, RegisterId) {
         self.comment("InitializeHostDefinedRealm");
@@ -241,8 +260,7 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
         //#    indicating that an ordinary object should be created as the
         //#    global object.
         // TODO: be in accordance with spec later
-        // let global = self.make_undefined();
-        let global = self.record_new();
+        let global = self.make_undefined();
 
         //# 8. If the host requires that the this binding in realm's global
         //#    scope return an object other than the global object, let
@@ -327,7 +345,9 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
         // insert a value into the record to not trip up the symbolic execution engine
         // this will stay un until we properly populate intrinsics
         let undefined = self.make_undefined();
+        let null = self.make_null();
         self.record_set_slot(intrinsics, InternalSlot::FunctionPrototype, undefined);
+        self.record_set_slot(intrinsics, InternalSlot::ObjectPrototype, null);
 
         let F = self
             .block
@@ -424,13 +444,21 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
         // we don't need to set the fields here, because the caller will do so
 
         //# 3. Set obj's essential internal methods to the default ordinary object definitions specified in 10.1.
-        let id = self.ordinary.OrdinaryDefineOwnProperty.id;
-        let ordinary_define_own_property = self.make_fnptr(id);
-        self.record_set_slot(
-            obj,
-            InternalSlot::DefineOwnProperty,
-            ordinary_define_own_property,
-        );
+        let ordinary = self.ordinary;
+        let fnptr = self.make_fnptr(ordinary.OrdinaryDefineOwnProperty.id);
+        self.record_set_slot(obj, InternalSlot::DefineOwnProperty, fnptr);
+
+        let fnptr = self.make_fnptr(ordinary.OrdinaryGetOwnProperty.id);
+        self.record_set_slot(obj, InternalSlot::GetOwnProperty, fnptr);
+
+        let fnptr = self.make_fnptr(ordinary.OrdinaryIsExtensible.id);
+        self.record_set_slot(obj, InternalSlot::IsExtensible, fnptr);
+
+        let fnptr = self.make_fnptr(ordinary.OrdinarySet.id);
+        self.record_set_slot(obj, InternalSlot::Set, fnptr);
+
+        let fnptr = self.make_fnptr(ordinary.OrdinaryGetPrototypeOf.id);
+        self.record_set_slot(obj, InternalSlot::GetPrototypeOf, fnptr);
 
         //# 4. Assert: If the caller will not be overriding both obj's
         //#    [[GetPrototypeOf]] and [[SetPrototypeOf]] essential internal
@@ -560,31 +588,22 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
         P: RegisterId,
         desc: RegisterId,
     ) -> RegisterId {
-        self.comment("DefinePropertyOrThrow");
+        let mut bld_fn = FunctionBuilder::<PARAMS>::new(Default::default());
+        let mut block = bld_fn.start_block_main().into_dynamic();
+        bld_fn.is_ok_to_drop = true;
+        block.is_ok_to_drop = true;
+        std::mem::swap(&mut self.bld_fn, &mut bld_fn);
+        std::mem::swap(&mut self.block, &mut block);
+        let mut b = Emitter::new_with_block(self.bld, bld_fn, block);
 
-        //# 1. Assert: Type(O) is Object.
-        //# 2. Assert: IsPropertyKey(P) is true.
+        let result = b.DefinePropertyOrThrow(O, P, desc);
 
-        //# 3. Let success be ? O.[[DefineOwnProperty]](P, desc).
-        let define_own_property = self.record_get_slot(O, InternalSlot::DefineOwnProperty);
-        let success_try = self.call_virt_with_result(define_own_property, [O, P, desc]);
-        let success = self.ReturnIfAbrupt(success_try);
+        let mut bld_fn = b.function;
+        let mut block = b.block;
+        std::mem::swap(&mut self.bld_fn, &mut bld_fn);
+        std::mem::swap(&mut self.block, &mut block);
 
-        //# 4. If success is false, throw a TypeError exception.
-        let success_false = self.negate(success);
-        self.perform_if(success_false, |me| {
-            // TODO: throw a type error properly
-            let argument = me.make_undefined();
-            let completion = me.ThrowCompletion(argument);
-
-            // TODO: dont have this hack
-            let (mut hack, []) = me.bld_fn.start_block();
-            std::mem::swap(&mut me.block, &mut hack);
-            me.bld_fn.end_block(hack.ret(Some(completion)));
-        });
-
-        //# 5. Return success.
-        self.NormalCompletion(success)
+        result
     }
 
     /// <https://tc39.es/ecma262/#sec-parse-script>
@@ -1040,8 +1059,12 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
         });
 
         //# 2. Let exists be ? env.HasBinding(name).
-        let exists_try = env.HasBinding(&mut self.block, name);
-        let exists = self.ReturnIfAbrupt(exists_try);
+        let exists = env.HasBinding(&mut self.block, name);
+
+        let i = self.make_number_decimal(1);
+        let panick = self.compare_equal(i, exists);
+        // TODO: global object doesn't fail, should we update this in future?
+        // let exists = self.ReturnIfAbrupt(exists_try);
 
         //# 3. If exists is true, then
         self.perform_if(exists, |me| {
@@ -1141,6 +1164,7 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
         self.record_set_slot(desc, InternalSlot::Writable, r#false);
         self.record_set_slot(desc, InternalSlot::Enumerable, r#false);
         self.record_set_slot(desc, InternalSlot::Configurable, r#false);
+        self.record_set_slot(desc, InternalSlot::Value, func_obj);
 
         //# c. Perform ? DefinePropertyOrThrow(global, name, desc).
         let result = self.DefinePropertyOrThrow(global, name, desc);
@@ -1315,7 +1339,14 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
         let is_abrupt_completion = self.is_abrupt_completion(argument);
 
         let on_abrupt_completion = {
-            let (on_abrupt_completion, []) = self.bld_fn.start_block();
+            let (mut on_abrupt_completion, []) = self.bld_fn.start_block();
+
+            // panic (this is only for development)
+            // we should never hit ReturnIfAbrupt in development (i think)
+            let a = on_abrupt_completion.make_number_decimal(1);
+            let b = on_abrupt_completion.make_null();
+            on_abrupt_completion.compare_equal(a, b);
+
             self.bld_fn
                 .end_block(on_abrupt_completion.ret(Some(argument)))
         };

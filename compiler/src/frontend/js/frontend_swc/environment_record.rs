@@ -8,6 +8,8 @@ use crate::{
     isa::InternalSlot,
 };
 
+use super::{abstract_operations::EmitterExt, Emitter};
+
 pub struct EnvironmentRecordFactory {
     declarative_environment_vtable: EnvironmentRecordVTable,
     object_environment_vtable: EnvironmentRecordVTable,
@@ -249,35 +251,73 @@ impl EnvironmentRecordFactory {
         };
 
         let create_global_function_binding = {
-            let (mut f, [envRec, N, V, D]) = writer.start_function();
-            let mut w = f.start_block_main();
+            let (f, [envRec, N, V, D]) = writer.start_function();
+            let mut b = Emitter::new(writer, f);
 
             // <https://tc39.es/ecma262/#sec-createglobalfunctionbinding>
-            w.comment("GlobalEnvironmentRecord::CreateGlobalFunctionBinding");
+            b.comment("GlobalEnvironmentRecord::CreateGlobalFunctionBinding");
 
             //# 1. Let ObjRec be envRec.[[ObjectRecord]].
-            let ObjRec = w.record_get_slot(envRec, InternalSlot::ObjectRecord);
+            let ObjRec = b.record_get_slot(envRec, InternalSlot::ObjectRecord);
 
             //# 2. Let globalObject be ObjRec.[[BindingObject]].
-            let globalObject = w.record_get_slot(ObjRec, InternalSlot::BindingObject);
+            let globalObject = b.record_get_slot(ObjRec, InternalSlot::BindingObject);
 
             //# 3. Let existingProp be ? globalObject.[[GetOwnProperty]](N).
+            // TODO: use `?`-ness
+            let get_own_prop = b.record_get_slot(globalObject, InternalSlot::GetOwnProperty);
+            let existingProp = b.call_virt_with_result(get_own_prop, [globalObject, N]);
+
             //# 4. If existingProp is undefined or existingProp.[[Configurable]] is true, then
-            //# a. Let desc be the PropertyDescriptor { [[Value]]: V, [[Writable]]: true, [[Enumerable]]: true, [[Configurable]]: D }.
-            //# 5. Else,
-            //# a. Let desc be the PropertyDescriptor { [[Value]]: V }.
+            let undef = b.make_undefined();
+            let is_undef = b.compare_equal(existingProp, undef);
+
+            let cond = b.if_then_x_else_y(
+                is_undef,
+                |_| is_undef,
+                |b| {
+                    let configurable = b.record_get_slot(existingProp, InternalSlot::Configurable);
+                    let r#true = b.make_bool(true);
+                    b.compare_equal(configurable, r#true)
+                },
+            );
+
+            let desc = b.if_then_x_else_y(
+                cond,
+                |b| {
+                    //# a. Let desc be the PropertyDescriptor { [[Value]]: V, [[Writable]]: true, [[Enumerable]]: true, [[Configurable]]: D }.
+                    let desc = b.record_new();
+                    let r#true = b.make_bool(true);
+                    b.record_set_slot(desc, InternalSlot::Value, V);
+                    b.record_set_slot(desc, InternalSlot::Writable, r#true);
+                    b.record_set_slot(desc, InternalSlot::Enumerable, r#true);
+                    b.record_set_slot(desc, InternalSlot::Configurable, D);
+                    desc
+                },
+                //# 5. Else,
+                |b| {
+                    //# a. Let desc be the PropertyDescriptor { [[Value]]: V }.
+                    let desc = b.record_new();
+                    b.record_set_slot(desc, InternalSlot::Value, V);
+                    desc
+                },
+            );
+
             //# 6. Perform ? DefinePropertyOrThrow(globalObject, N, desc).
+            b.Q(|b| b.DefinePropertyOrThrow(globalObject, N, desc));
+
             //# 7. Perform ? Set(globalObject, N, V, false).
+            // we can ignore the error here (TODO: we should be fallible?)
+            b.Set(globalObject, N, V, false);
+
             //# 8. Let varDeclaredNames be envRec.[[VarNames]].
             //# 9. If varDeclaredNames does not contain N, then
             //# a. Append N to varDeclaredNames.
             //# 10. Return NormalCompletion(empty).
+            let argument = b.make_undefined();
+            let completion = EmitterExt::NormalCompletion(&mut b, argument);
 
-            let argument = w.make_undefined();
-            let completion = w.NormalCompletion(writer, argument);
-
-            f.end_block(w.ret(Some(completion)));
-            writer.end_function(f)
+            b.finish(|b| b.ret(Some(completion)))
         };
 
         GlobalEnvironmentRecordVTable {

@@ -35,6 +35,7 @@ pub enum CurrentInstruction<'program> {
     None,
     Sequential(&'program ir::Instruction<LiftedCtx, LiftedCtx>),
     ControlFlow(&'program lifted::EndInstruction),
+    Completed,
 }
 
 pub struct SymbWorker<'program> {
@@ -178,6 +179,12 @@ impl<'p> Worker for SymbWorker<'p> {
                             self.types.unintern_const(a) == self.types.unintern_const(b),
                         ),
                         (RegisterType::Trivial(a), RegisterType::Trivial(b)) => {
+                            RegisterType::Bool(a == b)
+                        }
+                        (RegisterType::Boolean, RegisterType::Boolean)
+                        | (RegisterType::Boolean, RegisterType::Bool(_))
+                        | (RegisterType::Bool(_), RegisterType::Boolean) => RegisterType::Boolean,
+                        (RegisterType::Bool(a), RegisterType::Bool(b)) => {
                             RegisterType::Bool(a == b)
                         }
                         // TODO: should we allow equality like this?
@@ -406,8 +413,11 @@ impl<'p> Worker for SymbWorker<'p> {
                         let id = self.fn_ids.id_of(inst.fn_id, types, true);
 
                         // TODO: worry about `Never`
-                        // TODO: handle return values
-                        assert!(matches!(i.result, None));
+                        if let Some(result) = i.result {
+                            let typ = self.types.get(inst.result.unwrap());
+                            let typ = map_typ_assembler(&mut self.types, &mut asm_typs, typ);
+                            asm_typs.insert(result, typ);
+                        }
 
                         blk.instructions.push(assembler::Instruction::Call(
                             i.result,
@@ -753,6 +763,8 @@ impl<'p> Worker for SymbWorker<'p> {
         };
         // </assembler>
 
+        self.inst_on = CurrentInstruction::Completed;
+
         let types = self.types.clone();
 
         WorkerResults {
@@ -842,6 +854,10 @@ fn map_typ_assembler(
             let shape_id = types.get_shape_id(orig_a);
             let shape = types.get_shape(shape_id).clone();
 
+            // insert into `asm_typs` asap to solve self referential objects
+            let shape_id = shape_id.map_context();
+            asm_typs.allocations.insert(a, vec![shape_id]);
+
             for (k, v) in shape.fields.iter() {
                 let k = match *k {
                     crate::symbolic_execution::types::ShapeKey::Str(s) => {
@@ -856,9 +872,7 @@ fn map_typ_assembler(
                 new_shape = new_shape.add_prop(k, v);
             }
 
-            let shape_id = shape_id.map_context();
             asm_typs.shapes.insert(shape_id, new_shape);
-            asm_typs.allocations.insert(a, vec![shape_id]);
 
             type_annotater::ValueType::Record(a)
         }
