@@ -113,6 +113,20 @@ impl<C: Tag> RegMap<C> {
         self.registers.insert(register, typ).expect_free();
     }
 
+    pub fn update(&mut self, register: RegisterId<C>, typ: ValueType) {
+        if let ValueType::Record(alloc) = &typ {
+            debug_assert!(
+                self.allocations.contains_key(&alloc.map_context()),
+                "failed assertion: {:?}",
+                &self
+            );
+        }
+
+        self.registers
+            .insert(register, typ)
+            .expect("update => should already exist");
+    }
+
     pub fn insert_alloc(&mut self) -> AllocationId<NoContext> {
         let shape = self.insert_shape(RecordShape::default());
 

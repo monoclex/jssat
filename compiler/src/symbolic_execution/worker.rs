@@ -461,6 +461,12 @@ impl<'p> Worker for SymbWorker<'p> {
                         let (types, _) = self.types.extract_map(map_args);
                         let id = self.fn_ids.id_of(inst.fn_id, types, true);
 
+                        for (arg_d, arg) in i.args.iter().zip(inst.args.iter()) {
+                            let typ = self.types.get(*arg);
+                            let typ = map_typ_assembler(&mut self.types, &mut asm_typs, typ);
+                            asm_typs.update(*arg_d, typ);
+                        }
+
                         // TODO: worry about `Never`
                         if let Some(result) = i.result {
                             let typ = self.types.get(inst.result.unwrap());
@@ -534,6 +540,12 @@ impl<'p> Worker for SymbWorker<'p> {
                             (inst.args.iter().copied()).zip(src_fn.parameters.iter().copied());
                         let (types, _) = self.types.extract_map(map_args);
                         let id = self.fn_ids.id_of(func, types, true);
+
+                        for (arg_d, arg) in i.args.iter().zip(inst.args.iter()) {
+                            let typ = self.types.get(*arg);
+                            let typ = map_typ_assembler(&mut self.types, &mut asm_typs, typ);
+                            asm_typs.update(*arg_d, typ);
+                        }
 
                         // TODO: worry about `Never`
                         if let Some(result) = i.result {
@@ -753,6 +765,14 @@ impl<'p> Worker for SymbWorker<'p> {
                     self.return_type = r.clone_ret_typ(&mut self.types, &alloc_map);
 
                     // <assembler>
+                    for i in i.0 .1.iter() {
+                        // update arg typ
+                        let typ = self.types.get(*i);
+                        let typ = map_typ_assembler(&mut self.types, &mut asm_typs, typ);
+                        let arg_d = asm_reg_map.retag_old(*i);
+                        asm_typs.update(arg_d, typ);
+                    }
+
                     blk.end = assembler::EndInstruction::Jump(assembler::BlockJump(
                         BlockId::new_with_value_raw(id.raw_value()),
                         i.0 .1.iter().map(|r| r.map_context()).collect(),
@@ -787,6 +807,14 @@ impl<'p> Worker for SymbWorker<'p> {
                         self.return_type = r.clone_ret_typ(&mut self.types, &alloc_map);
 
                         // <assembler>
+                        for i in i.if_so.1.iter() {
+                            // update arg typ
+                            let typ = self.types.get(*i);
+                            let typ = map_typ_assembler(&mut self.types, &mut asm_typs, typ);
+                            let arg_d = asm_reg_map.retag_old(*i);
+                            asm_typs.update(arg_d, typ);
+                        }
+
                         blk.end = assembler::EndInstruction::Jump(assembler::BlockJump(
                             BlockId::new_with_value_raw(id.raw_value()),
                             i.if_so.1.iter().map(|r| r.map_context()).collect(),
@@ -820,6 +848,14 @@ impl<'p> Worker for SymbWorker<'p> {
                         self.return_type = r.clone_ret_typ(&mut self.types, &alloc_map);
 
                         // <assembler>
+                        for i in i.other.1.iter() {
+                            // update arg typ
+                            let typ = self.types.get(*i);
+                            let typ = map_typ_assembler(&mut self.types, &mut asm_typs, typ);
+                            let arg_d = asm_reg_map.retag_old(*i);
+                            asm_typs.update(arg_d, typ);
+                        }
+
                         blk.end = assembler::EndInstruction::Jump(assembler::BlockJump(
                             BlockId::new_with_value_raw(id.raw_value()),
                             i.other.1.iter().map(|r| r.map_context()).collect(),

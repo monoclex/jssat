@@ -23,7 +23,8 @@ pub fn opt_constant_elimination(program: Program) -> Program {
         constants: &constants,
     };
 
-    for (_, f) in functions.iter_mut() {
+    for (id, f) in functions.iter_mut() {
+        println!("==> function: {:?}", id);
         opt_fn(f, &cnsts);
     }
 
@@ -36,7 +37,8 @@ pub fn opt_constant_elimination(program: Program) -> Program {
 }
 
 fn opt_fn(f: &mut Function, cnsts: &Cnsts) {
-    for (_, b) in f.blocks.iter_mut() {
+    for (id, b) in f.blocks.iter_mut() {
+        println!("working on block: {:?} -> {:?}", f.entry_block, id);
         opt_blk(cnsts, b, &mut f.return_type);
     }
 }
@@ -70,10 +72,13 @@ fn opt_blk(cnsts: &Cnsts, b: &mut Block, ret_typ: &mut ReturnType) {
         args.into_iter().filter(|r| !regs.is_const(*r)).collect()
     };
 
-    let ret_typ_is_const = match ret_typ {
-        ReturnType::Void => true,
-        ReturnType::Value(v) => regs.is_const_typ(v),
-    };
+    // TODO: i shouldn't *need* to make this lazy
+    // TODO: wait why does this even exist? we already check if the reg is constant
+    let ret_typ_is_const = || true;
+    // let mut ret_typ_is_const = || match ret_typ {
+    //     ReturnType::Void => true,
+    //     ReturnType::Value(v) => regs.is_const_typ(v),
+    // };
 
     // remove const params when jumping to other blocks
     b.end = match b.end.clone() {
@@ -93,7 +98,7 @@ fn opt_blk(cnsts: &Cnsts, b: &mut Block, ret_typ: &mut ReturnType) {
         // returning a register of a constant value can be removed
         // IFF all constant usages of it are propagated
         // ^ TODO: ensure the above is done (i think it already is though)
-        EndInstruction::Return(Some(r)) if regs.is_const(r) && ret_typ_is_const => {
+        EndInstruction::Return(Some(r)) if regs.is_const(r) && ret_typ_is_const() => {
             *ret_typ = ReturnType::Void;
             EndInstruction::Return(None)
         }
