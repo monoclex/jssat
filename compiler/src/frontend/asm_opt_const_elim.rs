@@ -145,10 +145,10 @@ fn opt_blk(cnsts: &Cnsts, b: &mut Block, ret_typ: &mut ReturnType) {
                         },
                         RecordKey::Slot(s) => ShapeKey::InternalSlot(*s),
                     };
-                    println!("key: {:?}", key);
-                    println!("shape: {:?}", total_shape);
-                    println!("final shape: {:?}", regs.get_shape(alloc));
-                    println!("inst: {:?}", i2);
+                    // println!("key: {:?}", key);
+                    // println!("shape: {:?}", total_shape);
+                    // println!("final shape: {:?}", regs.get_shape(alloc));
+                    // println!("inst: {:?}", i2);
                     let k = total_shape.type_at_key(&key);
 
                     if regs.is_const_typ(k) && regs.is_const(*value) {
@@ -167,7 +167,7 @@ fn opt_blk(cnsts: &Cnsts, b: &mut Block, ret_typ: &mut ReturnType) {
                         let last_shape = regs.get_shapes(alloc).last().copied();
                         let my_shape = Some(*shape_id);
                         let is_last_shape = last_shape == my_shape;
-                        println!("-----------> {:?} == {:?}", last_shape, my_shape);
+                        // println!("-----------> {:?} == {:?}", last_shape, my_shape);
                         if !is_last_shape {
                             regs.get_shape_by_id_mut(shape_id).wipe();
                         }

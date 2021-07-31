@@ -1093,12 +1093,10 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
         });
 
         //# 2. Let exists be ? env.HasBinding(name).
-        let exists = env.HasBinding(&mut self.block, name);
+        let exists_try = env.HasBinding(&mut self.block, name);
 
-        let i = self.make_number_decimal(1);
-        let panick = self.compare_equal(i, exists);
         // TODO: global object doesn't fail, should we update this in future?
-        // let exists = self.ReturnIfAbrupt(exists_try);
+        let exists = self.ReturnIfAbrupt(exists_try);
 
         //# 3. If exists is true, then
         self.perform_if(exists, |me| {
