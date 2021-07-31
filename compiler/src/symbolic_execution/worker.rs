@@ -10,6 +10,7 @@ use crate::frontend::ir::Returns;
 use crate::frontend::old_types;
 use crate::frontend::type_annotater;
 use crate::id::*;
+use crate::isa::InternalSlot;
 use crate::isa::RecordKey;
 use crate::isa::TrivialItem;
 use crate::lifted;
@@ -50,6 +51,7 @@ pub struct SymbWorker<'program> {
     pub return_type: ReturnType,
     pub inst_on: CurrentInstruction<'program>,
     pub asm_ext_map: Arc<ExtFnPassRetagger<LiftedCtx, AssemblerCtx>>,
+    pub never_infected: bool,
 }
 
 pub struct WorkerResults {
@@ -60,11 +62,24 @@ pub struct WorkerResults {
 }
 
 impl WorkerResults {
-    fn clone_ret_typ(&self, target_bag: &mut TypeBag) -> ReturnType {
+    // TODO: there is probably a bug with this method in regards to object types
+    // since the allocation map isn't used to map records into the source typebag
+    fn clone_ret_typ(
+        &self,
+        target_bag: &mut TypeBag,
+        me_to_target_typs: &FxHashMap<AllocationId<LiftedCtx>, AllocationId<LiftedCtx>>,
+    ) -> ReturnType {
+        let mut rev_alloc_map = me_to_target_typs
+            .iter()
+            .map(|(k, v)| (*v, *k))
+            .collect::<FxHashMap<_, _>>();
+
         match self.return_type {
             ReturnType::Void => ReturnType::Void,
             ReturnType::Never => ReturnType::Never,
-            ReturnType::Value(v) => ReturnType::Value(self.types.pull_type_into(v, target_bag)),
+            ReturnType::Value(v) => {
+                ReturnType::Value(self.types.pull_type_into(v, target_bag, &rev_alloc_map))
+            }
         }
     }
 }
@@ -84,8 +99,6 @@ impl<'p> Worker for SymbWorker<'p> {
     type Result = WorkerResults;
 
     fn work(&mut self, system: &impl System<Self>) -> Self::Result {
-        let mut never_infected = false;
-
         let mut blk = assembler::Block {
             register_types: Default::default(),
             parameters: vec![],
@@ -270,15 +283,29 @@ impl<'p> Worker for SymbWorker<'p> {
                     let src_fn = self.program.functions.get(&fn_id).unwrap();
                     debug_assert_eq!(src_fn.parameters.len(), i.args.len());
                     let map_args = (i.args.iter().copied()).zip(src_fn.parameters.iter().copied());
-                    let types = self.types.extract_map(map_args);
+                    let (types, alloc_map) = self.types.extract_map(map_args);
                     let id = self.fn_ids.id_of(fn_id, types, true);
                     let r = system.spawn(id);
 
-                    let return_type = r.clone_ret_typ(&mut self.types);
+                    let mut rev_alloc_map = alloc_map
+                        .iter()
+                        .map(|(k, v)| (*v, *k))
+                        .collect::<FxHashMap<_, _>>();
+
+                    for (_, its_alloc) in alloc_map.iter() {
+                        // update the register type
+                        r.types.pull_type_into(
+                            RegisterType::Record(*its_alloc),
+                            &mut self.types,
+                            &rev_alloc_map,
+                        );
+                    }
+
+                    let return_type = r.clone_ret_typ(&mut self.types, &alloc_map);
 
                     match (i.result, return_type) {
                         (_, ReturnType::Never) => {
-                            never_infected = true;
+                            self.never_infected = true;
                             break;
                         }
                         (None, ReturnType::Void) => {}
@@ -293,16 +320,32 @@ impl<'p> Worker for SymbWorker<'p> {
                 ir::Instruction::CallStatic(i) => {
                     let src_fn = self.program.functions.get(&i.fn_id).unwrap();
                     debug_assert_eq!(src_fn.parameters.len(), i.args.len());
-                    let map_args = (i.args.iter().copied()).zip(src_fn.parameters.iter().copied());
-                    let types = self.types.extract_map(map_args);
+                    let map_args = (i.args.iter().copied())
+                        .zip(src_fn.parameters.iter().copied())
+                        .collect::<Vec<_>>();
+                    let (types, alloc_map) = self.types.extract_map(map_args.iter().copied());
                     let id = self.fn_ids.id_of(i.fn_id, types, true);
                     let r = system.spawn(id);
 
-                    let return_type = r.clone_ret_typ(&mut self.types);
+                    let mut rev_alloc_map = alloc_map
+                        .iter()
+                        .map(|(k, v)| (*v, *k))
+                        .collect::<FxHashMap<_, _>>();
+
+                    for (_, its_alloc) in alloc_map.iter() {
+                        // update the register type
+                        r.types.pull_type_into(
+                            RegisterType::Record(*its_alloc),
+                            &mut self.types,
+                            &rev_alloc_map,
+                        );
+                    }
+
+                    let return_type = r.clone_ret_typ(&mut self.types, &alloc_map);
 
                     match (i.result, return_type) {
                         (_, ReturnType::Never) => {
-                            never_infected = true;
+                            self.never_infected = true;
                             break;
                         }
                         (None, ReturnType::Void) => {}
@@ -415,7 +458,7 @@ impl<'p> Worker for SymbWorker<'p> {
                         debug_assert_eq!(src_fn.parameters.len(), inst.args.len());
                         let map_args =
                             (inst.args.iter().copied()).zip(src_fn.parameters.iter().copied());
-                        let types = self.types.extract_map(map_args);
+                        let (types, _) = self.types.extract_map(map_args);
                         let id = self.fn_ids.id_of(inst.fn_id, types, true);
 
                         // TODO: worry about `Never`
@@ -489,7 +532,7 @@ impl<'p> Worker for SymbWorker<'p> {
                         debug_assert_eq!(src_fn.parameters.len(), inst.args.len());
                         let map_args =
                             (inst.args.iter().copied()).zip(src_fn.parameters.iter().copied());
-                        let types = self.types.extract_map(map_args);
+                        let (types, _) = self.types.extract_map(map_args);
                         let id = self.fn_ids.id_of(func, types, true);
 
                         // TODO: worry about `Never`
@@ -672,78 +715,133 @@ impl<'p> Worker for SymbWorker<'p> {
             // </assembler>
         }
 
-        if never_infected {
+        if self.never_infected {
             // TODO: write "unreachable" instruction
             self.return_type = ReturnType::Never;
         }
 
         self.inst_on = CurrentInstruction::ControlFlow(&self.func.end);
-        let rs = match &self.func.end {
-            crate::lifted::EndInstruction::Jump(i) => {
-                let src_fn = self.program.functions.get(&i.0 .0).unwrap();
-                debug_assert_eq!(src_fn.parameters.len(), i.0 .1.len());
-                let map_args = (i.0 .1.iter().copied()).zip(src_fn.parameters.iter().copied());
-                let types = self.types.extract_map(map_args);
-                let id = self.fn_ids.id_of(i.0 .0, types, false);
-                let r = system.spawn(id);
-                self.return_type = r.clone_ret_typ(&mut self.types);
-                // <assembler>
-                blk.end = assembler::EndInstruction::Jump(assembler::BlockJump(
-                    BlockId::new_with_value_raw(id.raw_value()),
-                    i.0 .1.iter().map(|r| r.map_context()).collect(),
-                ));
-                // </assembler>
-                vec![r]
-            }
-            crate::lifted::EndInstruction::JumpIf(i) => match self.types.get(i.condition) {
-                RegisterType::Bool(true) => {
-                    let src_fn = self.program.functions.get(&i.if_so.0).unwrap();
-                    debug_assert_eq!(src_fn.parameters.len(), i.if_so.1.len());
-                    let map_args =
-                        (i.if_so.1.iter().copied()).zip(src_fn.parameters.iter().copied());
-                    let types = self.types.extract_map(map_args);
-                    let id = self.fn_ids.id_of(i.if_so.0, types, false);
+        let rs = if self.never_infected {
+            // <assembler>
+            blk.end = assembler::EndInstruction::Return(None);
+            // </assembler>
+            vec![]
+        } else {
+            match &self.func.end {
+                crate::lifted::EndInstruction::Jump(i) => {
+                    let src_fn = self.program.functions.get(&i.0 .0).unwrap();
+                    debug_assert_eq!(src_fn.parameters.len(), i.0 .1.len());
+                    let map_args = (i.0 .1.iter().copied()).zip(src_fn.parameters.iter().copied());
+                    let (types, alloc_map) = self.types.extract_map(map_args);
+                    let id = self.fn_ids.id_of(i.0 .0, types, false);
                     let r = system.spawn(id);
-                    self.return_type = r.clone_ret_typ(&mut self.types);
+
+                    let mut rev_alloc_map = alloc_map
+                        .iter()
+                        .map(|(k, v)| (*v, *k))
+                        .collect::<FxHashMap<_, _>>();
+
+                    for (_, its_alloc) in alloc_map.iter() {
+                        // update the register type
+                        r.types.pull_type_into(
+                            RegisterType::Record(*its_alloc),
+                            &mut self.types,
+                            &rev_alloc_map,
+                        );
+                    }
+
+                    self.return_type = r.clone_ret_typ(&mut self.types, &alloc_map);
+
                     // <assembler>
                     blk.end = assembler::EndInstruction::Jump(assembler::BlockJump(
                         BlockId::new_with_value_raw(id.raw_value()),
-                        i.if_so.1.iter().map(|r| r.map_context()).collect(),
+                        i.0 .1.iter().map(|r| r.map_context()).collect(),
                     ));
                     // </assembler>
                     vec![r]
                 }
-                RegisterType::Bool(false) => {
-                    let src_fn = self.program.functions.get(&i.other.0).unwrap();
-                    debug_assert_eq!(src_fn.parameters.len(), i.other.1.len());
-                    let map_args =
-                        (i.other.1.iter().copied()).zip(src_fn.parameters.iter().copied());
-                    let types = self.types.extract_map(map_args);
-                    let id = self.fn_ids.id_of(i.other.0, types, false);
-                    let r = system.spawn(id);
-                    self.return_type = r.clone_ret_typ(&mut self.types);
+                crate::lifted::EndInstruction::JumpIf(i) => match self.types.get(i.condition) {
+                    RegisterType::Bool(true) => {
+                        let src_fn = self.program.functions.get(&i.if_so.0).unwrap();
+                        debug_assert_eq!(src_fn.parameters.len(), i.if_so.1.len());
+                        let map_args =
+                            (i.if_so.1.iter().copied()).zip(src_fn.parameters.iter().copied());
+                        let (types, alloc_map) = self.types.extract_map(map_args);
+                        let id = self.fn_ids.id_of(i.if_so.0, types, false);
+                        let r = system.spawn(id);
+
+                        let mut rev_alloc_map = alloc_map
+                            .iter()
+                            .map(|(k, v)| (*v, *k))
+                            .collect::<FxHashMap<_, _>>();
+
+                        for (_, its_alloc) in alloc_map.iter() {
+                            // update the register type
+                            r.types.pull_type_into(
+                                RegisterType::Record(*its_alloc),
+                                &mut self.types,
+                                &rev_alloc_map,
+                            );
+                        }
+
+                        self.return_type = r.clone_ret_typ(&mut self.types, &alloc_map);
+
+                        // <assembler>
+                        blk.end = assembler::EndInstruction::Jump(assembler::BlockJump(
+                            BlockId::new_with_value_raw(id.raw_value()),
+                            i.if_so.1.iter().map(|r| r.map_context()).collect(),
+                        ));
+                        // </assembler>
+                        vec![r]
+                    }
+                    RegisterType::Bool(false) => {
+                        let src_fn = self.program.functions.get(&i.other.0).unwrap();
+                        debug_assert_eq!(src_fn.parameters.len(), i.other.1.len());
+                        let map_args =
+                            (i.other.1.iter().copied()).zip(src_fn.parameters.iter().copied());
+                        let (types, alloc_map) = self.types.extract_map(map_args);
+                        let id = self.fn_ids.id_of(i.other.0, types, false);
+                        let r = system.spawn(id);
+
+                        let mut rev_alloc_map = alloc_map
+                            .iter()
+                            .map(|(k, v)| (*v, *k))
+                            .collect::<FxHashMap<_, _>>();
+
+                        for (_, its_alloc) in alloc_map.iter() {
+                            // update the register type
+                            r.types.pull_type_into(
+                                RegisterType::Record(*its_alloc),
+                                &mut self.types,
+                                &rev_alloc_map,
+                            );
+                        }
+
+                        self.return_type = r.clone_ret_typ(&mut self.types, &alloc_map);
+
+                        // <assembler>
+                        blk.end = assembler::EndInstruction::Jump(assembler::BlockJump(
+                            BlockId::new_with_value_raw(id.raw_value()),
+                            i.other.1.iter().map(|r| r.map_context()).collect(),
+                        ));
+                        // </assembler>
+                        vec![r]
+                    }
+                    RegisterType::Boolean => {
+                        todo!()
+                    }
+                    r => unimplemented!("cannot use non-boolean register as conditional {:?}", r),
+                },
+                crate::lifted::EndInstruction::Return(i) => {
+                    match i.0 {
+                        Some(r) => self.return_type = ReturnType::Value(self.types.get(r)),
+                        None => self.return_type = ReturnType::Void,
+                    };
                     // <assembler>
-                    blk.end = assembler::EndInstruction::Jump(assembler::BlockJump(
-                        BlockId::new_with_value_raw(id.raw_value()),
-                        i.other.1.iter().map(|r| r.map_context()).collect(),
-                    ));
+                    blk.end = assembler::EndInstruction::Return(i.0.map(|r| r.map_context()));
                     // </assembler>
-                    vec![r]
+                    vec![]
                 }
-                RegisterType::Boolean => {
-                    todo!()
-                }
-                r => unimplemented!("cannot use non-boolean register as conditional {:?}", r),
-            },
-            crate::lifted::EndInstruction::Return(i) => {
-                match i.0 {
-                    Some(r) => self.return_type = ReturnType::Value(self.types.get(r)),
-                    None => self.return_type = ReturnType::Void,
-                };
-                // <assembler>
-                blk.end = assembler::EndInstruction::Return(i.0.map(|r| r.map_context()));
-                // </assembler>
-                vec![]
             }
         };
 
@@ -751,7 +849,6 @@ impl<'p> Worker for SymbWorker<'p> {
         let return_type = match self.return_type {
             ReturnType::Void => assembler::ReturnType::Void,
             ReturnType::Value(v) => {
-                println!("i am getting it: {:#?}", self.id);
                 assembler::ReturnType::Value(map_typ_assembler(&mut self.types, &mut asm_typs, v))
             }
             ReturnType::Never => assembler::ReturnType::Void,
@@ -773,6 +870,9 @@ impl<'p> Worker for SymbWorker<'p> {
         self.inst_on = CurrentInstruction::Completed;
 
         let types = self.types.clone();
+
+        // this is only here temporarily
+        assert_ne!(self.return_type, ReturnType::Never, "why is ret typ never");
 
         WorkerResults {
             is_entry_fn: self.is_entry_fn,

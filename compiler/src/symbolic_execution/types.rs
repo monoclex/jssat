@@ -264,13 +264,16 @@ impl TypeBag {
     /// specified.
     ///
     /// This is useful for continuing execution of a function after a block.
-    pub fn extract(&self, regs: &[RegisterId]) -> Self {
+    pub fn extract(&self, regs: &[RegisterId]) -> (Self, FxHashMap<AllocationId, AllocationId>) {
         self.extract_map(regs.iter().map(|r| (*r, *r)))
     }
 
     /// Given a set of registers, it will extract the type out of them and
     /// place those types into the register specified (RHS in the tuple)
-    pub fn extract_map(&self, regs: impl Iterator<Item = (RegisterId, RegisterId)>) -> Self {
+    pub fn extract_map(
+        &self,
+        regs: impl Iterator<Item = (RegisterId, RegisterId)>,
+    ) -> (Self, FxHashMap<AllocationId, AllocationId>) {
         // TODO: coudl clean this up but EH!
         let mut new = TypeBag::default();
 
@@ -369,22 +372,34 @@ impl TypeBag {
             new.push_shape(mapped_alloc_id, new_shape_id);
         }
 
-        new
+        (new, alloc_map)
     }
 
     // TODO: deduplicate this code
-    pub fn pull_type_into(&self, typ: RegisterType, into: &mut TypeBag) -> RegisterType {
+    pub fn pull_type_into(
+        &self,
+        typ: RegisterType,
+        into: &mut TypeBag,
+        me_to_them_alloc_map: &FxHashMap<AllocationId, AllocationId>,
+    ) -> RegisterType {
         let mut alloc_map = FxHashMap::default();
         let mut need_to_shape = VecDeque::new();
 
         // TODO: don't duplicate this code with the hunk at the bottom
         let new_tp = match typ {
             RegisterType::Record(a) => {
-                need_to_shape.push_back(a);
-                let new_a = into.alloc_allocation();
+                // it's possible for multiple register types to happen if
+                // two different registers are the same kind of record
+                let new_a = alloc_map.entry(a).or_insert_with(|| {
+                    need_to_shape.push_back(a);
 
-                alloc_map.insert(a, new_a);
-                RegisterType::Record(new_a)
+                    if let Some(alloc) = me_to_them_alloc_map.get(&a) {
+                        *alloc
+                    } else {
+                        into.alloc_allocation()
+                    }
+                });
+                RegisterType::Record(*new_a)
             }
             RegisterType::Byts(c) => {
                 RegisterType::Byts(into.intern_constant(self.unintern_const(c)))
@@ -418,6 +433,10 @@ impl TypeBag {
                     RegisterType::Record(a) => {
                         if let Some(a) = alloc_map.get(&a) {
                             RegisterType::Record(*a)
+                        } else if let Some(them_alloc) = me_to_them_alloc_map.get(&a) {
+                            need_to_shape.push_back(a);
+                            alloc_map.insert(a, *them_alloc);
+                            RegisterType::Record(*them_alloc)
                         } else {
                             let new_alloc_id = into.alloc_allocation();
                             need_to_shape.push_back(a);

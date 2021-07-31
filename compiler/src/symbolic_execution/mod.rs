@@ -65,6 +65,10 @@ pub fn execute(program: &'static LiftedProgram) -> assembler::Program {
                 w.id, w.func.ir_fn_id, w.func.ir_blk_id
             );
 
+            if w.never_infected {
+                println!("- was `never` infected");
+            }
+
             let looking_up = match w.types.looking_up.try_lock() {
                 Ok(g) => g,
                 Err(TryLockError::Poisoned(g)) => g.into_inner(),
@@ -201,6 +205,7 @@ impl<'p> WorkerFactory for SymbFactory<'p> {
             return_type: ReturnType::Never,
             is_entry_fn: self.fn_ids.is_entry_fn(id),
             asm_ext_map: self.asm_ext_map.clone(),
+            never_infected: false,
         }
     }
 }
