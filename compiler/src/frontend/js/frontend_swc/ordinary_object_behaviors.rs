@@ -46,6 +46,7 @@ pub fn create_ordinary_internal_methods(
         ),
         OrdinarySetWithOwnDescriptor,
         OrdinaryHasProperty: OrdinaryInternalMethods::make_OrdinaryHasProperty(builder),
+        OrdinaryGet: OrdinaryInternalMethods::make_OrdinaryGet(builder, descriptors),
     }
 }
 
@@ -62,6 +63,7 @@ pub struct OrdinaryInternalMethods {
     pub OrdinarySet: FnSignature<4>,
     pub CreateDataProperty: FnSignature<3>,
     pub OrdinaryHasProperty: FnSignature<2>,
+    pub OrdinaryGet: FnSignature<3>,
 }
 
 #[allow(non_snake_case)]
@@ -188,6 +190,21 @@ impl OrdinaryInternalMethods {
         f.end_block(b.ret(Some(r#true)));
         builder.end_function(f)
     }
+
+    /*
+
+    fn @7() {
+      $7(%0: { [[IsExtensible]]: todo::FnPtr, [[DefineOwnProperty]]: todo::FnPtr, [[Get]]: todo::FnPtr, [[GetPrototypeOf]]: todo::FnPtr, [[Prototype]]: Null, [[Set]]: todo::FnPtr, [[GetOwnProperty]]: todo::FnPtr, [[HasProperty]]: todo::FnPtr, [[Extensible]]: true, }, %1: "p\u{0}r\u{0}i\u{0}n\u{0}t\u{0}", %2: { [[Configurable]]: false, [[Enumerable]]: false, [[Value]]: { [[Call]]: todo::FnPtr, }, [[Writable]]: false, }, ):
+        -- OrdinaryDefineOwnProperty, compiler/src/frontend/js/frontend_swc/ordinary_object_behaviors.rs:201:11
+        %3: todo::FnPtr = RecordGet %0, [[GetOwnProperty]]
+        todo Some(RegisterId(5, PhantomData)) Static(FunctionId(9, PhantomData)) [RegisterId(1, PhantomData), RegisterId(2, PhantomData)]
+        -- IsExtensible, compiler/src/frontend/js/frontend_swc/abstract_operations.rs:19:14
+        %5: todo::FnPtr = RecordGet %0, [[IsExtensible]]
+        todo Some(RegisterId(7, PhantomData)) Static(FunctionId(11, PhantomData)) [RegisterId(1, PhantomData)]
+        todo Some(RegisterId(8, PhantomData)) Static(FunctionId(36, PhantomData)) [RegisterId(1, PhantomData), RegisterId(2, PhantomData), RegisterId(7, PhantomData), RegisterId(3, PhantomData), RegisterId(5, PhantomData)]
+        Ret Some(RegisterId(8, PhantomData))
+    }
+        */
 
     /// <https://tc39.es/ecma262/#sec-ordinarydefineownproperty>
     fn make_OrdinaryDefineOwnProperty(
@@ -543,5 +560,63 @@ impl OrdinaryInternalMethods {
         let extensible = b.record_get_slot(O, InternalSlot::Extensible);
 
         b.finish(|b| b.ret(Some(extensible)))
+    }
+
+    pub fn make_OrdinaryGet(
+        builder: &mut ProgramBuilder,
+        descriptors: Descriptors,
+    ) -> FnSignature<3> {
+        let (f, [O, P, Receiver]) = builder.start_function();
+        let mut b = Emitter::new(builder, f);
+        b.comment("OrdinaryGet");
+
+        //# 1. Assert: IsPropertyKey(P) is true.
+        //# 2. Let desc be ? O.[[GetOwnProperty]](P).
+        let get_own_prop = b.record_get_slot(O, InternalSlot::GetOwnProperty);
+        let desc = b.call_virt_with_result(get_own_prop, [O, P]);
+
+        //# 3. If desc is undefined, then
+        let undef = b.make_undefined();
+        let is_undef = b.compare_equal(desc, undef);
+        b.if_then_end(is_undef, |b| {
+            //# a. Let parent be ? O.[[GetPrototypeOf]]().
+            let get_prototype_of = b.record_get_slot(O, InternalSlot::GetPrototypeOf);
+            let parent = b.call_virt_with_result(get_prototype_of, [O]);
+
+            //# b. If parent is null, return undefined.
+            let null = b.make_null();
+            let is_null = b.compare_equal(null, parent);
+            b.if_then_end(is_null, |_| move |b| b.ret(Some(undef)));
+
+            //# c. Return ? parent.[[Get]](P, Receiver).
+            let get = b.record_get_slot(parent, InternalSlot::Get);
+            let result = b.call_virt_with_result(get, [parent, P, Receiver]);
+            move |b| b.ret(Some(result))
+        });
+
+        //# 4. If IsDataDescriptor(desc) is true, return desc.[[Value]].
+        let is_data_desc = b.call_with_result(descriptors.IsDataDescriptor, [desc]);
+        b.if_then_end(is_data_desc, |b| {
+            let value = b.record_get_slot(desc, InternalSlot::Value);
+            move |b| b.ret(Some(value))
+        });
+
+        //# 5. Assert: IsAccessorDescriptor(desc) is true.
+        // TODO: assertions
+
+        //# 6. Let getter be desc.[[Get]].
+        let getter = b.record_get_slot(desc, InternalSlot::Get);
+
+        //# 7. If getter is undefined, return undefined.
+        let is_undef = b.compare_equal(getter, undef);
+        b.if_then_end(is_undef, |_| move |b| b.ret(Some(undef)));
+
+        //# 8. Return ? Call(getter, Receiver).
+        // TODO: actually perform `Call` rather than inline it here
+        let call = b.record_get_slot(getter, InternalSlot::Call);
+        // TODO: proper calling mechanism
+        let result = b.call_virt_with_result(call, [getter, Receiver]);
+
+        b.finish(|b| b.ret(Some(result)))
     }
 }

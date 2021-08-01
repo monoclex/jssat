@@ -1,6 +1,7 @@
 use std::ops::{Deref, DerefMut};
 
 use rustc_hash::FxHashSet;
+use std::iter::FromIterator;
 use swc_common::{
     errors::{ColorConfig, Handler},
     input::StringInput,
@@ -10,15 +11,13 @@ use swc_common::{
 };
 use swc_ecmascript::ast::{
     BindingIdent, BlockStmt, CallExpr, ClassDecl, Decl, Expr, ExprOrSpread, FnDecl, Function,
-    Ident, LabeledStmt, ObjectPatProp, Pat, PatOrExpr, Stmt, VarDecl, VarDeclKind, VarDeclOrExpr,
-    VarDeclOrPat, VarDeclarator,
+    Ident, LabeledStmt, Lit, ObjectPatProp, Pat, PatOrExpr, Stmt, VarDecl, VarDeclKind,
+    VarDeclOrExpr, VarDeclOrPat, VarDeclarator,
 };
 use swc_ecmascript::{
     ast::Script,
     parser::{Parser, Syntax},
 };
-
-use std::iter::FromIterator;
 
 use self::{
     abstract_operations::EmitterExt,
@@ -493,6 +492,9 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
 
         let fnptr = self.make_fnptr(ordinary.OrdinaryHasProperty.id);
         self.record_set_slot(obj, InternalSlot::HasProperty, fnptr);
+
+        let fnptr = self.make_fnptr(ordinary.OrdinaryGet.id);
+        self.record_set_slot(obj, InternalSlot::Get, fnptr);
 
         //# 4. Assert: If the caller will not be overriding both obj's
         //#    [[GetPrototypeOf]] and [[SetPrototypeOf]] essential internal
@@ -969,21 +971,65 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
         // TODO: this is botched lmfao
 
         //# 1. ReturnIfAbrupt(V).
-        let value = self.ReturnIfAbrupt(V);
+        let V = self.ReturnIfAbrupt(V);
 
         //# 2. If V is not a Reference Record, return V.
-        value
+        // TODO: do all of this better
+        let has_base = self.record_has_slot(V, InternalSlot::Base);
+        self.perform_if_else_w_value(
+            has_base,
+            |b| {
+                //# 3. If IsUnresolvableReference(V) is true, throw a ReferenceError exception.
+                //# 4. If IsPropertyReference(V) is true, then
+                //# a. Let baseObj be ! ToObject(V.[[Base]]).
+                let baseObj = b.record_get_slot(V, InternalSlot::Base);
 
-        //# 3. If IsUnresolvableReference(V) is true, throw a ReferenceError exception.
-        //# 4. If IsPropertyReference(V) is true, then
-        //# a. Let baseObj be ! ToObject(V.[[Base]]).
-        //# b. If IsPrivateReference(V) is true, then
-        //# i. Return ? PrivateGet(V.[[ReferencedName]], baseObj).
-        //# c. Return ? baseObj.[[Get]](V.[[ReferencedName]], GetThisValue(V)).
-        //# 5. Else,
-        //# a. Let base be V.[[Base]].
-        //# b. Assert: base is an Environment Record.
-        //# c. Return ? base.GetBindingValue(V.[[ReferencedName]], V.[[Strict]]) (see 9.1).
+                //# b. If IsPrivateReference(V) is true, then
+                // TODO: don't inline this logic
+                // let unresolvable = b.bld.constant_str("unresolvable");
+                // let unresolvable = b.make_string(unresolvable);
+                // let base_is_unresolvable = b.compare_equal(baseObj, unresolvable);
+                // let is_priv_ref = b.negate(base_is_unresolvable);
+                // TODO: figure out some way to do `Type` properly
+                // for now, we determine if it's an env record based on if it has
+                // one of the JSSATX internal slots - and if it has that, it means
+                // it's NOT a private reference
+                let is_env_rec = b.record_has_slot(baseObj, InternalSlot::JSSATGetBindingValue);
+                let is_priv_ref = b.negate(is_env_rec);
+
+                b.perform_if_else_w_value(
+                    is_priv_ref,
+                    |b| {
+                        //# i. Return ? PrivateGet(V.[[ReferencedName]], baseObj).
+                        // ignore that part of the if
+
+                        //# c. Return ? baseObj.[[Get]](V.[[ReferencedName]], GetThisValue(V)).
+
+                        let get = b.record_get_slot(baseObj, InternalSlot::Get);
+                        let referenced_name = b.record_get_slot(V, InternalSlot::ReferencedName);
+                        let this_value = b.make_undefined();
+
+                        let result =
+                            b.call_virt_with_result(get, [baseObj, referenced_name, this_value]);
+                        b.ReturnIfAbrupt(result)
+                    },
+                    //# 5. Else,
+                    |b| {
+                        //# a. Let base be V.[[Base]].
+                        let base = baseObj;
+
+                        //# b. Assert: base is an Environment Record.
+                        let base = EnvironmentRecord::new_with_register_unchecked(base);
+
+                        //# c. Return ? base.GetBindingValue(V.[[ReferencedName]], V.[[Strict]]) (see 9.1).
+                        let N = b.record_get_slot(V, InternalSlot::ReferencedName);
+                        let S = b.record_get_slot(V, InternalSlot::Strict);
+                        base.GetBindingValue(&mut b.block, N, S)
+                    },
+                )
+            },
+            |_| V,
+        )
     }
 
     /// <https://tc39.es/ecma262/#sec-runtime-semantics-instantiatefunctionobject>
@@ -1061,79 +1107,83 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
         name: RegisterId,
         strict: bool,
     ) -> RegisterId {
-        let k = self.running_execution_context_lexical_environment;
-        self.comment("GetIdentifierReference");
+        let func = {
+            let (mut f, [env, name]) = self.bld.start_function();
+            let mut b = Emitter::new(self.bld, f);
 
-        //# 1. If env is the value null, then
-        let null = self.make_null();
-        let condition = self.compare_equal(env.register, null);
-        self.perform_if(condition, |me| {
-            //# a. Return the Reference Record { [[Base]]: unresolvable, [[ReferencedName]]: name, [[Strict]]: strict, [[ThisValue]]: empty }.
-            let completion = me.record_new();
+            let env = EnvironmentRecord::new_with_register_unchecked(env);
 
-            // TODO: trivial item 'unresolvable"
-            let unresolvable = me.bld.constant_str("unresolvable");
-            let unresolvable = me.make_string(unresolvable);
+            b.comment("GetIdentifierReference");
 
-            let strict = me.make_bool(strict);
+            //# 1. If env is the value null, then
+            let null = b.make_null();
+            let condition = b.compare_equal(env.register, null);
+            b.if_then_end(condition, |me| {
+                //# a. Return the Reference Record { [[Base]]: unresolvable, [[ReferencedName]]: name, [[Strict]]: strict, [[ThisValue]]: empty }.
+                let completion = me.record_new();
 
-            // TODO: trivial item 'empty'
-            let empty = me.bld.constant_str("empty");
-            let empty = me.make_string(empty);
+                // TODO: trivial item 'unresolvable"
+                let unresolvable = me.program.constant_str("unresolvable");
+                let unresolvable = me.make_string(unresolvable);
 
-            me.record_set_slot(completion, InternalSlot::Base, unresolvable);
-            me.record_set_slot(completion, InternalSlot::ReferencedName, name);
-            me.record_set_slot(completion, InternalSlot::Strict, strict);
-            me.record_set_slot(completion, InternalSlot::ThisValue, empty);
+                let strict = me.make_bool(strict);
 
-            // TODO: cleaner way to return from an if
-            let (mut hack, []) = me.bld_fn.start_block();
-            std::mem::swap(&mut me.block, &mut hack);
-            me.bld_fn.end_block(hack.ret(Some(completion)));
-        });
+                // TODO: trivial item 'empty'
+                let empty = me.program.constant_str("empty");
+                let empty = me.make_string(empty);
 
-        //# 2. Let exists be ? env.HasBinding(name).
-        let exists_try = env.HasBinding(&mut self.block, name);
+                me.record_set_slot(completion, InternalSlot::Base, unresolvable);
+                me.record_set_slot(completion, InternalSlot::ReferencedName, name);
+                me.record_set_slot(completion, InternalSlot::Strict, strict);
+                me.record_set_slot(completion, InternalSlot::ThisValue, empty);
 
-        // TODO: global object doesn't fail, should we update this in future?
-        let exists = self.ReturnIfAbrupt(exists_try);
+                move |b| b.ret(Some(completion))
+            });
 
-        //# 3. If exists is true, then
-        self.perform_if(exists, |me| {
-            //# a. Return the Reference Record { [[Base]]: env, [[ReferencedName]]: name, [[Strict]]: strict, [[ThisValue]]: empty }.
-            // TODO: we assume that we'll always have it
-            let record = me.record_new();
+            //# 2. Let exists be ? env.HasBinding(name).
+            let exists_try = env.HasBinding(&mut b.block, name);
 
-            let strict = me.make_bool(strict);
+            // TODO: global object doesn't fail, should we update this in future?
+            let exists = b.ReturnIfAbrupt(exists_try);
 
-            // TODO: trivial item 'empty'
-            let empty = me.bld.constant_str("empty");
-            let empty = me.make_string(empty);
+            //# 3. If exists is true, then
+            b.if_then_end(exists, |me| {
+                //# a. Return the Reference Record { [[Base]]: env, [[ReferencedName]]: name, [[Strict]]: strict, [[ThisValue]]: empty }.
+                // TODO: we assume that we'll always have it
+                let record = me.record_new();
 
-            me.record_set_slot(record, InternalSlot::Base, env.register);
-            me.record_set_slot(record, InternalSlot::ReferencedName, name);
-            me.record_set_slot(record, InternalSlot::Strict, strict);
-            me.record_set_slot(record, InternalSlot::ThisValue, empty);
+                let strict = me.make_bool(strict);
 
-            let completion = me.NormalCompletion(record);
+                // TODO: trivial item 'empty'
+                let empty = me.program.constant_str("empty");
+                let empty = me.make_string(empty);
 
-            // TODO: cleaner way to return from an if
-            let (mut hack, []) = me.bld_fn.start_block();
-            std::mem::swap(&mut me.block, &mut hack);
-            me.bld_fn.end_block(hack.ret(Some(completion)));
-        });
+                me.record_set_slot(record, InternalSlot::Base, env.register);
+                me.record_set_slot(record, InternalSlot::ReferencedName, name);
+                me.record_set_slot(record, InternalSlot::Strict, strict);
+                me.record_set_slot(record, InternalSlot::ThisValue, empty);
 
-        //# 4. Else,
+                let completion = me.NormalCompletion(record);
 
-        //# a. Let outer be env.[[OuterEnv]].
-        let outer = self.record_get_slot(env.register, InternalSlot::OuterEnv);
-        let outer = EnvironmentRecord::new_with_register_unchecked(outer);
+                move |b| b.ret(Some(completion))
+            });
 
-        //# b. Return ? GetIdentifierReference(outer, name, strict).
-        // TODO: this causes a recursion exception
-        // we should make this a seperate function in the future
-        // self.GetIdentifierReference(outer, name, strict)
-        self.ThrowCompletion(outer.register)
+            //# 4. Else,
+
+            //# a. Let outer be env.[[OuterEnv]].
+            let outer = b.record_get_slot(env.register, InternalSlot::OuterEnv);
+            let outer = EnvironmentRecord::new_with_register_unchecked(outer);
+
+            //# b. Return ? GetIdentifierReference(outer, name, strict).
+            // TODO: this causes a recursion exception
+            // we should make this a seperate function in the future
+            // self.GetIdentifierReference(outer, name, strict)
+
+            let res = b.ThrowCompletion(outer.register);
+            b.finish(|b| b.ret(Some(res)))
+        };
+
+        self.call_with_result(func, [env.register, name])
     }
 
     /// <https://tc39.es/ecma262/#sec-evaluatecall>
@@ -1146,18 +1196,61 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
     ) -> RegisterId {
         self.comment("EvaluateCall");
 
-        // TODO: actually call the function
-        // help this is so much effort just to get `print("hello world")`
-        let virtual_func = self.record_get_slot(func, InternalSlot::Call);
-        self.call_virt(virtual_func, [r#ref]);
-        let result = self.make_null();
-        self.NormalCompletion(result)
+        // TODO: do this properly
+        // TODO: we do this out here because it's before we give up `self`
+        // this is not spec compliant and i am just wanting to get this damn thing working
+        assert_eq!(arguments.len(), 1);
+        let ExprOrSpread { expr, .. } = &arguments[0];
+        let expr = self.evaluate_expr(&**expr);
+        let arg = self.GetValue(expr);
+
+        let mut bld_fn = FunctionBuilder::<PARAMS>::new(Default::default());
+        let mut block = bld_fn.start_block_main().into_dynamic();
+        bld_fn.is_ok_to_drop = true;
+        block.is_ok_to_drop = true;
+        std::mem::swap(&mut self.bld_fn, &mut bld_fn);
+        std::mem::swap(&mut self.block, &mut block);
+        let mut b = Emitter::new_with_block(self.bld, bld_fn, block);
+
+        // TODO: handle `thisValue`
+        //# 1. If ref is a Reference Record, then
+        //# a. If IsPropertyReference(ref) is true, then
+        //# i. Let thisValue be GetThisValue(ref).
+        //# b. Else,
+        //# i. Let refEnv be ref.[[Base]].
+        //# ii. Assert: refEnv is an Environment Record.
+        //# iii. Let thisValue be refEnv.WithBaseObject().
+        //# 2. Else,
+        //# a. Let thisValue be undefined.
+        let thisValue = b.make_undefined();
+
+        //# 3. Let argList be ? ArgumentListEvaluation of arguments.
+        // let argList = vec![arg];
+
+        //# 4. If Type(func) is not Object, throw a TypeError exception.
+        //# 5. If IsCallable(func) is false, throw a TypeError exception.
+        //# 6. If tailPosition is true, perform PrepareForTailCall().
+        //# 7. Let result be Call(func, thisValue, argList).
+        // TODO: don't write `Call` inline here
+        let call = b.record_get_slot(func, InternalSlot::Call);
+        let result = b.call_virt_with_result(call, [thisValue, arg]);
+
+        //# 8. Assert: If tailPosition is true, the above call will not return here, but instead evaluation will continue as if the following return has already occurred.
+        //# 9. Assert: If result is not an abrupt completion, then Type(result) is an ECMAScript language type.
+        //# 10. Return result.
+
+        let mut bld_fn = b.function;
+        let mut block = b.block;
+        std::mem::swap(&mut self.bld_fn, &mut bld_fn);
+        std::mem::swap(&mut self.block, &mut block);
+
+        result
     }
 
     // host-defined
     pub fn create_host_defined_global_object_property_print(&mut self, global: RegisterId) {
         let print_fn = {
-            let (mut print, [arg]) = self.bld.start_function();
+            let (mut print, [thisValue, arg]) = self.bld.start_function();
 
             let jssatrt_print = self.bld.external_function(
                 "jssatrt_print_any",
@@ -1168,7 +1261,11 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
             let mut block = print.start_block_main();
             let runtime = block.get_runtime();
             block.call_external_function(jssatrt_print, [runtime, arg]);
-            print.end_block(block.ret(None));
+
+            // return something for js land
+            let undef = block.make_undefined();
+            let result = block.NormalCompletion(&mut self.bld, undef);
+            print.end_block(block.ret(Some(result)));
 
             self.bld.end_function(print)
         };
@@ -1336,6 +1433,37 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
                 self.comment("after resolve binding");
                 let inner_value = self.ReturnIfAbrupt(resolve_binding);
                 self.NormalCompletion(inner_value)
+            }
+            swc_ecmascript::ast::Expr::Lit(Lit::Null(_)) => {
+                //# Literal : NullLiteral
+                //# 1. Return null.
+                let null = self.make_null();
+                self.NormalCompletion(null)
+            }
+            swc_ecmascript::ast::Expr::Lit(Lit::Bool(b)) => {
+                //# Literal : BooleanLiteral
+                //# 1. If BooleanLiteral is the token false, return false.
+                //# 2. If BooleanLiteral is the token true, return true.
+                let bool = self.make_bool(b.value);
+                self.NormalCompletion(bool)
+            }
+            swc_ecmascript::ast::Expr::Lit(Lit::Num(n)) => {
+                //# Literal : NumericLiteral
+                //# 1. Return the NumericValue of NumericLiteral as defined in 12.8.3.
+                if n.value.fract() == 0.0 {
+                    let num = self.make_number_decimal(n.value as i64);
+                    self.NormalCompletion(num)
+                } else {
+                    todo!()
+                }
+            }
+            swc_ecmascript::ast::Expr::Lit(Lit::Str(s)) => {
+                //# Literal : StringLiteral
+                //# 1. Return the SV of StringLiteral as defined in 12.8.4.1.
+                let s = s.value.to_string();
+                let s = self.bld.constant_str_utf16(s);
+                let s = self.make_string(s);
+                self.NormalCompletion(s)
             }
             swc_ecmascript::ast::Expr::Lit(_) => todo!(),
             swc_ecmascript::ast::Expr::Tpl(_) => todo!(),

@@ -145,13 +145,13 @@ fn main() {
 
     // let content = std::fs::read_to_string(file_name).expect("expected to read file");
     let content = r#"
-
+/*
 function x() {
     
 }
 
 x();
-
+*/
 print('Hello, World!');
 
 "#

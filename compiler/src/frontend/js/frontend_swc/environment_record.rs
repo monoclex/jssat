@@ -102,6 +102,13 @@ impl EnvironmentRecordFactory {
         let has_binding = block.make_fnptr(vtable.has_binding.id);
         block.record_set_slot(record, InternalSlot::JSSATHasBinding, has_binding);
 
+        let get_binding_value = block.make_fnptr(vtable.get_binding_value.id);
+        block.record_set_slot(
+            record,
+            InternalSlot::JSSATGetBindingValue,
+            get_binding_value,
+        );
+
         EnvironmentRecord::new_with_register_unchecked(record)
     }
 
@@ -119,7 +126,24 @@ impl EnvironmentRecordFactory {
             writer.end_function(f)
         };
 
-        EnvironmentRecordVTable { has_binding }
+        let get_binding_value = {
+            let (f, [env, N, S]) = writer.start_function();
+            let mut b = Emitter::new(writer, f);
+
+            // https://tc39.es/ecma262/#sec-declarative-environment-records-getbindingvalue-n-s
+            b.comment("DeclarativeEnvironmentRecord::GetBindingValue");
+
+            //# 1. Assert: envRec has a binding for N.
+            //# 2. If the binding for N in envRec is an uninitialized binding, throw a ReferenceError exception.
+            //# 3. Return the value currently bound to N in envRec.
+            let result = b.record_get_prop(env, N);
+            b.finish(|b| b.ret(Some(result)))
+        };
+
+        EnvironmentRecordVTable {
+            has_binding,
+            get_binding_value,
+        }
     }
 
     fn init_vtable_object(writer: &mut ProgramBuilder) -> EnvironmentRecordVTable {
@@ -166,7 +190,47 @@ impl EnvironmentRecordFactory {
             w.finish(|w| w.ret(Some(completion)))
         };
 
-        EnvironmentRecordVTable { has_binding }
+        let get_binding_value = {
+            let (f, [envRec, N, S]) = writer.start_function();
+            let mut w = Emitter::new(writer, f);
+
+            w.comment("ObjectEnvironmentRecord::GetBindingValue");
+
+            //# 1. Let bindingObject be envRec.[[BindingObject]].
+            let bindingObject = w.record_get_slot(envRec, InternalSlot::BindingObject);
+
+            //# 2. Let value be ? HasProperty(bindingObject, N).
+            let has_prop = w.record_get_slot(bindingObject, InternalSlot::HasProperty);
+            let value = w.call_virt_with_result(has_prop, [bindingObject, N]);
+
+            //# 3. If value is false, then
+            let is_false = w.negate(value);
+            w.if_then_end(is_false, |w| {
+                //# a. If S is false, return the value undefined; otherwise throw a ReferenceError exception.
+                let S_false = w.negate(S);
+                let result = w.if_then_x_else_y(
+                    S_false,
+                    |w| w.make_undefined(),
+                    |w| {
+                        // panic
+                        let null = w.make_null();
+                        w.negate(null)
+                    },
+                );
+                move |w| w.ret(Some(result))
+            });
+
+            //# 4. Return ? Get(bindingObject, N).
+            let get = w.record_get_slot(bindingObject, InternalSlot::Get);
+            let result = w.call_virt_with_result(get, [bindingObject, N, bindingObject]);
+
+            w.finish(move |w| w.ret(Some(result)))
+        };
+
+        EnvironmentRecordVTable {
+            has_binding,
+            get_binding_value,
+        }
     }
 
     fn init_vtable_function(
@@ -177,6 +241,7 @@ impl EnvironmentRecordFactory {
 
         EnvironmentRecordVTable {
             has_binding: declarative_environment_vtable.has_binding,
+            get_binding_value: declarative_environment_vtable.get_binding_value,
         }
     }
 
@@ -337,8 +402,39 @@ impl EnvironmentRecordFactory {
             b.finish(|b| b.ret(Some(completion)))
         };
 
+        let get_binding_value = {
+            let (f, [envRec, N, S]) = writer.start_function();
+            let mut b = Emitter::new(writer, f);
+
+            // <https://tc39.es/ecma262/#sec-global-environment-records-getbindingvalue-n-s>
+            b.comment("GlobalEnvironmentRecord::GetBindingValue");
+
+            //# 1. Let DclRec be envRec.[[DeclarativeRecord]].
+            let DclRec = b.record_get_slot(envRec, InternalSlot::DeclarativeRecord);
+            let DclRec = EnvironmentRecord::new_with_register_unchecked(DclRec);
+
+            //# 2. If DclRec.HasBinding(N) is true, then
+            let has_binding = DclRec.HasBinding(&mut b.block, N);
+            b.if_then_end(has_binding, |b| {
+                //# a. Return DclRec.GetBindingValue(N, S).
+                let result = DclRec.GetBindingValue(&mut b.block, N, S);
+                move |b| b.ret(Some(result))
+            });
+
+            //# 3. Let ObjRec be envRec.[[ObjectRecord]].
+            let ObjRec = b.record_get_slot(envRec, InternalSlot::ObjectRecord);
+            let ObjRec = EnvironmentRecord::new_with_register_unchecked(ObjRec);
+
+            //# 4. Return ? ObjRec.GetBindingValue(N, S).
+            let result = ObjRec.GetBindingValue(&mut b.block, N, S);
+            b.finish(|b| b.ret(Some(result)))
+        };
+
         GlobalEnvironmentRecordVTable {
-            normal: EnvironmentRecordVTable { has_binding },
+            normal: EnvironmentRecordVTable {
+                has_binding,
+                get_binding_value,
+            },
             has_var_declaration,
             has_lexical_declaration,
             has_restricted_global_property,
@@ -367,6 +463,18 @@ impl EnvironmentRecord {
 
         let func = block.record_get_slot(self.register, InternalSlot::JSSATHasBinding);
         block.call_virt_with_result(func, [self.register, N])
+    }
+
+    pub fn GetBindingValue(
+        &self,
+        block: &mut DynBlockBuilder,
+        N: RegisterId,
+        S: RegisterId,
+    ) -> RegisterId {
+        block.comment("GetBindingValue");
+
+        let func = block.record_get_slot(self.register, InternalSlot::JSSATGetBindingValue);
+        block.call_virt_with_result(func, [self.register, N, S])
     }
 }
 
@@ -449,7 +557,7 @@ struct EnvironmentRecordVTable {
     // create_immutable_binding: FnSignature<3>,
     // initialize_binding: FnSignature<3>,
     // set_mutable_binding: FnSignature<4>,
-    // get_binding_value: FnSignature<3>,
+    get_binding_value: FnSignature<3>,
     // delete_binding: FnSignature<2>,
     // has_this_binding: FnSignature<1>,
     // has_super_binding: FnSignature<1>,

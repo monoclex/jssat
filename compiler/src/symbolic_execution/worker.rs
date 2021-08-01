@@ -145,12 +145,23 @@ impl<'p> Worker for SymbWorker<'p> {
                     self.types.append_shape(i.record, new_shape);
                 }
                 ir::Instruction::RecordHasKey(i) => {
-                    let shape = self.types.record_shape(i.record);
-                    let has_field = match self.types.has_field(shape, i.key) {
-                        Some(b) => RegisterType::Bool(b),
-                        None => RegisterType::Boolean,
+                    match self.types.get(i.record) {
+                        RegisterType::Record(_) => {
+                            let shape = self.types.record_shape(i.record);
+                            let has_field = match self.types.has_field(shape, i.key) {
+                                Some(b) => RegisterType::Bool(b),
+                                None => RegisterType::Boolean,
+                            };
+                            self.types.assign_type(i.result, has_field);
+                        }
+                        _ => {
+                            // TODO: this should DEFINITELY not be here
+                            // we should have PROPER type instructions but i'm LAZY
+                            // so i'm adidng a shortcut for recordhaskey to fail if it's
+                            // not a record
+                            self.types.assign_type(i.result, RegisterType::Bool(false));
+                        }
                     };
-                    self.types.assign_type(i.result, has_field);
                 }
                 ir::Instruction::GetFnPtr(i) => {
                     self.types
@@ -211,10 +222,13 @@ impl<'p> Worker for SymbWorker<'p> {
                             RegisterType::Bool(a == b)
                         }
                         // TODO: should we allow equality like this?
-                        (RegisterType::Trivial(_), RegisterType::Record(_)) => {
+                        (RegisterType::Trivial(_), RegisterType::Record(_))
+                        | (RegisterType::Record(_), RegisterType::Trivial(_)) => {
                             RegisterType::Bool(false)
                         }
-                        (RegisterType::Record(_), RegisterType::Trivial(_)) => {
+                        // TODO: we should definitely *not* allow this, but i am lazy
+                        (RegisterType::Record(_), RegisterType::Byts(_))
+                        | (RegisterType::Byts(_), RegisterType::Record(_)) => {
                             RegisterType::Bool(false)
                         }
                         (a, b) => panic!("cannot equals for {:?} and {:?}", a, b),
@@ -316,6 +330,31 @@ impl<'p> Worker for SymbWorker<'p> {
                         // TODO: better error message
                         (a, b) => panic!("incompatible return state {:?} {:?}", a, b),
                     };
+
+                    // <assembler>
+                    {
+                        let inst = i.clone();
+                        let i = inst.clone().retag(&mut asm_reg_map);
+                        for (arg_d, arg) in i.args.iter().zip(inst.args.iter()) {
+                            let typ = self.types.get(*arg);
+                            let typ = map_typ_assembler(&mut self.types, &mut asm_typs, typ);
+                            asm_typs.update(*arg_d, typ);
+                        }
+
+                        // TODO: worry about `Never`
+                        if let Some(result) = i.result {
+                            let typ = self.types.get(inst.result.unwrap());
+                            let typ = map_typ_assembler(&mut self.types, &mut asm_typs, typ);
+                            asm_typs.insert(result, typ);
+                        }
+
+                        blk.instructions.push(assembler::Instruction::Call(
+                            i.result,
+                            assembler::Callable::Static(id.map_context()),
+                            i.args,
+                        ));
+                    }
+                    // </assembler>
                 }
                 ir::Instruction::CallStatic(i) => {
                     let src_fn = self.program.functions.get(&i.fn_id).unwrap();
@@ -356,6 +395,35 @@ impl<'p> Worker for SymbWorker<'p> {
                         // TODO: better error message
                         (a, b) => panic!("incompatible return state {:?} {:?}", a, b),
                     };
+
+                    // <assembler>
+                    {
+                        let mut fn_retagger = FnPassRetagger::<LiftedCtx, AssemblerCtx>::default();
+                        fn_retagger.ignore_checks();
+
+                        let inst = i.clone();
+                        let i = inst.clone().retag(&mut asm_reg_map, &fn_retagger);
+
+                        for (arg_d, arg) in i.args.iter().zip(inst.args.iter()) {
+                            let typ = self.types.get(*arg);
+                            let typ = map_typ_assembler(&mut self.types, &mut asm_typs, typ);
+                            asm_typs.update(*arg_d, typ);
+                        }
+
+                        // TODO: worry about `Never`
+                        if let Some(result) = i.result {
+                            let typ = self.types.get(inst.result.unwrap());
+                            let typ = map_typ_assembler(&mut self.types, &mut asm_typs, typ);
+                            asm_typs.insert(result, typ);
+                        }
+
+                        blk.instructions.push(assembler::Instruction::Call(
+                            i.result,
+                            assembler::Callable::Static(id.map_context()),
+                            i.args,
+                        ));
+                    }
+                    // </assmebler>
                 }
                 ir::Instruction::CallExtern(i) => {
                     // TODO: ensure/make args are coercible into `fn_id`,
@@ -377,350 +445,298 @@ impl<'p> Worker for SymbWorker<'p> {
             fn_retagger.ignore_checks();
             let mut c_retagger = CnstPassRetagger::default();
             c_retagger.ignore_checks();
-            match inst.clone().retag(
-                &mut asm_reg_map,
-                &*self.asm_ext_map,
-                &fn_retagger,
-                &c_retagger,
-            ) {
-                ir::Instruction::Comment(i) => {
-                    blk.instructions
-                        .push(assembler::Instruction::Comment(i.message, i.location));
-                }
-                ir::Instruction::NewRecord(i) => {
-                    let a = asm_typs.insert_alloc();
-                    asm_typs.insert(i.result, type_annotater::ValueType::Record(a));
-                    blk.instructions
-                        .push(assembler::Instruction::RecordNew(i.result));
-                }
-                ir::Instruction::RecordGet(i) => {
-                    if let type_annotater::ValueType::Record(a) = asm_typs.get(i.record) {
-                        let shape = asm_typs.get_shape(*a);
-                        let key = map_key_assembler(&asm_typs, i.key);
-                        let t = shape.type_at_key(&key).clone();
-                        asm_typs.insert(i.result, t);
-                        blk.instructions.push(assembler::Instruction::RecordGet {
-                            result: i.result,
-                            record: i.record,
-                            key: i.key,
-                        });
-                    } else {
-                        unreachable!();
-                    }
-                }
-                ir::Instruction::RecordSet(i) => {
-                    if let type_annotater::ValueType::Record(a) = *asm_typs.get(i.record) {
-                        let shape = asm_typs.get_shape(a);
-                        let value_typ = asm_typs.get(i.value).clone();
-                        let key = map_key_assembler(&asm_typs, i.key);
-                        let new_shape = shape.add_prop(key, value_typ);
-                        let shape_id = asm_typs.insert_shape(new_shape);
-                        asm_typs.assign_new_shape(a, shape_id);
-                        blk.instructions.push(assembler::Instruction::RecordSet {
-                            shape_id,
-                            record: i.record,
-                            key: i.key,
-                            value: i.value,
-                        });
-                    } else {
-                        unreachable!();
-                    }
-                }
-                ir::Instruction::RecordHasKey(i) => {
-                    if let ir::Instruction::RecordHasKey(inst) = inst {
-                        let result = self.types.get(inst.result);
 
-                        match result {
-                            RegisterType::Bool(b) => {
-                                asm_typs.insert(i.result, type_annotater::ValueType::Bool(b));
-                                blk.instructions
-                                    .push(assembler::Instruction::MakeBoolean(i.result, b));
+            let already_mapped = matches!(
+                inst,
+                ir::Instruction::CallStatic(_) | ir::Instruction::CallVirt(_)
+            );
+
+            if !already_mapped {
+                match inst.clone().retag(
+                    &mut asm_reg_map,
+                    &*self.asm_ext_map,
+                    &fn_retagger,
+                    &c_retagger,
+                ) {
+                    ir::Instruction::Comment(i) => {
+                        blk.instructions
+                            .push(assembler::Instruction::Comment(i.message, i.location));
+                    }
+                    ir::Instruction::NewRecord(i) => {
+                        let a = asm_typs.insert_alloc();
+                        asm_typs.insert(i.result, type_annotater::ValueType::Record(a));
+                        blk.instructions
+                            .push(assembler::Instruction::RecordNew(i.result));
+                    }
+                    ir::Instruction::RecordGet(i) => {
+                        if let type_annotater::ValueType::Record(a) = asm_typs.get(i.record) {
+                            let shape = asm_typs.get_shape(*a);
+                            let key = map_key_assembler(&asm_typs, i.key);
+                            let t = shape.type_at_key(&key).clone();
+                            asm_typs.insert(i.result, t);
+                            blk.instructions.push(assembler::Instruction::RecordGet {
+                                result: i.result,
+                                record: i.record,
+                                key: i.key,
+                            });
+                        } else {
+                            unreachable!();
+                        }
+                    }
+                    ir::Instruction::RecordSet(i) => {
+                        if let type_annotater::ValueType::Record(a) = *asm_typs.get(i.record) {
+                            let shape = asm_typs.get_shape(a);
+                            let value_typ = asm_typs.get(i.value).clone();
+                            let key = map_key_assembler(&asm_typs, i.key);
+                            let new_shape = shape.add_prop(key, value_typ);
+                            let shape_id = asm_typs.insert_shape(new_shape);
+                            asm_typs.assign_new_shape(a, shape_id);
+                            blk.instructions.push(assembler::Instruction::RecordSet {
+                                shape_id,
+                                record: i.record,
+                                key: i.key,
+                                value: i.value,
+                            });
+                        } else {
+                            unreachable!();
+                        }
+                    }
+                    ir::Instruction::RecordHasKey(i) => {
+                        if let ir::Instruction::RecordHasKey(inst) = inst {
+                            let result = self.types.get(inst.result);
+
+                            match result {
+                                RegisterType::Bool(b) => {
+                                    asm_typs.insert(i.result, type_annotater::ValueType::Bool(b));
+                                    blk.instructions
+                                        .push(assembler::Instruction::MakeBoolean(i.result, b));
+                                }
+                                RegisterType::Boolean => {
+                                    todo!("cannot accomodate non-const field lookups")
+                                }
+                                _ => unreachable!("recordhaskey result should only be bool"),
                             }
-                            RegisterType::Boolean => {
-                                todo!("cannot accomodate non-const field lookups")
+                        } else {
+                            unreachable!();
+                        }
+                    }
+                    ir::Instruction::GetFnPtr(i) => {
+                        let asm_blk = BlockId::new_with_value_raw(i.function.raw_value());
+                        asm_typs.insert(i.result, type_annotater::ValueType::FnPtr(asm_blk));
+                        blk.instructions
+                            .push(assembler::Instruction::MakeFnPtr(i.result, asm_blk));
+                    }
+                    ir::Instruction::CallStatic(i) => {}
+                    ir::Instruction::CallExtern(i) => {
+                        if let ir::Instruction::CallExtern(inst) = inst {
+                            let func = self.program.external_functions.get(&inst.fn_id).unwrap();
+
+                            // TODO: damn i need register ids to widen the src into
+                            // and to do that i would need to maintain some register mapping crud
+                            // AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA time to WING IT!!!!!!
+                            let mut wing_it =
+                                RegGenPassRetagger::new(RegisterId::new_with_value(69420));
+                            // we don't actually need to map thigns but it wont compile unless i give it a type
+                            // doing it like this rather than within the ...::<x>::new call for the above reason
+                            wing_it.retag_new(RegisterId::<LiftedCtx>::default());
+
+                            let mut call_insts = vec![];
+
+                            debug_assert_eq!(inst.args.len(), func.parameters.len());
+                            for (r, target_typ) in i.args.iter().zip(func.parameters.iter()) {
+                                let src_vt = asm_typs.get(*r);
+                                let target_vt = target_typ.clone().into_value_type();
+
+                                if src_vt == &target_vt {
+                                    call_insts.push(*r);
+                                    continue;
+                                } else {
+                                    let result = wing_it.gen();
+                                    call_insts.push(result);
+                                    blk.instructions.push(assembler::Instruction::Widen {
+                                        result,
+                                        input: *r,
+                                        from: src_vt.clone(),
+                                        to: target_vt,
+                                    });
+                                }
                             }
-                            _ => unreachable!("recordhaskey result should only be bool"),
-                        }
-                    } else {
-                        unreachable!();
-                    }
-                }
-                ir::Instruction::GetFnPtr(i) => {
-                    let asm_blk = BlockId::new_with_value_raw(i.function.raw_value());
-                    asm_typs.insert(i.result, type_annotater::ValueType::FnPtr(asm_blk));
-                    blk.instructions
-                        .push(assembler::Instruction::MakeFnPtr(i.result, asm_blk));
-                }
-                ir::Instruction::CallStatic(i) => {
-                    if let ir::Instruction::CallStatic(inst) = inst {
-                        // TODO: dedup code
-                        let src_fn = self.program.functions.get(&inst.fn_id).unwrap();
-                        debug_assert_eq!(src_fn.parameters.len(), inst.args.len());
-                        let map_args =
-                            (inst.args.iter().copied()).zip(src_fn.parameters.iter().copied());
-                        let (types, _) = self.types.extract_map(map_args);
-                        let id = self.fn_ids.id_of(inst.fn_id, types, true);
 
-                        for (arg_d, arg) in i.args.iter().zip(inst.args.iter()) {
-                            let typ = self.types.get(*arg);
-                            let typ = map_typ_assembler(&mut self.types, &mut asm_typs, typ);
-                            asm_typs.update(*arg_d, typ);
-                        }
+                            // TODO: handle return types
+                            assert!(matches!(i.result, None));
 
-                        // TODO: worry about `Never`
-                        if let Some(result) = i.result {
-                            let typ = self.types.get(inst.result.unwrap());
-                            let typ = map_typ_assembler(&mut self.types, &mut asm_typs, typ);
-                            asm_typs.insert(result, typ);
-                        }
-
-                        blk.instructions.push(assembler::Instruction::Call(
-                            i.result,
-                            assembler::Callable::Static(id.map_context()),
-                            i.args,
-                        ));
-                    } else {
-                        unreachable!();
-                    }
-                }
-                ir::Instruction::CallExtern(i) => {
-                    if let ir::Instruction::CallExtern(inst) = inst {
-                        let func = self.program.external_functions.get(&inst.fn_id).unwrap();
-
-                        // TODO: damn i need register ids to widen the src into
-                        // and to do that i would need to maintain some register mapping crud
-                        // AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA time to WING IT!!!!!!
-                        let mut wing_it =
-                            RegGenPassRetagger::new(RegisterId::new_with_value(69420));
-                        // we don't actually need to map thigns but it wont compile unless i give it a type
-                        // doing it like this rather than within the ...::<x>::new call for the above reason
-                        wing_it.retag_new(RegisterId::<LiftedCtx>::default());
-
-                        let mut call_insts = vec![];
-
-                        debug_assert_eq!(inst.args.len(), func.parameters.len());
-                        for (r, target_typ) in i.args.iter().zip(func.parameters.iter()) {
-                            let src_vt = asm_typs.get(*r);
-                            let target_vt = target_typ.clone().into_value_type();
-
-                            if src_vt == &target_vt {
-                                call_insts.push(*r);
-                                continue;
-                            } else {
-                                let result = wing_it.gen();
-                                call_insts.push(result);
-                                blk.instructions.push(assembler::Instruction::Widen {
-                                    result,
-                                    input: *r,
-                                    from: src_vt.clone(),
-                                    to: target_vt,
-                                });
-                            }
-                        }
-
-                        // TODO: handle return types
-                        assert!(matches!(i.result, None));
-
-                        blk.instructions.push(assembler::Instruction::Call(
-                            None,
-                            assembler::Callable::Extern(i.fn_id),
-                            call_insts,
-                        ));
-                    } else {
-                        unreachable!();
-                    }
-                }
-                ir::Instruction::CallVirt(i) => {
-                    if let ir::Instruction::CallVirt(inst) = inst {
-                        let func = self.types.get_fnptr(inst.fn_ptr);
-                        // TODO: dedup code
-                        let src_fn = self.program.functions.get(&func).unwrap();
-                        debug_assert_eq!(src_fn.parameters.len(), inst.args.len());
-                        let map_args =
-                            (inst.args.iter().copied()).zip(src_fn.parameters.iter().copied());
-                        let (types, _) = self.types.extract_map(map_args);
-                        let id = self.fn_ids.id_of(func, types, true);
-
-                        for (arg_d, arg) in i.args.iter().zip(inst.args.iter()) {
-                            let typ = self.types.get(*arg);
-                            let typ = map_typ_assembler(&mut self.types, &mut asm_typs, typ);
-                            asm_typs.update(*arg_d, typ);
-                        }
-
-                        // TODO: worry about `Never`
-                        if let Some(result) = i.result {
-                            let typ = self.types.get(inst.result.unwrap());
-                            let typ = map_typ_assembler(&mut self.types, &mut asm_typs, typ);
-                            asm_typs.insert(result, typ);
-                        }
-
-                        blk.instructions.push(assembler::Instruction::Call(
-                            i.result,
-                            assembler::Callable::Static(id.map_context()),
-                            i.args,
-                        ));
-                    } else {
-                        unreachable!();
-                    }
-                }
-                ir::Instruction::MakeTrivial(i) => {
-                    let typ = map_typ_assembler(
-                        &mut self.types,
-                        &mut asm_typs,
-                        RegisterType::Trivial(i.item),
-                    );
-                    asm_typs.insert(i.result, typ);
-                    blk.instructions
-                        .push(assembler::Instruction::MakeTrivial(i));
-                }
-                ir::Instruction::MakeBytes(i) => {
-                    if let ir::Instruction::MakeBytes(inst) = inst {
-                        let res_typ = self.types.get(inst.result);
-
-                        if let RegisterType::Byts(c) = res_typ {
-                            let bytes = self.types.unintern_const(c).clone();
-
-                            blk.instructions.push(assembler::Instruction::MakeString(
-                                i.result,
-                                // this value is useless/ignored lol
-                                c.map_context(),
+                            blk.instructions.push(assembler::Instruction::Call(
+                                None,
+                                assembler::Callable::Extern(i.fn_id),
+                                call_insts,
                             ));
-
-                            asm_typs
-                                .insert(i.result, type_annotater::ValueType::ExactString(bytes));
+                        } else {
+                            unreachable!();
                         }
-                    } else {
-                        unreachable!();
                     }
-                }
-                ir::Instruction::MakeInteger(i) => {
-                    if let ir::Instruction::MakeInteger(inst) = inst {
-                        let res_typ = self.types.get(inst.result);
-
+                    ir::Instruction::CallVirt(i) => {}
+                    ir::Instruction::MakeTrivial(i) => {
+                        let typ = map_typ_assembler(
+                            &mut self.types,
+                            &mut asm_typs,
+                            RegisterType::Trivial(i.item),
+                        );
+                        asm_typs.insert(i.result, typ);
                         blk.instructions
-                            .push(assembler::Instruction::MakeNumber(i.result, i.value));
-                        asm_typs.insert(i.result, type_annotater::ValueType::ExactInteger(i.value));
-                    } else {
-                        unreachable!();
+                            .push(assembler::Instruction::MakeTrivial(i));
                     }
-                }
-                ir::Instruction::MakeBoolean(i) => {
-                    if let ir::Instruction::MakeBoolean(inst) = inst {
-                        let res_typ = self.types.get(inst.result);
+                    ir::Instruction::MakeBytes(i) => {
+                        if let ir::Instruction::MakeBytes(inst) = inst {
+                            let res_typ = self.types.get(inst.result);
 
-                        blk.instructions
-                            .push(assembler::Instruction::MakeBoolean(i.result, i.value));
-                        asm_typs.insert(i.result, type_annotater::ValueType::Bool(i.value));
-                    } else {
-                        unreachable!();
-                    }
-                }
-                ir::Instruction::LessThan(i) => {
-                    if let ir::Instruction::LessThan(inst) = inst {
-                        let res_typ = self.types.get(inst.result);
+                            if let RegisterType::Byts(c) = res_typ {
+                                let bytes = self.types.unintern_const(c).clone();
 
-                        let b = match res_typ {
-                            RegisterType::Bool(b) => {
-                                blk.instructions
-                                    .push(assembler::Instruction::MakeBoolean(i.result, b));
-                                b
+                                blk.instructions.push(assembler::Instruction::MakeString(
+                                    i.result,
+                                    // this value is useless/ignored lol
+                                    c.map_context(),
+                                ));
+
+                                asm_typs.insert(
+                                    i.result,
+                                    type_annotater::ValueType::ExactString(bytes),
+                                );
                             }
-                            _ => todo!("assembler boilerplate cannot handle this atm"),
-                        };
-
-                        asm_typs.insert(i.result, type_annotater::ValueType::Bool(b));
-                    } else {
-                        unreachable!();
+                        } else {
+                            unreachable!();
+                        }
                     }
-                }
-                ir::Instruction::Equals(i) => {
-                    if let ir::Instruction::Equals(inst) = inst {
-                        let res_typ = self.types.get(inst.result);
+                    ir::Instruction::MakeInteger(i) => {
+                        if let ir::Instruction::MakeInteger(inst) = inst {
+                            let res_typ = self.types.get(inst.result);
 
-                        let b = match res_typ {
-                            RegisterType::Bool(b) => {
-                                blk.instructions
-                                    .push(assembler::Instruction::MakeBoolean(i.result, b));
-                                b
-                            }
-                            _ => todo!("assembler boilerplate cannot handle this atm"),
-                        };
-
-                        asm_typs.insert(i.result, type_annotater::ValueType::Bool(b));
-                    } else {
-                        unreachable!();
+                            blk.instructions
+                                .push(assembler::Instruction::MakeNumber(i.result, i.value));
+                            asm_typs
+                                .insert(i.result, type_annotater::ValueType::ExactInteger(i.value));
+                        } else {
+                            unreachable!();
+                        }
                     }
-                }
-                ir::Instruction::Negate(i) => {
-                    if let ir::Instruction::Negate(inst) = inst {
-                        let res_typ = self.types.get(inst.result);
+                    ir::Instruction::MakeBoolean(i) => {
+                        if let ir::Instruction::MakeBoolean(inst) = inst {
+                            let res_typ = self.types.get(inst.result);
 
-                        let b = match res_typ {
-                            RegisterType::Bool(b) => {
-                                blk.instructions
-                                    .push(assembler::Instruction::MakeBoolean(i.result, b));
-                                b
-                            }
-                            _ => todo!("assembler boilerplate cannot handle this atm"),
-                        };
-
-                        asm_typs.insert(i.result, type_annotater::ValueType::Bool(b));
-                    } else {
-                        unreachable!();
+                            blk.instructions
+                                .push(assembler::Instruction::MakeBoolean(i.result, i.value));
+                            asm_typs.insert(i.result, type_annotater::ValueType::Bool(i.value));
+                        } else {
+                            unreachable!();
+                        }
                     }
-                }
-                ir::Instruction::Add(i) => {
-                    if let ir::Instruction::Add(inst) = inst {
-                        let res_typ = self.types.get(inst.result);
+                    ir::Instruction::LessThan(i) => {
+                        if let ir::Instruction::LessThan(inst) = inst {
+                            let res_typ = self.types.get(inst.result);
 
-                        let b = match res_typ {
-                            RegisterType::Int(b) => {
-                                blk.instructions
-                                    .push(assembler::Instruction::MakeNumber(i.result, b));
-                                b
-                            }
-                            _ => todo!("assembler boilerplate cannot handle this atm"),
-                        };
+                            let b = match res_typ {
+                                RegisterType::Bool(b) => {
+                                    blk.instructions
+                                        .push(assembler::Instruction::MakeBoolean(i.result, b));
+                                    b
+                                }
+                                _ => todo!("assembler boilerplate cannot handle this atm"),
+                            };
 
-                        asm_typs.insert(i.result, type_annotater::ValueType::ExactInteger(b));
-                    } else {
-                        unreachable!();
+                            asm_typs.insert(i.result, type_annotater::ValueType::Bool(b));
+                        } else {
+                            unreachable!();
+                        }
                     }
-                }
-                ir::Instruction::Or(i) => {
-                    if let ir::Instruction::Or(inst) = inst {
-                        let res_typ = self.types.get(inst.result);
+                    ir::Instruction::Equals(i) => {
+                        if let ir::Instruction::Equals(inst) = inst {
+                            let res_typ = self.types.get(inst.result);
 
-                        let b = match res_typ {
-                            RegisterType::Bool(b) => {
-                                blk.instructions
-                                    .push(assembler::Instruction::MakeBoolean(i.result, b));
-                                b
-                            }
-                            _ => todo!("assembler boilerpalte cant hande this atm"),
-                        };
+                            let b = match res_typ {
+                                RegisterType::Bool(b) => {
+                                    blk.instructions
+                                        .push(assembler::Instruction::MakeBoolean(i.result, b));
+                                    b
+                                }
+                                _ => todo!("assembler boilerplate cannot handle this atm"),
+                            };
 
-                        asm_typs.insert(i.result, type_annotater::ValueType::Bool(b));
-                    } else {
-                        unreachable!();
+                            asm_typs.insert(i.result, type_annotater::ValueType::Bool(b));
+                        } else {
+                            unreachable!();
+                        }
                     }
-                }
-                ir::Instruction::And(i) => {
-                    if let ir::Instruction::And(inst) = inst {
-                        let res_typ = self.types.get(inst.result);
+                    ir::Instruction::Negate(i) => {
+                        if let ir::Instruction::Negate(inst) = inst {
+                            let res_typ = self.types.get(inst.result);
 
-                        let b = match res_typ {
-                            RegisterType::Bool(b) => {
-                                blk.instructions
-                                    .push(assembler::Instruction::MakeBoolean(i.result, b));
-                                b
-                            }
-                            _ => todo!("assembler boilerpalte cant hande this atm"),
-                        };
+                            let b = match res_typ {
+                                RegisterType::Bool(b) => {
+                                    blk.instructions
+                                        .push(assembler::Instruction::MakeBoolean(i.result, b));
+                                    b
+                                }
+                                _ => todo!("assembler boilerplate cannot handle this atm"),
+                            };
 
-                        asm_typs.insert(i.result, type_annotater::ValueType::Bool(b));
-                    } else {
-                        unreachable!();
+                            asm_typs.insert(i.result, type_annotater::ValueType::Bool(b));
+                        } else {
+                            unreachable!();
+                        }
+                    }
+                    ir::Instruction::Add(i) => {
+                        if let ir::Instruction::Add(inst) = inst {
+                            let res_typ = self.types.get(inst.result);
+
+                            let b = match res_typ {
+                                RegisterType::Int(b) => {
+                                    blk.instructions
+                                        .push(assembler::Instruction::MakeNumber(i.result, b));
+                                    b
+                                }
+                                _ => todo!("assembler boilerplate cannot handle this atm"),
+                            };
+
+                            asm_typs.insert(i.result, type_annotater::ValueType::ExactInteger(b));
+                        } else {
+                            unreachable!();
+                        }
+                    }
+                    ir::Instruction::Or(i) => {
+                        if let ir::Instruction::Or(inst) = inst {
+                            let res_typ = self.types.get(inst.result);
+
+                            let b = match res_typ {
+                                RegisterType::Bool(b) => {
+                                    blk.instructions
+                                        .push(assembler::Instruction::MakeBoolean(i.result, b));
+                                    b
+                                }
+                                _ => todo!("assembler boilerpalte cant hande this atm"),
+                            };
+
+                            asm_typs.insert(i.result, type_annotater::ValueType::Bool(b));
+                        } else {
+                            unreachable!();
+                        }
+                    }
+                    ir::Instruction::And(i) => {
+                        if let ir::Instruction::And(inst) = inst {
+                            let res_typ = self.types.get(inst.result);
+
+                            let b = match res_typ {
+                                RegisterType::Bool(b) => {
+                                    blk.instructions
+                                        .push(assembler::Instruction::MakeBoolean(i.result, b));
+                                    b
+                                }
+                                _ => todo!("assembler boilerpalte cant hande this atm"),
+                            };
+
+                            asm_typs.insert(i.result, type_annotater::ValueType::Bool(b));
+                        } else {
+                            unreachable!();
+                        }
                     }
                 }
             }

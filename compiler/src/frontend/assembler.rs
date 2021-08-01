@@ -146,6 +146,24 @@ impl ir::FFIValueType {
 }
 
 impl Instruction {
+    pub fn is_pure(&self) -> bool {
+        match self {
+            Instruction::Comment(_, _)
+            | Instruction::RecordNew(_)
+            | Instruction::RecordGet { .. }
+            | Instruction::RecordSet { .. }
+            | Instruction::MakeTrivial(_)
+            | Instruction::MakeFnPtr(_, _)
+            | Instruction::MakeString(_, _)
+            | Instruction::MakeNumber(_, _)
+            | Instruction::MakeBoolean(_, _)
+            | Instruction::Widen { .. }
+            | Instruction::Noop
+            | Instruction::OpLessThan(_) => true,
+            Instruction::Unreachable | Instruction::Call(_, _, _) => false,
+        }
+    }
+
     pub fn assigned_to(&self) -> Option<RegisterId<AssemblerCtx>> {
         match self {
             Instruction::Call(result, _, _) => *result,

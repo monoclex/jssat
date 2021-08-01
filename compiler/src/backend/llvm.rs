@@ -611,6 +611,7 @@ impl<'c> BackendCompiler<'c, '_> {
             self.builder.position_at_end(basic_block);
 
             for instruction in block.into_iter() {
+                println!("llvm handling inst: {:?}", instruction);
                 match instruction {
                     Instruction::Call(result, function, args) => {
                         let llvm_callable = match function {

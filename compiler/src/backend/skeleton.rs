@@ -628,6 +628,10 @@ pub fn translate(program: Program) -> BackendIR<'static> {
                         let mut calling_args = vec![runtime];
                         calling_args.extend(args.iter().map(|r| reg_map.map(*r)));
 
+                        assert!(
+                            program.functions.contains_key(&fn_id.map_context()),
+                            "should be calling function that exists in program"
+                        );
                         instructions.push(llvm::Instruction::Call(
                             result.map(|r| reg_map.map(r)),
                             llvm::Callable::Static(fn_id.map_context()),

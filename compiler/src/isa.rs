@@ -808,6 +808,7 @@ pub enum InternalSlot {
     JSSATHasLexicalDeclaration,
     JSSATHasRestrictedGlobalProperty,
     JSSATCreateGlobalFunctionBinding,
+    JSSATGetBindingValue,
     // TODO: expand this to all ecmascript internal slot types
     // (should this even be here?)
     Function,

@@ -50,6 +50,7 @@ fn opt_fn(f: &mut Function) {
     for (_, b) in f.blocks.iter_mut() {
         for inst in b.instructions.iter_mut() {
             if let Some(declared) = inst.assigned_to() {
+                // only opt if this inst is pure
                 if declared_but_not_used.contains(&declared) {
                     // this is a useless instruction, delete it
 
@@ -84,7 +85,19 @@ fn opt_fn(f: &mut Function) {
                                 *inst = Instruction::Noop;
                             }
                         }
-                        _ => *inst = Instruction::Noop,
+                        // TODO: this should really be in asm_opt_const_elimination
+                        Instruction::Call(result, _, _) => {
+                            // if we have a call inst, we can only optimize it by removing the value
+                            // achieved from the call (if that value is constant)
+                            if let Some(r) = result {
+                                assert!(b.register_types.is_const(*r));
+                                *result = None;
+                            }
+                        }
+                        _ => {
+                            assert!(inst.is_pure());
+                            *inst = Instruction::Noop;
+                        }
                     };
                 }
             }
