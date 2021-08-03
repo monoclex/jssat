@@ -2,7 +2,6 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::TryLockError;
 
-use crate::frontend::assembler;
 use crate::id::*;
 use crate::isa;
 use crate::lifted::LiftedProgram;
@@ -16,13 +15,12 @@ use self::unique_id::{UniqueFnId, UniqueFnIdShared};
 use self::worker::CurrentInstruction;
 use self::worker::SymbWorker;
 
-pub mod assembler_glue;
 pub mod graph_system;
 pub mod types;
 pub mod unique_id;
 pub mod worker;
 
-pub fn execute(program: &'static LiftedProgram) -> assembler::Program {
+pub fn execute(program: &'static LiftedProgram) {
     let mut asm_ext_map = ExtFnPassRetagger::default();
     for (id, _) in program.external_functions.iter() {
         asm_ext_map.retag_new(*id);
@@ -179,7 +177,8 @@ pub fn execute(program: &'static LiftedProgram) -> assembler::Program {
 
     drop(std::panic::take_hook());
 
-    assembler_glue::glue(entry_fn_id, &program, results)
+    // assembler_glue::glue(entry_fn_id, &program, results)
+    todo!()
 }
 
 struct SymbFactory<'program> {

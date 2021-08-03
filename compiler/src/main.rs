@@ -15,7 +15,7 @@
 
 use std::{io::Write, process::Command};
 
-use crate::frontend::{display::display, display_jssatir};
+use crate::frontend::display_jssatir;
 
 pub mod backend;
 pub mod frontend;
@@ -165,23 +165,9 @@ print('Hello, World!');
     let program = symbolic_execution::execute(lifted_ref);
 
     println!("=== PRE OPT ===");
-    println!("{}", display(&program));
+    // println!("{}", display(&program));
 
     let mut program = program;
-
-    // this will probably run our opts enough
-    for _ in 0..4 {
-        program = frontend::asm_opt_const_elim::opt_constant_elimination(program);
-        println!("=== MID OPT1 ===");
-        println!("{}", display(&program));
-
-        program = frontend::asm_opt_dead_register_elim::opt_dead_register_elimination(program);
-        println!("=== MID OPT2 ===");
-        println!("{}", display(&program));
-    }
-
-    println!("=== POST OPT ===");
-    println!("{}", display(&program));
 
     let build = backend::compile(program);
     eprintln!("OUTPUT LLVM IR (use unix pipes to redirect this into a file):");
