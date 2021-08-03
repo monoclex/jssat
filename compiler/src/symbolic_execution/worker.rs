@@ -438,6 +438,9 @@ impl<'p> Worker for SymbWorker<'p> {
                         }
                     };
                 }
+                ir::Instruction::Generalize(i) => {
+                    todo!("generalization algorithm");
+                }
             }
 
             // <assembler>
@@ -737,6 +740,9 @@ impl<'p> Worker for SymbWorker<'p> {
                         } else {
                             unreachable!();
                         }
+                    }
+                    ir::Instruction::Generalize(i) => {
+                        todo!();
                     }
                 }
             }

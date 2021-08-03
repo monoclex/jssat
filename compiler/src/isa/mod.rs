@@ -210,6 +210,9 @@ pub use widen::Widen;
 mod narrow;
 pub use narrow::Narrow;
 
+mod generalize;
+pub use generalize::Generalize;
+
 pub struct Registers<'a, R: Tag>(pub &'a Vec<RegisterId<R>>);
 
 impl<R: Tag> Display for Registers<'_, R> {

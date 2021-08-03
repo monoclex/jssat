@@ -11,7 +11,7 @@ type ConstantId = crate::id::ConstantId<IrCtx>;
 use crate::id::RegisterId;
 
 use crate::isa::{
-    Add, And, BlockJump, CallExtern, CallStatic, CallVirt, Comment, Equals, GetFnPtr,
+    Add, And, BlockJump, CallExtern, CallStatic, CallVirt, Comment, Equals, Generalize, GetFnPtr,
     ISAInstruction, Jump, JumpIf, LessThan, MakeBoolean, MakeBytes, MakeInteger, MakeTrivial,
     Negate, NewRecord, Or, RecordGet, RecordHasKey, RecordSet, Return,
 };
@@ -130,6 +130,7 @@ pub enum Instruction<C: Tag = crate::id::IrCtx, F: Tag = crate::id::IrCtx> {
     Add(Add<C>),
     And(And<C>),
     Or(Or<C>),
+    Generalize(Generalize<C>),
 }
 
 pub struct DisplayInst<'instruction, C: Tag, F: Tag>(&'instruction Instruction<C, F>);
@@ -182,6 +183,7 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::Add(inst) => Instruction::Add(inst.retag(retagger)),
             Instruction::Or(inst) => Instruction::Or(inst.retag(retagger)),
             Instruction::And(inst) => Instruction::And(inst.retag(retagger)),
+            Instruction::Generalize(inst) => Instruction::Generalize(inst.retag(retagger)),
         }
     }
 }
@@ -228,6 +230,7 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::Add(inst) => inst.declared_register(),
             Instruction::Or(inst) => inst.declared_register(),
             Instruction::And(inst) => inst.declared_register(),
+            Instruction::Generalize(inst) => inst.declared_register(),
         }
     }
 
@@ -252,6 +255,7 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::Add(inst) => inst.used_registers(),
             Instruction::Or(inst) => inst.used_registers(),
             Instruction::And(inst) => inst.used_registers(),
+            Instruction::Generalize(inst) => inst.used_registers(),
         }
     }
 
@@ -276,6 +280,7 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::Add(inst) => inst.used_registers_mut(),
             Instruction::Or(inst) => inst.used_registers_mut(),
             Instruction::And(inst) => inst.used_registers_mut(),
+            Instruction::Generalize(inst) => inst.used_registers_mut(),
         }
     }
 
@@ -304,6 +309,7 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::Add(inst) => inst.display(w),
             Instruction::Or(inst) => inst.display(w),
             Instruction::And(inst) => inst.display(w),
+            Instruction::Generalize(inst) => inst.display(w),
         }
     }
 }

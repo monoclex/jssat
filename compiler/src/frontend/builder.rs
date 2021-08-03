@@ -8,9 +8,9 @@ use crate::id::{Counter, IdCompat};
 use crate::UnwrapNone;
 
 use crate::isa::{
-    Add, And, BlockJump, CallExtern, CallStatic, CallVirt, Comment, Equals, GetFnPtr, InternalSlot,
-    Jump, JumpIf, LessThan, MakeBoolean, MakeBytes, MakeInteger, MakeTrivial, Negate, NewRecord,
-    Or, RecordGet, RecordHasKey, RecordKey, RecordSet, Return, TrivialItem,
+    Add, And, BlockJump, CallExtern, CallStatic, CallVirt, Comment, Equals, Generalize, GetFnPtr,
+    InternalSlot, Jump, JumpIf, LessThan, MakeBoolean, MakeBytes, MakeInteger, MakeTrivial, Negate,
+    NewRecord, Or, RecordGet, RecordHasKey, RecordKey, RecordSet, Return, TrivialItem,
 };
 
 pub type BlockId = crate::id::BlockId<crate::id::IrCtx>;
@@ -492,6 +492,13 @@ impl DynBlockBuilder {
         let result = self.gen_register_id.next();
         self.instructions
             .push(Instruction::GetFnPtr(GetFnPtr { result, function }));
+        result
+    }
+
+    pub fn generalize(&mut self, value: RegisterId) -> RegisterId {
+        let result = self.gen_register_id.next();
+        self.instructions
+            .push(Instruction::Generalize(Generalize { result, value }));
         result
     }
 
