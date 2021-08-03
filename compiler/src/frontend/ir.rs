@@ -11,9 +11,9 @@ type ConstantId = crate::id::ConstantId<IrCtx>;
 use crate::id::RegisterId;
 
 use crate::isa::{
-    Add, And, BlockJump, CallExtern, CallStatic, CallVirt, Comment, Equals, Generalize, GetFnPtr,
-    ISAInstruction, Jump, JumpIf, LessThan, MakeBoolean, MakeBytes, MakeInteger, MakeTrivial,
-    Negate, NewRecord, Or, RecordGet, RecordHasKey, RecordSet, Return,
+    BinOp, BlockJump, CallExtern, CallStatic, CallVirt, Comment, Generalize, GetFnPtr,
+    ISAInstruction, Jump, JumpIf, MakeBoolean, MakeBytes, MakeInteger, MakeTrivial, Negate,
+    NewRecord, RecordGet, RecordHasKey, RecordSet, Return,
 };
 use crate::retag::{BlkRetagger, CnstRetagger, ExtFnRetagger, FnRetagger, RegRetagger};
 type PlainRegisterId = RegisterId<IrCtx>;
@@ -124,12 +124,8 @@ pub enum Instruction<C: Tag = crate::id::IrCtx, F: Tag = crate::id::IrCtx> {
     // TODO: should these be TrivialItems?
     MakeInteger(MakeInteger<C>),
     MakeBoolean(MakeBoolean<C>),
-    LessThan(LessThan<C>),
-    Equals(Equals<C>),
+    BinOp(BinOp<C>),
     Negate(Negate<C>),
-    Add(Add<C>),
-    And(And<C>),
-    Or(Or<C>),
     Generalize(Generalize<C>),
 }
 
@@ -162,7 +158,7 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::MakeBytes(inst) => {
                 Instruction::MakeBytes(inst.retag(retagger, const_retagger))
             }
-            Instruction::LessThan(inst) => Instruction::LessThan(inst.retag(retagger)),
+            Instruction::BinOp(inst) => Instruction::BinOp(inst.retag(retagger)),
             Instruction::NewRecord(inst) => Instruction::NewRecord(inst.retag(retagger)),
             Instruction::RecordGet(inst) => Instruction::RecordGet(inst.retag(retagger)),
             Instruction::RecordSet(inst) => Instruction::RecordSet(inst.retag(retagger)),
@@ -178,11 +174,7 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::MakeTrivial(inst) => Instruction::MakeTrivial(inst.retag(retagger)),
             Instruction::MakeInteger(inst) => Instruction::MakeInteger(inst.retag(retagger)),
             Instruction::MakeBoolean(inst) => Instruction::MakeBoolean(inst.retag(retagger)),
-            Instruction::Equals(inst) => Instruction::Equals(inst.retag(retagger)),
             Instruction::Negate(inst) => Instruction::Negate(inst.retag(retagger)),
-            Instruction::Add(inst) => Instruction::Add(inst.retag(retagger)),
-            Instruction::Or(inst) => Instruction::Or(inst.retag(retagger)),
-            Instruction::And(inst) => Instruction::And(inst.retag(retagger)),
             Instruction::Generalize(inst) => Instruction::Generalize(inst.retag(retagger)),
         }
     }
@@ -215,7 +207,7 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::GetFnPtr(inst) => inst.declared_register(),
             Instruction::MakeBytes(inst) => inst.declared_register(),
             Instruction::NewRecord(isa) => isa.declared_register(),
-            Instruction::LessThan(inst) => inst.declared_register(),
+            Instruction::BinOp(inst) => inst.declared_register(),
             Instruction::CallStatic(inst) => inst.declared_register(),
             Instruction::CallExtern(inst) => inst.declared_register(),
             Instruction::CallVirt(inst) => inst.declared_register(),
@@ -225,11 +217,7 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::RecordHasKey(inst) => inst.declared_register(),
             Instruction::MakeInteger(inst) => inst.declared_register(),
             Instruction::MakeBoolean(inst) => inst.declared_register(),
-            Instruction::Equals(inst) => inst.declared_register(),
             Instruction::Negate(inst) => inst.declared_register(),
-            Instruction::Add(inst) => inst.declared_register(),
-            Instruction::Or(inst) => inst.declared_register(),
-            Instruction::And(inst) => inst.declared_register(),
             Instruction::Generalize(inst) => inst.declared_register(),
         }
     }
@@ -240,7 +228,7 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::GetFnPtr(inst) => inst.used_registers(),
             Instruction::MakeBytes(inst) => inst.used_registers(),
             Instruction::NewRecord(inst) => inst.used_registers(),
-            Instruction::LessThan(inst) => inst.used_registers(),
+            Instruction::BinOp(inst) => inst.used_registers(),
             Instruction::CallStatic(inst) => inst.used_registers(),
             Instruction::CallExtern(inst) => inst.used_registers(),
             Instruction::CallVirt(inst) => inst.used_registers(),
@@ -250,11 +238,7 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::RecordHasKey(inst) => inst.used_registers(),
             Instruction::MakeInteger(inst) => inst.used_registers(),
             Instruction::MakeBoolean(inst) => inst.used_registers(),
-            Instruction::Equals(inst) => inst.used_registers(),
             Instruction::Negate(inst) => inst.used_registers(),
-            Instruction::Add(inst) => inst.used_registers(),
-            Instruction::Or(inst) => inst.used_registers(),
-            Instruction::And(inst) => inst.used_registers(),
             Instruction::Generalize(inst) => inst.used_registers(),
         }
     }
@@ -265,7 +249,7 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::GetFnPtr(inst) => inst.used_registers_mut(),
             Instruction::MakeBytes(inst) => inst.used_registers_mut(),
             Instruction::NewRecord(inst) => inst.used_registers_mut(),
-            Instruction::LessThan(inst) => inst.used_registers_mut(),
+            Instruction::BinOp(inst) => inst.used_registers_mut(),
             Instruction::CallStatic(inst) => inst.used_registers_mut(),
             Instruction::CallExtern(inst) => inst.used_registers_mut(),
             Instruction::CallVirt(inst) => inst.used_registers_mut(),
@@ -275,11 +259,7 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::RecordHasKey(inst) => inst.used_registers_mut(),
             Instruction::MakeInteger(inst) => inst.used_registers_mut(),
             Instruction::MakeBoolean(inst) => inst.used_registers_mut(),
-            Instruction::Equals(inst) => inst.used_registers_mut(),
             Instruction::Negate(inst) => inst.used_registers_mut(),
-            Instruction::Add(inst) => inst.used_registers_mut(),
-            Instruction::Or(inst) => inst.used_registers_mut(),
-            Instruction::And(inst) => inst.used_registers_mut(),
             Instruction::Generalize(inst) => inst.used_registers_mut(),
         }
     }
@@ -294,7 +274,7 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::GetFnPtr(inst) => inst.display(w),
             Instruction::MakeBytes(inst) => inst.display(w),
             Instruction::NewRecord(inst) => inst.display(w),
-            Instruction::LessThan(inst) => inst.display(w),
+            Instruction::BinOp(inst) => inst.display(w),
             Instruction::CallStatic(inst) => inst.display(w),
             Instruction::CallExtern(inst) => inst.display(w),
             Instruction::CallVirt(inst) => inst.display(w),
@@ -304,11 +284,7 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::RecordHasKey(inst) => inst.display(w),
             Instruction::MakeInteger(inst) => inst.display(w),
             Instruction::MakeBoolean(inst) => inst.display(w),
-            Instruction::Equals(inst) => inst.display(w),
             Instruction::Negate(inst) => inst.display(w),
-            Instruction::Add(inst) => inst.display(w),
-            Instruction::Or(inst) => inst.display(w),
-            Instruction::And(inst) => inst.display(w),
             Instruction::Generalize(inst) => inst.display(w),
         }
     }

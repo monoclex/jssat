@@ -93,20 +93,8 @@ pub use getfnptr::GetFnPtr;
 mod negate;
 pub use negate::Negate;
 
-mod add;
-pub use add::Add;
-
-mod or;
-pub use or::Or;
-
-mod and;
-pub use and::And;
-
-mod lessthan;
-pub use lessthan::LessThan;
-
-mod equals;
-pub use equals::Equals;
+mod binop;
+pub use binop::{BinOp, BinaryOperator};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Display)]
 pub enum RecordKey<C: Tag> {

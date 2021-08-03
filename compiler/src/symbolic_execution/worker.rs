@@ -144,59 +144,60 @@ impl<'p> Worker for SymbWorker<'p> {
                     self.types
                         .assign_type(i.result, RegisterType::Bool(i.value));
                 }
-                ir::Instruction::LessThan(i) => {
-                    let (lhs, rhs) = (self.types.get(i.lhs), self.types.get(i.rhs));
+                ir::Instruction::BinOp(_) => todo!(),
+                // ir::Instruction::LessThan(i) => {
+                //     let (lhs, rhs) = (self.types.get(i.lhs), self.types.get(i.rhs));
 
-                    let res_typ = match (lhs, rhs) {
-                        (RegisterType::Number, RegisterType::Number)
-                        | (RegisterType::Number, RegisterType::Int(_))
-                        | (RegisterType::Int(_), RegisterType::Number) => RegisterType::Boolean,
-                        (RegisterType::Int(a), RegisterType::Int(b)) => RegisterType::Bool(a < b),
-                        (a, b) => panic!("cannot less than for {:?} and {:?}", a, b),
-                    };
+                //     let res_typ = match (lhs, rhs) {
+                //         (RegisterType::Number, RegisterType::Number)
+                //         | (RegisterType::Number, RegisterType::Int(_))
+                //         | (RegisterType::Int(_), RegisterType::Number) => RegisterType::Boolean,
+                //         (RegisterType::Int(a), RegisterType::Int(b)) => RegisterType::Bool(a < b),
+                //         (a, b) => panic!("cannot less than for {:?} and {:?}", a, b),
+                //     };
 
-                    self.types.assign_type(i.result, res_typ);
-                }
-                ir::Instruction::Equals(i) => {
-                    let (lhs, rhs) = (self.types.get(i.lhs), self.types.get(i.rhs));
+                //     self.types.assign_type(i.result, res_typ);
+                // }
+                // ir::Instruction::Equals(i) => {
+                //     let (lhs, rhs) = (self.types.get(i.lhs), self.types.get(i.rhs));
 
-                    // TODO: equals should be specified **for each type**
-                    // ^ because i hate implicit conversions. makes debugging hard
-                    let res_typ = match (lhs, rhs) {
-                        (RegisterType::Number, RegisterType::Number)
-                        | (RegisterType::Number, RegisterType::Int(_))
-                        | (RegisterType::Int(_), RegisterType::Number) => RegisterType::Boolean,
-                        (RegisterType::Int(a), RegisterType::Int(b)) => RegisterType::Bool(a == b),
-                        (RegisterType::Bytes, RegisterType::Bytes)
-                        | (RegisterType::Bytes, RegisterType::Byts(_))
-                        | (RegisterType::Byts(_), RegisterType::Bytes) => RegisterType::Boolean,
-                        (RegisterType::Byts(a), RegisterType::Byts(b)) => RegisterType::Bool(
-                            self.types.unintern_const(a) == self.types.unintern_const(b),
-                        ),
-                        (RegisterType::Trivial(a), RegisterType::Trivial(b)) => {
-                            RegisterType::Bool(a == b)
-                        }
-                        (RegisterType::Boolean, RegisterType::Boolean)
-                        | (RegisterType::Boolean, RegisterType::Bool(_))
-                        | (RegisterType::Bool(_), RegisterType::Boolean) => RegisterType::Boolean,
-                        (RegisterType::Bool(a), RegisterType::Bool(b)) => {
-                            RegisterType::Bool(a == b)
-                        }
-                        // TODO: should we allow equality like this?
-                        (RegisterType::Trivial(_), RegisterType::Record(_))
-                        | (RegisterType::Record(_), RegisterType::Trivial(_)) => {
-                            RegisterType::Bool(false)
-                        }
-                        // TODO: we should definitely *not* allow this, but i am lazy
-                        (RegisterType::Record(_), RegisterType::Byts(_))
-                        | (RegisterType::Byts(_), RegisterType::Record(_)) => {
-                            RegisterType::Bool(false)
-                        }
-                        (a, b) => panic!("cannot equals for {:?} and {:?}", a, b),
-                    };
+                //     // TODO: equals should be specified **for each type**
+                //     // ^ because i hate implicit conversions. makes debugging hard
+                //     let res_typ = match (lhs, rhs) {
+                //         (RegisterType::Number, RegisterType::Number)
+                //         | (RegisterType::Number, RegisterType::Int(_))
+                //         | (RegisterType::Int(_), RegisterType::Number) => RegisterType::Boolean,
+                //         (RegisterType::Int(a), RegisterType::Int(b)) => RegisterType::Bool(a == b),
+                //         (RegisterType::Bytes, RegisterType::Bytes)
+                //         | (RegisterType::Bytes, RegisterType::Byts(_))
+                //         | (RegisterType::Byts(_), RegisterType::Bytes) => RegisterType::Boolean,
+                //         (RegisterType::Byts(a), RegisterType::Byts(b)) => RegisterType::Bool(
+                //             self.types.unintern_const(a) == self.types.unintern_const(b),
+                //         ),
+                //         (RegisterType::Trivial(a), RegisterType::Trivial(b)) => {
+                //             RegisterType::Bool(a == b)
+                //         }
+                //         (RegisterType::Boolean, RegisterType::Boolean)
+                //         | (RegisterType::Boolean, RegisterType::Bool(_))
+                //         | (RegisterType::Bool(_), RegisterType::Boolean) => RegisterType::Boolean,
+                //         (RegisterType::Bool(a), RegisterType::Bool(b)) => {
+                //             RegisterType::Bool(a == b)
+                //         }
+                //         // TODO: should we allow equality like this?
+                //         (RegisterType::Trivial(_), RegisterType::Record(_))
+                //         | (RegisterType::Record(_), RegisterType::Trivial(_)) => {
+                //             RegisterType::Bool(false)
+                //         }
+                //         // TODO: we should definitely *not* allow this, but i am lazy
+                //         (RegisterType::Record(_), RegisterType::Byts(_))
+                //         | (RegisterType::Byts(_), RegisterType::Record(_)) => {
+                //             RegisterType::Bool(false)
+                //         }
+                //         (a, b) => panic!("cannot equals for {:?} and {:?}", a, b),
+                //     };
 
-                    self.types.assign_type(i.result, res_typ);
-                }
+                //     self.types.assign_type(i.result, res_typ);
+                // }
                 ir::Instruction::Negate(i) => {
                     let o = self.types.get(i.operand);
 
@@ -208,49 +209,49 @@ impl<'p> Worker for SymbWorker<'p> {
 
                     self.types.assign_type(i.result, res_typ);
                 }
-                ir::Instruction::Add(i) => {
-                    let (lhs, rhs) = (self.types.get(i.lhs), self.types.get(i.rhs));
+                // ir::Instruction::Add(i) => {
+                //     let (lhs, rhs) = (self.types.get(i.lhs), self.types.get(i.rhs));
 
-                    let res_typ = match (lhs, rhs) {
-                        (RegisterType::Number, RegisterType::Number)
-                        | (RegisterType::Number, RegisterType::Int(_))
-                        | (RegisterType::Int(_), RegisterType::Number) => RegisterType::Number,
-                        (RegisterType::Int(a), RegisterType::Int(b)) => RegisterType::Int(a + b),
-                        (a, b) => panic!("cannot add for {:?} and {:?}", a, b),
-                    };
+                //     let res_typ = match (lhs, rhs) {
+                //         (RegisterType::Number, RegisterType::Number)
+                //         | (RegisterType::Number, RegisterType::Int(_))
+                //         | (RegisterType::Int(_), RegisterType::Number) => RegisterType::Number,
+                //         (RegisterType::Int(a), RegisterType::Int(b)) => RegisterType::Int(a + b),
+                //         (a, b) => panic!("cannot add for {:?} and {:?}", a, b),
+                //     };
 
-                    self.types.assign_type(i.result, res_typ);
-                }
-                ir::Instruction::Or(i) => {
-                    let (lhs, rhs) = (self.types.get(i.lhs), self.types.get(i.rhs));
+                //     self.types.assign_type(i.result, res_typ);
+                // }
+                // ir::Instruction::Or(i) => {
+                //     let (lhs, rhs) = (self.types.get(i.lhs), self.types.get(i.rhs));
 
-                    let res_typ = match (lhs, rhs) {
-                        (RegisterType::Boolean, RegisterType::Boolean)
-                        | (RegisterType::Bool(_), RegisterType::Boolean)
-                        | (RegisterType::Boolean, RegisterType::Bool(_)) => RegisterType::Boolean,
-                        (RegisterType::Bool(a), RegisterType::Bool(b)) => {
-                            RegisterType::Bool(a || b)
-                        }
-                        (a, b) => panic!("cannot OR for {:?} and {:?}", a, b),
-                    };
+                //     let res_typ = match (lhs, rhs) {
+                //         (RegisterType::Boolean, RegisterType::Boolean)
+                //         | (RegisterType::Bool(_), RegisterType::Boolean)
+                //         | (RegisterType::Boolean, RegisterType::Bool(_)) => RegisterType::Boolean,
+                //         (RegisterType::Bool(a), RegisterType::Bool(b)) => {
+                //             RegisterType::Bool(a || b)
+                //         }
+                //         (a, b) => panic!("cannot OR for {:?} and {:?}", a, b),
+                //     };
 
-                    self.types.assign_type(i.result, res_typ);
-                }
-                ir::Instruction::And(i) => {
-                    let (lhs, rhs) = (self.types.get(i.lhs), self.types.get(i.rhs));
+                //     self.types.assign_type(i.result, res_typ);
+                // }
+                // ir::Instruction::And(i) => {
+                //     let (lhs, rhs) = (self.types.get(i.lhs), self.types.get(i.rhs));
 
-                    let res_typ = match (lhs, rhs) {
-                        (RegisterType::Boolean, RegisterType::Boolean)
-                        | (RegisterType::Bool(_), RegisterType::Boolean)
-                        | (RegisterType::Boolean, RegisterType::Bool(_)) => RegisterType::Boolean,
-                        (RegisterType::Bool(a), RegisterType::Bool(b)) => {
-                            RegisterType::Bool(a && b)
-                        }
-                        (a, b) => panic!("cannot AND for {:?} and {:?}", a, b),
-                    };
+                //     let res_typ = match (lhs, rhs) {
+                //         (RegisterType::Boolean, RegisterType::Boolean)
+                //         | (RegisterType::Bool(_), RegisterType::Boolean)
+                //         | (RegisterType::Boolean, RegisterType::Bool(_)) => RegisterType::Boolean,
+                //         (RegisterType::Bool(a), RegisterType::Bool(b)) => {
+                //             RegisterType::Bool(a && b)
+                //         }
+                //         (a, b) => panic!("cannot AND for {:?} and {:?}", a, b),
+                //     };
 
-                    self.types.assign_type(i.result, res_typ);
-                }
+                //     self.types.assign_type(i.result, res_typ);
+                // }
                 ir::Instruction::CallVirt(i) => {
                     let fn_id = self.types.get_fnptr(i.fn_ptr);
 

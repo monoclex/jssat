@@ -8,9 +8,9 @@ use crate::id::{Counter, IdCompat};
 use crate::UnwrapNone;
 
 use crate::isa::{
-    Add, And, BlockJump, CallExtern, CallStatic, CallVirt, Comment, Equals, Generalize, GetFnPtr,
-    InternalSlot, Jump, JumpIf, LessThan, MakeBoolean, MakeBytes, MakeInteger, MakeTrivial, Negate,
-    NewRecord, Or, RecordGet, RecordHasKey, RecordKey, RecordSet, Return, TrivialItem,
+    BinOp, BinaryOperator, BlockJump, CallExtern, CallStatic, CallVirt, Comment, Generalize,
+    GetFnPtr, InternalSlot, Jump, JumpIf, MakeBoolean, MakeBytes, MakeInteger, MakeTrivial, Negate,
+    NewRecord, RecordGet, RecordHasKey, RecordKey, RecordSet, Return, TrivialItem,
 };
 
 pub type BlockId = crate::id::BlockId<crate::id::IrCtx>;
@@ -573,38 +573,52 @@ impl DynBlockBuilder {
         result
     }
 
+    fn binop(
+        result: RegisterId,
+        lhs: RegisterId,
+        rhs: RegisterId,
+        op: BinaryOperator,
+    ) -> Instruction {
+        Instruction::BinOp(BinOp {
+            result,
+            lhs,
+            rhs,
+            op,
+        })
+    }
+
     pub fn add(&mut self, lhs: RegisterId, rhs: RegisterId) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions
-            .push(Instruction::Add(Add { result, lhs, rhs }));
+            .push(Self::binop(result, lhs, rhs, BinaryOperator::Add));
         result
     }
 
     pub fn compare_equal(&mut self, lhs: RegisterId, rhs: RegisterId) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions
-            .push(Instruction::Equals(Equals { result, lhs, rhs }));
+            .push(Self::binop(result, lhs, rhs, BinaryOperator::Equals));
         result
     }
 
     pub fn compare_less_than(&mut self, lhs: RegisterId, rhs: RegisterId) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions
-            .push(Instruction::LessThan(LessThan { result, lhs, rhs }));
+            .push(Self::binop(result, lhs, rhs, BinaryOperator::LessThan));
         result
     }
 
     pub fn or(&mut self, lhs: RegisterId, rhs: RegisterId) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions
-            .push(Instruction::Or(Or { result, lhs, rhs }));
+            .push(Self::binop(result, lhs, rhs, BinaryOperator::Or));
         result
     }
 
     pub fn and(&mut self, lhs: RegisterId, rhs: RegisterId) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions
-            .push(Instruction::And(And { result, lhs, rhs }));
+            .push(Self::binop(result, lhs, rhs, BinaryOperator::And));
         result
     }
 

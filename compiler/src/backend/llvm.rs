@@ -23,8 +23,6 @@ use inkwell::{
     AddressSpace, IntPredicate, OptimizationLevel,
 };
 
-use crate::isa::LessThan;
-
 #[cfg(feature = "link-llvm")]
 use crate::UnwrapNone;
 
@@ -183,7 +181,6 @@ pub enum Instruction {
         from_struct: RegisterId,
         field_index: usize,
     },
-    OpLessThan(LessThan<crate::id::LlvmCtx>),
 }
 
 #[derive(Debug, Clone)]
