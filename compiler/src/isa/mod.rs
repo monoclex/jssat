@@ -3,14 +3,10 @@
 //! own in-house ISAs.
 
 use std::fmt::{Display, Write};
-
-use derive_more::Display;
 use tinyvec::TinyVec;
 
 use crate::id::RegisterId;
 use crate::id::Tag;
-
-use crate::retag::RegRetagger;
 
 /// The contract provided by any single instruction. Provides methods to make
 /// interfacing with all instructions easy.
@@ -63,17 +59,8 @@ pub use unreachable::Unreachable;
 mod comment;
 pub use comment::Comment;
 
-mod ret;
-pub use ret::Return;
-
-mod blockjump;
-pub use blockjump::BlockJump;
-
-mod jump;
-pub use jump::Jump;
-
-mod newrecord;
-pub use newrecord::NewRecord;
+mod control_flow;
+pub use control_flow::{BlockJump, Jump, JumpIf, Return};
 
 mod make;
 pub use make::{Make, TrivialItem};
@@ -84,91 +71,8 @@ pub use negate::Negate;
 mod binop;
 pub use binop::{BinOp, BinaryOperator};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Display)]
-pub enum RecordKey<C: Tag> {
-    #[display(fmt = "%{}", _0)]
-    Prop(RegisterId<C>),
-    #[display(fmt = "[[{}]]", _0)]
-    Slot(InternalSlot),
-}
-
-impl<C: Tag> RecordKey<C> {
-    #[track_caller]
-    pub fn retag<C2: Tag>(self, retagger: &impl RegRetagger<C, C2>) -> RecordKey<C2> {
-        match self {
-            RecordKey::Prop(r) => RecordKey::Prop(retagger.retag_old(r)),
-            RecordKey::Slot(s) => RecordKey::Slot(s),
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Display)]
-pub enum InternalSlot {
-    JSSATRandomDebugSlot,
-    JSSATHasBinding,
-    JSSATHasVarDeclaration,
-    JSSATHasLexicalDeclaration,
-    JSSATHasRestrictedGlobalProperty,
-    JSSATCreateGlobalFunctionBinding,
-    JSSATGetBindingValue,
-    // TODO: expand this to all ecmascript internal slot types
-    // (should this even be here?)
-    Function,
-    Realm,
-    ScriptOrModule,
-    GlobalObject,
-    GlobalEnv,
-    TemplateMap,
-    Intrinsics,
-    Call,
-    ECMAScriptCode,
-    HostDefined,
-    VariableEnvironment,
-    LexicalEnvironment,
-    PrivateEnvironment,
-    Base,
-    ReferencedName,
-    Strict,
-    ThisValue,
-    Value,
-    Type,
-    Target,
-    BindingObject,
-    DeclarativeRecord,
-    ObjectRecord,
-    OuterEnv,
-    IsWithEnvironment,
-    GlobalThisValue,
-    VarNames,
-    Writable,
-    Enumerable,
-    Configurable,
-    DefineOwnProperty,
-    Prototype,
-    Extensible,
-    GetOwnProperty,
-    IsExtensible,
-    Get,
-    Set,
-    GetPrototypeOf,
-    HasProperty,
-    /// `%Function.prototype%`
-    FunctionPrototype,
-    /// `%Object.prototype%`
-    ObjectPrototype,
-}
-
-mod recordget;
-pub use recordget::RecordGet;
-
-mod recordset;
-pub use recordset::RecordSet;
-
-mod recordhaskey;
-pub use recordhaskey::RecordHasKey;
-
-mod jumpif;
-pub use jumpif::JumpIf;
+mod records;
+pub use records::{InternalSlot, NewRecord, RecordGet, RecordHasKey, RecordKey, RecordSet};
 
 mod call;
 pub use call::Call;
