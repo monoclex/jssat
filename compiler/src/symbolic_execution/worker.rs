@@ -126,23 +126,22 @@ impl<'p> Worker for SymbWorker<'p> {
                 }
                 ir::Instruction::GetFnPtr(i) => {
                     self.types
-                        .assign_type(i.result, RegisterType::FnPtr(i.function));
+                        .assign_type(i.result, RegisterType::FnPtr(i.item));
                 }
                 ir::Instruction::MakeTrivial(i) => {
                     self.types
                         .assign_type(i.result, RegisterType::Trivial(i.item));
                 }
                 ir::Instruction::MakeBytes(i) => {
-                    let c = self.program.constants.get(&i.constant).unwrap();
+                    let c = self.program.constants.get(&i.item).unwrap();
                     let c = self.types.intern_constant(&c.payload);
                     self.types.assign_type(i.result, RegisterType::Byts(c));
                 }
                 ir::Instruction::MakeInteger(i) => {
-                    self.types.assign_type(i.result, RegisterType::Int(i.value));
+                    self.types.assign_type(i.result, RegisterType::Int(i.item));
                 }
                 ir::Instruction::MakeBoolean(i) => {
-                    self.types
-                        .assign_type(i.result, RegisterType::Bool(i.value));
+                    self.types.assign_type(i.result, RegisterType::Bool(i.item));
                 }
                 ir::Instruction::BinOp(_) => todo!(),
                 // ir::Instruction::LessThan(i) => {
@@ -253,7 +252,7 @@ impl<'p> Worker for SymbWorker<'p> {
                 //     self.types.assign_type(i.result, res_typ);
                 // }
                 ir::Instruction::CallVirt(i) => {
-                    let fn_id = self.types.get_fnptr(i.fn_ptr);
+                    let fn_id = self.types.get_fnptr(i.calling);
 
                     // TODO: don't blatantly copy `CallStatic`
                     let src_fn = self.program.functions.get(&fn_id).unwrap();
@@ -294,13 +293,13 @@ impl<'p> Worker for SymbWorker<'p> {
                     };
                 }
                 ir::Instruction::CallStatic(i) => {
-                    let src_fn = self.program.functions.get(&i.fn_id).unwrap();
+                    let src_fn = self.program.functions.get(&i.calling).unwrap();
                     debug_assert_eq!(src_fn.parameters.len(), i.args.len());
                     let map_args = (i.args.iter().copied())
                         .zip(src_fn.parameters.iter().copied())
                         .collect::<Vec<_>>();
                     let (types, alloc_map) = self.types.extract_map(map_args.iter().copied());
-                    let id = self.fn_ids.id_of(i.fn_id, types, true);
+                    let id = self.fn_ids.id_of(i.calling, types, true);
                     let r = system.spawn(id);
 
                     let mut rev_alloc_map = alloc_map
@@ -336,7 +335,7 @@ impl<'p> Worker for SymbWorker<'p> {
                 ir::Instruction::CallExtern(i) => {
                     // TODO: ensure/make args are coercible into `fn_id`,
                     // although the `assembler` phase does this for us as of the time of writing
-                    let ext_fn = self.program.external_functions.get(&i.fn_id).unwrap();
+                    let ext_fn = self.program.external_functions.get(&i.calling).unwrap();
 
                     match (i.result, &ext_fn.returns) {
                         (Some(_), Returns::Void) => panic!("cannot assign `void` to register"),

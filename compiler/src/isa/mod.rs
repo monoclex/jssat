@@ -75,20 +75,8 @@ pub use jump::Jump;
 mod newrecord;
 pub use newrecord::NewRecord;
 
-mod makeinteger;
-pub use makeinteger::MakeInteger;
-
-mod makeboolean;
-pub use makeboolean::MakeBoolean;
-
-mod maketrivial;
-pub use maketrivial::{MakeTrivial, TrivialItem};
-
-mod makebytes;
-pub use makebytes::MakeBytes;
-
-mod getfnptr;
-pub use getfnptr::GetFnPtr;
+mod make;
+pub use make::{Make, TrivialItem};
 
 mod negate;
 pub use negate::Negate;
@@ -182,14 +170,8 @@ pub use recordhaskey::RecordHasKey;
 mod jumpif;
 pub use jumpif::JumpIf;
 
-mod callstatic;
-pub use callstatic::CallStatic;
-
-mod callvirt;
-pub use callvirt::CallVirt;
-
-mod callextern;
-pub use callextern::CallExtern;
+mod call;
+pub use call::Call;
 
 // TODO: widen/narrow instructions that operate based on a type
 mod widen;

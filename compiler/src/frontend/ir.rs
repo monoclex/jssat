@@ -11,9 +11,8 @@ type ConstantId = crate::id::ConstantId<IrCtx>;
 use crate::id::RegisterId;
 
 use crate::isa::{
-    BinOp, BlockJump, CallExtern, CallStatic, CallVirt, Comment, Generalize, GetFnPtr,
-    ISAInstruction, Jump, JumpIf, MakeBoolean, MakeBytes, MakeInteger, MakeTrivial, Negate,
-    NewRecord, RecordGet, RecordHasKey, RecordSet, Return,
+    BinOp, BlockJump, Call, Comment, Generalize, ISAInstruction, Jump, JumpIf, Make, Negate,
+    NewRecord, RecordGet, RecordHasKey, RecordSet, Return, TrivialItem,
 };
 use crate::retag::{BlkRetagger, CnstRetagger, ExtFnRetagger, FnRetagger, RegRetagger};
 type PlainRegisterId = RegisterId<IrCtx>;
@@ -95,17 +94,17 @@ pub enum Instruction<C: Tag = crate::id::IrCtx, F: Tag = crate::id::IrCtx> {
     RecordGet(RecordGet<C>),
     RecordSet(RecordSet<C>),
     RecordHasKey(RecordHasKey<C>),
-    GetFnPtr(GetFnPtr<C, F>),
-    CallStatic(CallStatic<C, F>),
-    CallExtern(CallExtern<C, F>),
-    CallVirt(CallVirt<C>),
+    GetFnPtr(Make<C, crate::id::FunctionId<F>>),
+    CallStatic(Call<C, crate::id::FunctionId<F>>),
+    CallExtern(Call<C, crate::id::ExternalFunctionId<F>>),
+    CallVirt(Call<C, crate::id::RegisterId<C>>),
     // RefIsEmpty(RegisterId /*=*/, RegisterId),
     // RefDeref(RegisterId /*=*/, RegisterId),
     // FAR FUTURE: GcMakeRegion(RegisterId /*=*/),
     // FAR FUTURE: GcEndRegion(RegisterId),
     // FAR FUTURE: GcTracingMarkRoot(RegisterId),
     // FAR FUTURE: GcTracingUnmarkRoot(RegisterId),
-    MakeTrivial(MakeTrivial<C>),
+    MakeTrivial(Make<C, TrivialItem>),
     /// # `MakeString`
     ///
     /// Will instantiate a string, using the constant referenced as payload for
@@ -113,7 +112,7 @@ pub enum Instruction<C: Tag = crate::id::IrCtx, F: Tag = crate::id::IrCtx> {
     /// the constant referenced is a valid UTF-16 string.
     // TODO: the conv_bb_block phase doesn't mutate constants, so they're still
     // in the old constant phase. is this valid?
-    MakeBytes(MakeBytes<C, F>),
+    MakeBytes(Make<C, crate::id::ConstantId<F>>),
     // /// # [`Instruction::Unreachable`]
     // ///
     // /// Indicates that the executing code path will never reach this instruction.
@@ -122,8 +121,8 @@ pub enum Instruction<C: Tag = crate::id::IrCtx, F: Tag = crate::id::IrCtx> {
     // /// times.
     // Unreachable,
     // TODO: should these be TrivialItems?
-    MakeInteger(MakeInteger<C>),
-    MakeBoolean(MakeBoolean<C>),
+    MakeInteger(Make<C, i64>),
+    MakeBoolean(Make<C, bool>),
     BinOp(BinOp<C>),
     Negate(Negate<C>),
     Generalize(Generalize<C>),

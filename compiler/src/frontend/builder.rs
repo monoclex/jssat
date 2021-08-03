@@ -8,9 +8,8 @@ use crate::id::{Counter, IdCompat};
 use crate::UnwrapNone;
 
 use crate::isa::{
-    BinOp, BinaryOperator, BlockJump, CallExtern, CallStatic, CallVirt, Comment, Generalize,
-    GetFnPtr, InternalSlot, Jump, JumpIf, MakeBoolean, MakeBytes, MakeInteger, MakeTrivial, Negate,
-    NewRecord, RecordGet, RecordHasKey, RecordKey, RecordSet, Return, TrivialItem,
+    BinOp, BinaryOperator, BlockJump, Call, Comment, Generalize, InternalSlot, Jump, JumpIf, Make,
+    Negate, NewRecord, RecordGet, RecordHasKey, RecordKey, RecordSet, Return, TrivialItem,
 };
 
 pub type BlockId = crate::id::BlockId<crate::id::IrCtx>;
@@ -438,60 +437,65 @@ impl DynBlockBuilder {
     pub fn get_runtime(&mut self) -> RegisterId {
         let result = self.gen_register_id.next();
 
-        self.instructions
-            .push(Instruction::MakeTrivial(MakeTrivial {
-                result,
-                item: TrivialItem::Runtime,
-            }));
+        self.instructions.push(Instruction::MakeTrivial(Make {
+            result,
+            item: TrivialItem::Runtime,
+        }));
 
         result
     }
 
     pub fn make_string(&mut self, constant: ConstantId) -> RegisterId {
         let result = self.gen_register_id.next();
-        self.instructions
-            .push(Instruction::MakeBytes(MakeBytes { result, constant }));
+        self.instructions.push(Instruction::MakeBytes(Make {
+            result,
+            item: constant,
+        }));
         result
     }
 
     pub fn make_number_decimal(&mut self, value: i64) -> RegisterId {
         let result = self.gen_register_id.next();
-        self.instructions
-            .push(Instruction::MakeInteger(MakeInteger { result, value }));
+        self.instructions.push(Instruction::MakeInteger(Make {
+            result,
+            item: value,
+        }));
         result
     }
 
     pub fn make_bool(&mut self, value: bool) -> RegisterId {
         let result = self.gen_register_id.next();
-        self.instructions
-            .push(Instruction::MakeBoolean(MakeBoolean { result, value }));
+        self.instructions.push(Instruction::MakeBoolean(Make {
+            result,
+            item: value,
+        }));
         result
     }
 
     pub fn make_null(&mut self) -> RegisterId {
         let result = self.gen_register_id.next();
-        self.instructions
-            .push(Instruction::MakeTrivial(MakeTrivial {
-                result,
-                item: TrivialItem::Null,
-            }));
+        self.instructions.push(Instruction::MakeTrivial(Make {
+            result,
+            item: TrivialItem::Null,
+        }));
         result
     }
 
     pub fn make_undefined(&mut self) -> RegisterId {
         let result = self.gen_register_id.next();
-        self.instructions
-            .push(Instruction::MakeTrivial(MakeTrivial {
-                result,
-                item: TrivialItem::Undefined,
-            }));
+        self.instructions.push(Instruction::MakeTrivial(Make {
+            result,
+            item: TrivialItem::Undefined,
+        }));
         result
     }
 
     pub fn make_fnptr(&mut self, function: FunctionId) -> RegisterId {
         let result = self.gen_register_id.next();
-        self.instructions
-            .push(Instruction::GetFnPtr(GetFnPtr { result, function }));
+        self.instructions.push(Instruction::GetFnPtr(Make {
+            result,
+            item: function,
+        }));
         result
     }
 
@@ -581,9 +585,9 @@ impl DynBlockBuilder {
     ) -> Instruction {
         Instruction::BinOp(BinOp {
             result,
+            op,
             lhs,
             rhs,
-            op,
         })
     }
 
@@ -638,9 +642,9 @@ impl DynBlockBuilder {
     }
 
     pub fn call_dynargs(&mut self, fn_id: FunctionId, args: Vec<RegisterId>) {
-        self.instructions.push(Instruction::CallStatic(CallStatic {
+        self.instructions.push(Instruction::CallStatic(Call {
             result: None,
-            fn_id,
+            calling: fn_id,
             args,
         }));
     }
@@ -654,9 +658,9 @@ impl DynBlockBuilder {
     }
 
     pub fn call_virt_dynargs(&mut self, fn_ptr: RegisterId, args: Vec<RegisterId>) {
-        self.instructions.push(Instruction::CallVirt(CallVirt {
+        self.instructions.push(Instruction::CallVirt(Call {
             result: None,
-            fn_ptr,
+            calling: fn_ptr,
             args,
         }));
     }
@@ -675,9 +679,9 @@ impl DynBlockBuilder {
         args: Vec<RegisterId>,
     ) -> RegisterId {
         let result = self.gen_register_id.next();
-        self.instructions.push(Instruction::CallVirt(CallVirt {
+        self.instructions.push(Instruction::CallVirt(Call {
             result: Some(result),
-            fn_ptr,
+            calling: fn_ptr,
             args,
         }));
         result
@@ -698,9 +702,9 @@ impl DynBlockBuilder {
     ) -> RegisterId {
         let result = self.gen_register_id.next();
 
-        self.instructions.push(Instruction::CallStatic(CallStatic {
+        self.instructions.push(Instruction::CallStatic(Call {
             result: Some(result),
-            fn_id,
+            calling: fn_id,
             args,
         }));
 
@@ -720,9 +724,9 @@ impl DynBlockBuilder {
         fn_id: ExternalFunctionId,
         args: Vec<RegisterId>,
     ) {
-        self.instructions.push(Instruction::CallExtern(CallExtern {
+        self.instructions.push(Instruction::CallExtern(Call {
             result: None,
-            fn_id,
+            calling: fn_id,
             args,
         }));
     }
@@ -742,9 +746,9 @@ impl DynBlockBuilder {
     ) -> RegisterId {
         let result = self.gen_register_id.next();
 
-        self.instructions.push(Instruction::CallExtern(CallExtern {
+        self.instructions.push(Instruction::CallExtern(Call {
             result: Some(result),
-            fn_id,
+            calling: fn_id,
             args,
         }));
 
