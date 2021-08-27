@@ -4,7 +4,7 @@ use rustc_hash::FxHashMap;
 
 macro_rules! gen_id {
     ($name:ident) => {
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
         pub struct $name<Ctx>(::std::num::NonZeroUsize, ::std::marker::PhantomData<Ctx>);
 
         impl<C: Tag> $name<C> {
@@ -119,7 +119,7 @@ macro_rules! gen_id_ctx {
         $name:ident
     ) => {
         $(#[$meta])*
-        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
         pub enum $name {}
 
         impl Tag for $name {}
@@ -173,6 +173,7 @@ gen_id!(StructId);
 gen_id!(OpaqueStructId);
 gen_id!(AllocationId);
 gen_id!(ShapeId);
+gen_id!(RecordId);
 
 #[derive(Debug)]
 pub struct Counter<I> {

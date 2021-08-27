@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::{id::*, poor_hashmap::PoorMap};
+use crate::{collections::PoorMap, id::*};
 
 use super::types::TypeBag;
 

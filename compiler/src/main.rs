@@ -18,13 +18,13 @@ use std::{io::Write, process::Command};
 use crate::frontend::display_jssatir;
 
 pub mod backend;
+pub mod collections;
 pub mod frontend;
 pub mod id;
 pub mod interner;
 pub mod isa;
 pub mod lifted;
 pub mod my_tests;
-pub mod poor_hashmap;
 pub mod retag;
 pub mod symbolic_execution;
 
