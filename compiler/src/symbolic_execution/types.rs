@@ -1,3 +1,4 @@
+use derive_more::Display;
 use std::collections::VecDeque;
 use std::fmt::Display;
 use std::sync::{Arc, Mutex};
@@ -34,7 +35,7 @@ impl ReturnType {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Display, PartialEq, Eq, Hash)]
 pub enum RegisterType {
     Any,
     Trivial(TrivialItem),

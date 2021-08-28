@@ -32,6 +32,7 @@ tinyvec = { version = "1.2.0", features = ["alloc", "rustc_1_40"] }
 derive_more = "0.99.16"
 ordered-float = "2.7.0"
 lasso = { version = "0.5.1", features = ["ahasher", "multi-threaded", "inline-more"] }
+thiserror = "1.0.26"
 
 [dependencies.inkwell]
 git = "https://github.com/TheDan64/inkwell"

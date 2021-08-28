@@ -19,6 +19,7 @@ pub mod graph_system;
 pub mod types;
 pub mod unique_id;
 pub mod worker;
+pub mod type_computations;
 
 pub fn execute(program: &'static LiftedProgram) {
     let mut asm_ext_map = ExtFnPassRetagger::default();
