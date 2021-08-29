@@ -68,14 +68,14 @@ pub fn execute(program: &'static LiftedProgram) {
             }
 
             match w.types.looking_up() {
-                types::LookingUp::Nothing => {}
-                types::LookingUp::RecordKey(key) => {
+                types::LookingUpStatus::Nothing => {}
+                types::LookingUpStatus::RecordKey(key) => {
                     println!("- was looking up type of field key: {:?}", key)
                 }
-                types::LookingUp::Register(r) => {
+                types::LookingUpStatus::Register(r) => {
                     println!("- was looking up type of register: %{}", r)
                 }
-                types::LookingUp::Constant(c) => {
+                types::LookingUpStatus::Constant(c) => {
                     println!("- was looking up value of constant: {}", c)
                 }
             };

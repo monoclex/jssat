@@ -4,7 +4,6 @@
 //! explained in depth at [the corresonding blog post][blog post]
 //!
 //! [blog post]: https://sirjosh3917.com/posts/jssat-typing-objects-in-ssa-form/
-#![allow(warnings)]
 
 use derive_more::Display;
 use std::collections::VecDeque;
@@ -14,15 +13,15 @@ use std::sync::{Arc, Mutex};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::id::{Counter, LiftedCtx, SymbolicCtx};
-use crate::isa::{InternalSlot, RecordKey, TrivialItem};
+use crate::isa::{InternalSlot, TrivialItem};
 use crate::UnwrapNone;
 
 type AllocationId = crate::id::AllocationId<LiftedCtx>;
 type ConstantId = crate::id::ConstantId<SymbolicCtx>;
 type RegisterId = crate::id::RegisterId<LiftedCtx>;
-type ShapeId = crate::id::ShapeId<SymbolicCtx>;
 /// The ID of a function whose argument types are not yet known.
 type DynFnId = crate::id::FunctionId<LiftedCtx>;
+type RecordKey = crate::isa::RecordKey<LiftedCtx>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ReturnType {
@@ -57,62 +56,76 @@ pub enum RegisterType {
     Record(AllocationId),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum ShapeKey {
-    Str(ConstantId),
-    Slot(InternalSlot),
-}
-
-pub type ShapeValueType = RegisterType;
-
-#[derive(Clone, Debug, Default)]
-pub struct Shape {
-    // TODO: private this (it should not be public)
-    pub(crate) fields: FxHashMap<ShapeKey, ShapeValueType>,
-}
-
-impl Shape {
-    pub fn new_with(&self, key: ShapeKey, value: ShapeValueType) -> Shape {
-        todo!()
-    }
-
-    pub fn get_typ(&self, key: ShapeKey) -> ShapeValueType {
-        todo!()
-    }
-}
-
-#[derive(Debug)]
-pub enum LookingUp {
+#[derive(Debug, Clone, Copy)]
+pub enum LookingUpStatus {
     Nothing,
-    RecordKey(ShapeKey),
+    RecordKey(RecordKey),
     Register(RegisterId),
     Constant(ConstantId),
 }
 
-#[derive(Debug, Clone)]
-pub struct TypeBag {}
+#[derive(Default)]
+struct LookingUp {
+    status: Arc<Mutex<LookingUpStatus>>,
+}
+
+impl LookingUp {
+    pub fn get(&self) -> LookingUpStatus {
+        match self.status.try_lock() {
+            Ok(guard) => *guard,
+            Err(_) => panic!("error getting lookup status"),
+        }
+    }
+
+    pub fn set(&self, new: LookingUpStatus) {
+        match self.status.try_lock() {
+            Ok(mut guard) => *guard = new,
+            Err(_) => panic!("error setting lookup status"),
+        }
+    }
+}
+
+impl Clone for LookingUp {
+    fn clone(&self) -> Self {
+        let current_status = self.get();
+        assert!(
+            matches!(current_status, LookingUpStatus::Nothing),
+            "should not be looking up anything while cloning"
+        );
+
+        Default::default()
+    }
+}
+
+impl Default for LookingUpStatus {
+    fn default() -> Self {
+        Self::Nothing
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct TypeBag {
+    status: LookingUp,
+}
 
 impl TypeBag {
-    pub fn looking_up(&self) -> LookingUp {
-        todo!()
+    pub fn looking_up(&self) -> LookingUpStatus {
+        self.status.get()
     }
 
     pub fn new_record(&mut self, register: RegisterId) {
         todo!()
     }
 
-    #[deprecated]
-    pub fn append_shape(&mut self, register: RegisterId, shape: Shape) {
+    pub fn record_get_field(&self, record: RegisterId, field: RecordKey) -> RegisterType {
         todo!()
     }
 
-    #[deprecated]
-    pub fn push_shape(&mut self, alloc: AllocationId, shape: ShapeId) {
+    pub fn record_set_field(&self, record: RegisterId, field: RecordKey, value: RegisterType) {
         todo!()
     }
 
-    #[deprecated]
-    pub fn new_shape(&mut self, shape: Shape) -> ShapeId {
+    pub fn record_has_field(&self, record: RegisterId, field: RecordKey) -> Option<bool> {
         todo!()
     }
 
@@ -128,36 +141,7 @@ impl TypeBag {
         todo!()
     }
 
-    #[deprecated]
-    pub fn get_field_type(&self, shape: &Shape, key: RecordKey<LiftedCtx>) -> ShapeValueType {
-        todo!()
-    }
-
-    #[deprecated]
-    pub fn has_field(&self, shape: &Shape, key: RecordKey<LiftedCtx>) -> Option<bool> {
-        todo!()
-    }
-
-    #[deprecated]
-    pub fn record_shape(&self, register: RegisterId) -> &Shape {
-        todo!()
-    }
-
     pub fn get_fnptr(&self, register: RegisterId) -> DynFnId {
-        todo!()
-    }
-
-    pub fn get_shape_id(&self, alloc: AllocationId) -> ShapeId {
-        todo!()
-    }
-
-    #[deprecated]
-    pub fn get_shape(&self, shape: ShapeId) -> &Shape {
-        todo!()
-    }
-
-    #[deprecated]
-    pub fn conv_key(&self, key: RecordKey<LiftedCtx>) -> ShapeKey {
         todo!()
     }
 
@@ -168,7 +152,7 @@ impl TypeBag {
     pub fn display(&self, register: RegisterId) -> String {
         DisplayContext {
             types: &self,
-            shapes_shown: Vec::new(),
+            records_shown: Vec::new(),
         }
         .display(register)
     }
@@ -178,12 +162,14 @@ impl TypeBag {
     /// specified.
     ///
     /// This is useful for continuing execution of a function after a block.
+    #[deprecated]
     pub fn extract(&self, regs: &[RegisterId]) -> (Self, FxHashMap<AllocationId, AllocationId>) {
         todo!()
     }
 
     /// Given a set of registers, it will extract the type out of them and
     /// place those types into the register specified (RHS in the tuple)
+    #[deprecated]
     pub fn extract_map(
         &self,
         regs: impl Iterator<Item = (RegisterId, RegisterId)>,
@@ -192,18 +178,13 @@ impl TypeBag {
     }
 
     // TODO: deduplicate this code
+    #[deprecated]
     pub fn pull_type_into(
         &self,
         typ: RegisterType,
         into: &mut TypeBag,
         me_to_them_alloc_map: &FxHashMap<AllocationId, AllocationId>,
     ) -> RegisterType {
-        todo!()
-    }
-}
-
-impl Default for TypeBag {
-    fn default() -> Self {
         todo!()
     }
 }
@@ -217,7 +198,7 @@ impl PartialEq for TypeBag {
 
 pub struct DisplayContext<'types> {
     types: &'types TypeBag,
-    shapes_shown: Vec<ShapeId>,
+    records_shown: Vec<AllocationId>,
 }
 
 impl DisplayContext<'_> {
