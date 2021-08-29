@@ -16,6 +16,14 @@ macro_rules! gen_id {
                 Self::new_with_value_const(0)
             }
 
+            pub const fn try_new_with_value_raw_const(value: usize) -> Option<Self> {
+                if value == 0 {
+                    None
+                } else {
+                    Some(Self::new_with_value_raw(value))
+                }
+            }
+
             pub const fn new_with_value_const(value: usize) -> Self {
                 debug_assert!(value != usize::MAX);
                 Self(
@@ -174,6 +182,7 @@ gen_id!(OpaqueStructId);
 gen_id!(AllocationId);
 gen_id!(ShapeId);
 gen_id!(RecordId);
+gen_id!(UnionId);
 
 #[derive(Debug)]
 pub struct Counter<I> {

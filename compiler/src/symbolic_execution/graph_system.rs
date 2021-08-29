@@ -123,6 +123,86 @@ where
     }
 }
 
+impl<W: 'static, F> ComputeGraphSys<W, F>
+where
+    W: Worker + Send + Sync,
+    W::Id: 'static + Send + Sync,
+    F: WorkerFactory<Worker = W>,
+{
+    pub fn set_panic_hook(
+        &self,
+        hook: Box<
+            dyn Fn(&PanicInfo<'_>, Vec<(W::Id, Arc<SuperUnsafeCell<W>>)>) + 'static + Sync + Send,
+        >,
+    ) {
+        let callstack = self.global_callstack.clone();
+        let in_panic_again = AtomicBool::new(false);
+
+        std::panic::set_hook(Box::new(move |panic_info| {
+            if in_panic_again.load(std::sync::atomic::Ordering::Relaxed) {
+                println!("got in panic again: {:?}", panic_info);
+                return;
+            }
+            in_panic_again.store(false, std::sync::atomic::Ordering::Relaxed);
+
+            let callstack = match callstack.try_lock() {
+                Ok(c) => c,
+                Err(TryLockError::Poisoned(g)) => g.into_inner(),
+                Err(TryLockError::WouldBlock) => {
+                    println!("wtf?");
+                    return;
+                }
+            };
+
+            let mut frames = Vec::new();
+
+            let mut current_frame = (**callstack).clone();
+
+            while let CallStack::Child {
+                level: _,
+                previous,
+                frame,
+                worker,
+            } = current_frame
+            {
+                frames.push((frame, worker));
+                current_frame = (*previous).clone();
+            }
+
+            hook(panic_info, frames);
+        }));
+    }
+}
+
+enum CallStack<W, F: Clone> {
+    Root,
+    Child {
+        level: usize,
+        previous: Arc<CallStack<W, F>>,
+        frame: F,
+        worker: Arc<SuperUnsafeCell<W>>,
+    },
+}
+
+impl<W, F: Clone> Clone for CallStack<W, F> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Root => Self::Root,
+            Self::Child {
+                level,
+                previous,
+                frame,
+                worker,
+            } => Self::Child {
+                level: *level,
+                previous: previous.clone(),
+                frame: frame.clone(),
+                worker: worker.clone(),
+            },
+        }
+    }
+}
+
 pub struct SuperUnsafeCell<T>(UnsafeCell<T>);
 unsafe impl<T> Send for SuperUnsafeCell<T> {}
 unsafe impl<T> Sync for SuperUnsafeCell<T> {}
@@ -136,6 +216,7 @@ impl<T> SuperUnsafeCell<T> {
 struct GraphSystemInner<W: Worker, F> {
     workers: Mutex<FxHashMap<W::Id, WorkStatus<W::Result>>>,
     factory: Mutex<F>,
+    current_callstack: Mutex<Arc<CallStack<W, W::Id>>>,
 }
 
 enum WorkStatus<R> {
@@ -224,17 +305,17 @@ where
         }
 
         // perform the work
-        let sys_api = GraphSystem {
+        let sys_api = ComputeGraphSys {
             inner: me.clone(),
             callstack,
             global_callstack: global_callstack.clone(),
+        };
+
+        let worker = unsafe { worker.raw_get() };
         let result = match worker.work(&sys_api) {
             Computation::Result(result) => Arc::new(result),
             Computation::Bogus => panic!("workers that return bogus values aren't supported yet"),
         };
-
-        let worker = unsafe { worker.raw_get() };
-        let result = Arc::new(worker.work(&sys_api));
 
         // update the worker status
         let mut workers = me.workers.try_lock().expect("should be contentionless");

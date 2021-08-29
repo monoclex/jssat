@@ -8,7 +8,7 @@ use crate::{collections::PoorMap, id::*};
 
 use super::types::TypeBag;
 
-#[derive(Default, Debug)]
+#[derive(Default)]
 pub struct UniqueFnId {
     id_gen: FunctionId<SymbolicCtx>,
     fns: FxHashMap<FunctionId<LiftedCtx>, PoorMap<TypeBag, FunctionId<SymbolicCtx>>>,

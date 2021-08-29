@@ -68,21 +68,9 @@ pub fn execute(program: &'static LiftedProgram) {
                 println!("- was `never` infected");
             }
 
-            let looking_up = match w.types.looking_up.try_lock() {
-                Ok(g) => g,
-                Err(TryLockError::Poisoned(g)) => g.into_inner(),
-                Err(_) => {
-                    println!(
-                        "couldn't unlock `looking_up` (this is an err) for {:?}",
-                        w.id
-                    );
-                    continue;
-                }
-            };
-
-            match *looking_up {
+            match w.types.looking_up() {
                 types::LookingUp::Nothing => {}
-                types::LookingUp::ShapeKey(key) => {
+                types::LookingUp::RecordKey(key) => {
                     println!("- was looking up type of field key: {:?}", key)
                 }
                 types::LookingUp::Register(r) => {
