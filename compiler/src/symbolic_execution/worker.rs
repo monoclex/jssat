@@ -13,7 +13,7 @@ use crate::lifted::{Function, LiftedProgram};
 use crate::retag::ExtFnPassRetagger;
 use crate::symbolic_execution::types::{RegisterType, ReturnType};
 
-use super::graph_system::Bogusable;
+use super::graph_system::Computation;
 use super::{
     graph_system::{System, Worker},
     types::TypeBag,
@@ -72,12 +72,6 @@ impl WorkerResults {
     }
 }
 
-impl Bogusable for WorkerResults {
-    fn bogus() -> Self {
-        panic!("bogusability should not be required yet");
-    }
-}
-
 impl<'p> Worker for SymbWorker<'p> {
     type Id = FunctionId<SymbolicCtx>;
 
@@ -86,7 +80,7 @@ impl<'p> Worker for SymbWorker<'p> {
     // callers only use the return type and not any other values
     type Result = WorkerResults;
 
-    fn work(&mut self, system: &impl System<Self>) -> Self::Result {
+    fn work(&mut self, system: &impl System<Self>) -> Computation<Self::Result> {
         for inst in self.func.instructions.iter() {
             self.inst_on = CurrentInstruction::Sequential(inst);
 
@@ -378,10 +372,10 @@ impl<'p> Worker for SymbWorker<'p> {
         // this is only here temporarily
         assert_ne!(self.return_type, ReturnType::Never, "why is ret typ never");
 
-        WorkerResults {
+        Computation::Result(WorkerResults {
             is_entry_fn: self.is_entry_fn,
             return_type: self.return_type,
             types,
-        }
+        })
     }
 }

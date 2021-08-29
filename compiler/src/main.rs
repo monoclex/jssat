@@ -2,7 +2,6 @@
 #![feature(box_patterns)]
 #![feature(bool_to_option)]
 #![feature(const_panic)]
-#![feature(const_fn)]
 #![feature(const_option)]
 #![feature(const_fn_trait_bound)]
 #![feature(box_syntax)]

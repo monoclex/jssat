@@ -8,7 +8,7 @@ use crate::lifted::LiftedProgram;
 use crate::retag::ExtFnPassRetagger;
 use crate::retag::ExtFnRetagger;
 
-use self::graph_system::{Bogusable, GraphSystem, System, Worker, WorkerFactory};
+use self::graph_system::{ComputeGraphSys, System, Worker, WorkerFactory};
 use self::types::ReturnType;
 use self::types::TypeBag;
 use self::unique_id::{UniqueFnId, UniqueFnIdShared};
@@ -16,10 +16,10 @@ use self::worker::CurrentInstruction;
 use self::worker::SymbWorker;
 
 pub mod graph_system;
+pub mod type_computations;
 pub mod types;
 pub mod unique_id;
 pub mod worker;
-pub mod type_computations;
 
 pub fn execute(program: &'static LiftedProgram) {
     let mut asm_ext_map = ExtFnPassRetagger::default();
@@ -38,7 +38,7 @@ pub fn execute(program: &'static LiftedProgram) {
         asm_ext_map: Arc::new(asm_ext_map),
     };
 
-    let system = GraphSystem::new(factory);
+    let system = ComputeGraphSys::new(factory);
 
     let orig_hook = std::panic::take_hook();
     system.set_panic_hook(Box::new(move |panic_info, callstack| {
@@ -207,11 +207,5 @@ impl<'p> WorkerFactory for SymbFactory<'p> {
             asm_ext_map: self.asm_ext_map.clone(),
             never_infected: false,
         }
-    }
-}
-
-impl Bogusable for SymbWorker<'_> {
-    fn bogus() -> Self {
-        panic!()
     }
 }

@@ -1,3 +1,10 @@
+//! Contains data structures that are necessary to memorize information about
+//! records - their history of transitions, taking a view on them, and narrowing
+//! that view based on facts. All terminology is briefly explained here, but
+//! explained in depth at [the corresonding blog post][blog post]
+//!
+//! [blog post]: https://sirjosh3917.com/posts/jssat-typing-objects-in-ssa-form/
+
 use derive_more::Display;
 use std::collections::VecDeque;
 use std::fmt::Display;

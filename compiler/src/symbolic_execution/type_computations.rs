@@ -58,11 +58,11 @@ impl BinOpExecutor<'_> {
         lhs: RegisterType,
         rhs: RegisterType,
     ) -> Result<RegisterType, BinaryOperatorExecutionError> {
+        use RegisterType::*;
+
         Ok(match (lhs, rhs) {
-            (RegisterType::Bytes, RegisterType::Bytes)
-            | (RegisterType::Byts(_), RegisterType::Bytes)
-            | (RegisterType::Bytes, RegisterType::Byts(_)) => RegisterType::Bytes,
-            (RegisterType::Byts(a), RegisterType::Byts(b)) => RegisterType::Byts(todo!()),
+            (Bytes, Bytes) | (Byts(_), Bytes) | (Bytes, Byts(_)) => Bytes,
+            (Byts(a), Byts(b)) => Byts(todo!()),
             _ => return Err(BinaryOperatorExecutionError::Unimplemented),
         })
     }
@@ -72,11 +72,11 @@ impl BinOpExecutor<'_> {
         lhs: RegisterType,
         rhs: RegisterType,
     ) -> Result<RegisterType, BinaryOperatorExecutionError> {
+        use RegisterType::*;
+
         Ok(match (lhs, rhs) {
-            (RegisterType::Boolean, RegisterType::Boolean)
-            | (RegisterType::Boolean, RegisterType::Bool(_))
-            | (RegisterType::Bool(_), RegisterType::Boolean) => RegisterType::Boolean,
-            (RegisterType::Bool(a), RegisterType::Bool(b)) => RegisterType::Bool(a && b),
+            (Boolean, Boolean) | (Boolean, Bool(_)) | (Bool(_), Boolean) => Boolean,
+            (Bool(a), Bool(b)) => Bool(a && b),
             _ => return Err(BinaryOperatorExecutionError::Unimplemented),
         })
     }
@@ -86,11 +86,11 @@ impl BinOpExecutor<'_> {
         lhs: RegisterType,
         rhs: RegisterType,
     ) -> Result<RegisterType, BinaryOperatorExecutionError> {
+        use RegisterType::*;
+
         Ok(match (lhs, rhs) {
-            (RegisterType::Boolean, RegisterType::Boolean)
-            | (RegisterType::Boolean, RegisterType::Bool(_))
-            | (RegisterType::Bool(_), RegisterType::Boolean) => RegisterType::Boolean,
-            (RegisterType::Bool(a), RegisterType::Bool(b)) => RegisterType::Bool(a || b),
+            (Boolean, Boolean) | (Boolean, Bool(_)) | (Bool(_), Boolean) => Boolean,
+            (Bool(a), Bool(b)) => Bool(a || b),
             _ => return Err(BinaryOperatorExecutionError::Unimplemented),
         })
     }
@@ -100,24 +100,19 @@ impl BinOpExecutor<'_> {
         lhs: RegisterType,
         rhs: RegisterType,
     ) -> Result<RegisterType, BinaryOperatorExecutionError> {
+        use RegisterType::*;
+
         Ok(match (lhs, rhs) {
-            (RegisterType::Number, RegisterType::Number)
-            | (RegisterType::Int(_), RegisterType::Number)
-            | (RegisterType::Number, RegisterType::Int(_)) => RegisterType::Boolean,
-            (RegisterType::Int(a), RegisterType::Int(b)) => RegisterType::Bool(a == b),
-            (RegisterType::Bytes, RegisterType::Bytes)
-            | (RegisterType::Byts(_), RegisterType::Bytes)
-            | (RegisterType::Bytes, RegisterType::Byts(_)) => RegisterType::Boolean,
-            (RegisterType::Byts(a), RegisterType::Byts(b)) => {
-                RegisterType::Bool(self.types.unintern_const(a) == self.types.unintern_const(b))
+            (Number, Number) | (Int(_), Number) | (Number, Int(_)) => Boolean,
+            (Int(a), Int(b)) => Bool(a == b),
+            (Bytes, Bytes) | (Byts(_), Bytes) | (Bytes, Byts(_)) => Boolean,
+            (Byts(a), Byts(b)) => {
+                Bool(self.types.unintern_const(a) == self.types.unintern_const(b))
             }
-            (RegisterType::Boolean, RegisterType::Boolean)
-            | (RegisterType::Boolean, RegisterType::Bool(_))
-            | (RegisterType::Bool(_), RegisterType::Boolean) => RegisterType::Boolean,
-            (RegisterType::Bool(a), RegisterType::Bool(b)) => RegisterType::Bool(a == b),
-            (RegisterType::Trivial(a), RegisterType::Trivial(b)) => RegisterType::Bool(a == b),
-            (RegisterType::Trivial(_), RegisterType::Record(_))
-            | (RegisterType::Record(_), RegisterType::Trivial(_)) => RegisterType::Bool(false),
+            (Boolean, Boolean) | (Boolean, Bool(_)) | (Bool(_), Boolean) => Boolean,
+            (Bool(a), Bool(b)) => Bool(a == b),
+            (Trivial(a), Trivial(b)) => Bool(a == b),
+            (Trivial(_), Record(_)) | (Record(_), Trivial(_)) => Bool(false),
             _ => return Err(BinaryOperatorExecutionError::Unimplemented),
         })
     }
