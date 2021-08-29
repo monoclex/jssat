@@ -5,14 +5,12 @@ use std::iter::FromIterator;
 use swc_common::{
     errors::{ColorConfig, Handler},
     input::StringInput,
-    pass::define,
     sync::Lrc,
     FileName, SourceMap,
 };
 use swc_ecmascript::ast::{
-    BindingIdent, BlockStmt, CallExpr, ClassDecl, Decl, Expr, ExprOrSpread, FnDecl, Function,
-    Ident, LabeledStmt, Lit, ObjectPatProp, Pat, PatOrExpr, Stmt, VarDecl, VarDeclKind,
-    VarDeclOrExpr, VarDeclOrPat, VarDeclarator,
+    BindingIdent, CallExpr, ClassDecl, Decl, Expr, ExprOrSpread, FnDecl, Function, Ident, Lit,
+    ObjectPatProp, Pat, Stmt, VarDecl, VarDeclKind, VarDeclOrExpr, VarDeclOrPat, VarDeclarator,
 };
 use swc_ecmascript::{
     ast::Script,
@@ -256,10 +254,6 @@ impl<const P: usize> DerefMut for JsWriter<'_, P> {
 
 #[allow(non_snake_case)]
 impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
-    pub fn into_fn(self) -> FunctionBuilder<PARAMS> {
-        self.bld_fn
-    }
-
     /// <https://tc39.es/ecma262/#sec-initializehostdefinedrealm>
     pub fn InitializeHostDefinedRealm(&mut self) -> (RegisterId, RegisterId) {
         self.comment("InitializeHostDefinedRealm");
@@ -307,7 +301,7 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
         let globalObj = self.ReturnIfAbrupt(try_globalObj);
 
         //# 11. Create any host-defined global object properties on globalObj.
-        let define_own_property = self.record_get_slot(globalObj, InternalSlot::DefineOwnProperty);
+        let _define_own_property = self.record_get_slot(globalObj, InternalSlot::DefineOwnProperty);
         self.create_host_defined_global_object_property_print(globalObj);
 
         //# 12. Return NormalCompletion(empty).
@@ -389,7 +383,7 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
     }
 
     /// <https://tc39.es/ecma262/#sec-addrestrictedfunctionproperties>
-    pub fn AddRestrictedFunctionProperties(&mut self, F: RegisterId, realm: RegisterId) {
+    pub fn AddRestrictedFunctionProperties(&mut self, _F: RegisterId, _realm: RegisterId) {
         self.comment("AddRestrictedFunctionProperties");
         // TODO: implement this
     }
@@ -648,7 +642,7 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
     /// Really, we just emit the corresponding code as we comb over the script ourselves.
     pub fn ParseScript(
         &mut self,
-        sourceText: (),
+        _sourceText: (),
         realm: RegisterId,
         hostDefined: RegisterId,
     ) -> RegisterId {
@@ -749,7 +743,7 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
         );
 
         //# 14. If result.[[Type]] is normal and result.[[Value]] is empty, then
-        let is_normal = self.is_normal_completion(result);
+        let _is_normal = self.is_normal_completion(result);
         // TODO: check `[[Value]]` and stuff
         //# a. Set result to NormalCompletion(undefined).
 
@@ -844,7 +838,7 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
         for elem in varNames {
             //# a. If env.HasLexicalDeclaration(name) is true, throw a SyntaxError exception.
             let name = self.bld.constant_str_utf16(elem);
-            let name = self.make_string(name);
+            let _name = self.make_string(name);
         }
 
         //# 6. Let varDeclarations be the VarScopedDeclarations of script.
@@ -920,7 +914,7 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
 
             //# b. For each element dn of the BoundNames of d, do
             let (IsConstantDeclaration, bound_names) = d.bound_names();
-            for dn in bound_names {
+            for _dn in bound_names {
                 //# i. If IsConstantDeclaration of d is true, then
                 if IsConstantDeclaration {
                     //# 1. Perform ? env.CreateImmutableBinding(dn, true).
@@ -953,7 +947,7 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
         }
 
         //# 18. For each String vn of declaredVarNames, do
-        for vn in declaredVarNames {
+        for _vn in declaredVarNames {
             //# a. Perform ? env.CreateGlobalVarBinding(vn, false).
             todo!();
         }
@@ -1052,9 +1046,9 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
     /// <https://tc39.es/ecma262/#sec-runtime-semantics-instantiateordinaryfunctionobject>
     pub fn InstantiateOrdinaryFunctionObject(
         &mut self,
-        f: &Function,
-        scope: GlobalEnvironmentRecord,
-        privateScope: RegisterId,
+        _f: &Function,
+        _scope: GlobalEnvironmentRecord,
+        _privateScope: RegisterId,
     ) -> RegisterId {
         // TODO: implement lmao
 
@@ -1108,7 +1102,7 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
         strict: bool,
     ) -> RegisterId {
         let func = {
-            let (mut f, [env, name]) = self.bld.start_function();
+            let (f, [env, name]) = self.bld.start_function();
             let mut b = Emitter::new(self.bld, f);
 
             let env = EnvironmentRecord::new_with_register_unchecked(env);
@@ -1190,9 +1184,9 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
     pub fn EvaluateCall(
         &mut self,
         func: RegisterId,
-        r#ref: RegisterId,
-        arguments: &Vec<ExprOrSpread>,
-        tailPosition: (),
+        _ref: RegisterId,
+        arguments: &[ExprOrSpread],
+        _tailPosition: (),
     ) -> RegisterId {
         self.comment("EvaluateCall");
 
@@ -1250,7 +1244,7 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
     // host-defined
     pub fn create_host_defined_global_object_property_print(&mut self, global: RegisterId) {
         let print_fn = {
-            let (mut print, [thisValue, arg]) = self.bld.start_function();
+            let (mut print, [_thisValue, arg]) = self.bld.start_function();
 
             let jssatrt_print = self.bld.external_function(
                 "jssatrt_print_any",
@@ -1287,7 +1281,6 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
         let func_obj = self.record_new();
         let fnptr = self.make_fnptr(print_fn.id);
         self.record_set_slot(func_obj, InternalSlot::Call, fnptr);
-        let value = func_obj;
 
         let desc = self.record_new();
         self.record_set_slot(desc, InternalSlot::Writable, r#false);
@@ -1306,7 +1299,7 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
 
         // StatementList : StatementList StatementListItem
         let undefined = self.make_undefined();
-        let mut s = self.NormalCompletion(undefined);
+        let s = self.NormalCompletion(undefined);
 
         // TODO: evaluate statements as specified
         // 1. Let sl be the result of evaluating StatementList.
@@ -1314,7 +1307,7 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
         // 3. Let s be the result of evaluating StatementListItem.
         // 4. Return Completion(UpdateEmpty(s, sl)).
         for stmt in script.body.iter() {
-            let s2 = self.evaluate_stmt(stmt);
+            let _sl = self.evaluate_stmt(stmt);
         }
 
         s
@@ -1387,14 +1380,14 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
             swc_ecmascript::ast::Expr::Member(_) => todo!(),
             swc_ecmascript::ast::Expr::Cond(_) => todo!(),
             swc_ecmascript::ast::Expr::Call(CallExpr {
-                span,
+                span: _,
                 callee,
                 args,
-                type_args,
+                type_args: _,
             }) => {
                 //# 1. Let ref be the result of evaluating CallExpression.
                 let r#ref = match callee {
-                    swc_ecmascript::ast::ExprOrSuper::Super(s) => todo!(),
+                    swc_ecmascript::ast::ExprOrSuper::Super(_) => todo!(),
                     swc_ecmascript::ast::ExprOrSuper::Expr(e) => self.evaluate_expr(&*e),
                 };
 
@@ -1617,7 +1610,7 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
         self.comment("perform_if_else_w_value - fork");
         let (mut if_true, []) = self.bld_fn.start_block();
         let (mut if_not, []) = self.bld_fn.start_block();
-        let (mut return_to, [two_paths_results]) = self.bld_fn.start_block();
+        let (return_to, [two_paths_results]) = self.bld_fn.start_block();
         let return_to_sig = return_to.signature();
 
         // make `self.block` jump to `if_true`/`if_not`
@@ -1669,6 +1662,7 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
     }
 }
 
+#[allow(non_snake_case)]
 impl DynBlockBuilder {
     /// <https://tc39.es/ecma262/#sec-normalcompletion>
     pub fn NormalCompletion(
@@ -1713,6 +1707,7 @@ impl LexicallyDeclaredNames<'_> {
 
 struct TopLevelLexicallyDeclaredNames<'names>(&'names mut Vec<String>);
 
+#[allow(non_snake_case)]
 impl TopLevelLexicallyDeclaredNames<'_> {
     fn StatementList(&mut self, stmts: &[Stmt]) {
         // for loop:
@@ -1737,6 +1732,7 @@ impl TopLevelLexicallyDeclaredNames<'_> {
 
 struct VarDeclaredNames<'names>(&'names mut Vec<String>);
 
+#[allow(non_snake_case)]
 impl VarDeclaredNames<'_> {
     pub fn compute(script: &Script) -> Vec<String> {
         let mut names = Vec::new();
@@ -1865,6 +1861,7 @@ impl VarDeclaredNames<'_> {
 
 struct TopLevelVarDeclaredNames<'names>(&'names mut Vec<String>);
 
+#[allow(non_snake_case)]
 impl TopLevelVarDeclaredNames<'_> {
     fn StatementList(&mut self, stmts: &[Stmt]) {
         // for loop
@@ -1894,6 +1891,7 @@ impl TopLevelVarDeclaredNames<'_> {
 struct BoundNames<'names>(&'names mut Vec<String>);
 
 /// <https://tc39.es/ecma262/#sec-static-semantics-boundnames>
+#[allow(non_snake_case)]
 impl BoundNames<'_> {
     pub fn compute(var_declarator: &VarDeclarator) -> Vec<String> {
         let mut names = Vec::new();
@@ -1903,13 +1901,7 @@ impl BoundNames<'_> {
 
     pub fn compute_fn(func: &FnDecl) -> Vec<String> {
         let mut names = Vec::new();
-        BoundNames(&mut names).HoistableDeclaration(&func);
-        names
-    }
-
-    pub fn compute_cls(cls: &ClassDecl) -> Vec<String> {
-        let mut names = Vec::new();
-        BoundNames(&mut names).Class(&cls);
+        BoundNames(&mut names).HoistableDeclaration(func);
         names
     }
 
@@ -2053,7 +2045,7 @@ impl VarScopedDeclarations<'_> {
             }
             Stmt::ForOf(s) => {
                 if let VarDeclOrPat::VarDecl(v) = &s.left {
-                    self.VariableDeclarationList(&v, VarDeclaratorKind::DeclaredVariableName);
+                    self.VariableDeclarationList(v, VarDeclaratorKind::DeclaredVariableName);
                 }
 
                 self.Statement(&*s.body);
@@ -2150,25 +2142,26 @@ impl TopLevelVarScopedDeclarations<'_> {
 }
 
 enum LexicalScopedDecl {
-    Function(FnDecl),
-    Class(ClassDecl),
-    Variable(VarDecl),
+    // Function(FnDecl),
+// Class(ClassDecl),
+// Variable(VarDecl),
 }
 
 impl LexicalScopedDecl {
     fn bound_names(&self) -> (bool, Vec<String>) {
-        match self {
-            LexicalScopedDecl::Function(f) => (false, BoundNames::compute_fn(f)),
-            LexicalScopedDecl::Class(f) => (false, BoundNames::compute_cls(f)),
-            LexicalScopedDecl::Variable(v) => {
-                let mut bound_names = Vec::new();
-                for v in v.decls.iter() {
-                    bound_names.extend(BoundNames::compute(v));
-                }
+        todo!()
+        // match self {
+        //     LexicalScopedDecl::Function(f) => (false, BoundNames::compute_fn(f)),
+        //     LexicalScopedDecl::Class(f) => (false, BoundNames::compute_cls(f)),
+        //     LexicalScopedDecl::Variable(v) => {
+        //         let mut bound_names = Vec::new();
+        //         for v in v.decls.iter() {
+        //             bound_names.extend(BoundNames::compute(v));
+        //         }
 
-                (matches!(v.kind, VarDeclKind::Const), bound_names)
-            }
-        }
+        //         (matches!(v.kind, VarDeclKind::Const), bound_names)
+        //     }
+        // }
     }
 }
 
@@ -2197,39 +2190,10 @@ impl LexicallyScopedDeclarations<'_> {
         }
     }
 
-    fn Statement(&mut self, stmt: &Stmt) {
-        match stmt {
-            Stmt::Decl(Decl::Fn(f)) => {}
-            _ => {}
-        }
-    }
-}
-
-struct TopLevelLexicallyScopedDeclarations<'names>(&'names mut Vec<LexicalScopedDecl>);
-
-#[allow(non_snake_case)]
-impl TopLevelLexicallyScopedDeclarations<'_> {
-    fn StatementList(&mut self, stmts: &[Stmt]) {
-        // for loop:
-        //# StatementList : StatementList StatementListItem
-        //# 1. Let declarations1 be LexicallyScopedDeclarations of StatementList.
-        //# 2. Let declarations2 be LexicallyScopedDeclarations of StatementListItem.
-        //# 3. Return the list-concatenation of declarations1 and declarations2.
-        for stmt in stmts {
-            self.Statement(stmt);
-        }
-    }
-
-    fn Statement(&mut self, stmt: &Stmt) {
-        match stmt {
-            Stmt::Decl(Decl::Class(c)) => {
-                //
-            }
-            Stmt::Decl(Decl::Var(v)) => {
-
-                //
-            }
-            _ => {}
-        }
+    fn Statement(&mut self, _stmt: &Stmt) {
+        // match stmt {
+        //     Stmt::Decl(Decl::Fn(f)) => {}
+        //     _ => {}
+        // }
     }
 }

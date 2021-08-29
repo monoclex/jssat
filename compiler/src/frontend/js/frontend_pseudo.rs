@@ -2,7 +2,9 @@ use crate::frontend::{builder::*, ir::*};
 
 use crate::isa::InternalSlot;
 
-pub fn traverse(source: String) -> IR {
+// might be vaguely useful in the future as tutorial code or something
+#[allow(dead_code)]
+pub fn traverse(_source: String) -> IR {
     let mut builder = ProgramBuilder::new();
 
     let print_stub = {

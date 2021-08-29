@@ -5,7 +5,7 @@ use tinyvec::TinyVec;
 
 use crate::{
     frontend::ir::{self, ControlFlowInstruction, FFIValueType, Instruction, Returns, IR},
-    id::{Counter, IrCtx, LiftedCtx},
+    id::{IrCtx, LiftedCtx},
     isa::{BlockJump, ISAInstruction, Jump, JumpIf, Return},
     retag::{
         BlkToFn, CnstPassRetagger, CnstRetagger, ExtFnPassRetagger, ExtFnRetagger, FnGenRetagger,
@@ -104,7 +104,7 @@ impl EndInstruction {
     }
 
     pub fn as_display(&self) -> DisplayEndInst {
-        DisplayEndInst(&self)
+        DisplayEndInst(self)
     }
 
     pub fn display(&self, w: &mut impl std::fmt::Write) -> std::fmt::Result {
@@ -243,6 +243,7 @@ fn lift_function(
     lifted
 }
 
+#[allow(clippy::too_many_arguments)]
 fn fn_block_to_fn(
     ir_fn_id: crate::id::FunctionId<IrCtx>,
     ir_blk_id: crate::id::BlockId<IrCtx>,

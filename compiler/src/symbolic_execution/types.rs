@@ -4,6 +4,7 @@
 //! explained in depth at [the corresonding blog post][blog post]
 //!
 //! [blog post]: https://sirjosh3917.com/posts/jssat-typing-objects-in-ssa-form/
+#![allow(warnings)]
 
 use derive_more::Display;
 use std::collections::VecDeque;
@@ -100,14 +101,17 @@ impl TypeBag {
         todo!()
     }
 
+    #[deprecated]
     pub fn append_shape(&mut self, register: RegisterId, shape: Shape) {
         todo!()
     }
 
+    #[deprecated]
     pub fn push_shape(&mut self, alloc: AllocationId, shape: ShapeId) {
         todo!()
     }
 
+    #[deprecated]
     pub fn new_shape(&mut self, shape: Shape) -> ShapeId {
         todo!()
     }
@@ -124,14 +128,17 @@ impl TypeBag {
         todo!()
     }
 
+    #[deprecated]
     pub fn get_field_type(&self, shape: &Shape, key: RecordKey<LiftedCtx>) -> ShapeValueType {
         todo!()
     }
 
+    #[deprecated]
     pub fn has_field(&self, shape: &Shape, key: RecordKey<LiftedCtx>) -> Option<bool> {
         todo!()
     }
 
+    #[deprecated]
     pub fn record_shape(&self, register: RegisterId) -> &Shape {
         todo!()
     }
@@ -144,10 +151,12 @@ impl TypeBag {
         todo!()
     }
 
+    #[deprecated]
     pub fn get_shape(&self, shape: ShapeId) -> &Shape {
         todo!()
     }
 
+    #[deprecated]
     pub fn conv_key(&self, key: RecordKey<LiftedCtx>) -> ShapeKey {
         todo!()
     }

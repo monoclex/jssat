@@ -23,7 +23,7 @@ impl<C: Tag> ISAInstruction<C> for Narrow<C> {
         vec![&mut self.input]
     }
 
-    fn display(&self, w: &mut impl Write) -> std::fmt::Result {
+    fn display(&self, _w: &mut impl Write) -> std::fmt::Result {
         todo!()
     }
 }

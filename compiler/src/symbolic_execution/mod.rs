@@ -1,6 +1,5 @@
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::TryLockError;
 
 use crate::id::*;
 use crate::isa;
@@ -162,7 +161,7 @@ pub fn execute(program: &'static LiftedProgram) {
         system.spawn(entry_fn_id);
     }
 
-    let results = system.try_into_results().expect("system should be dead");
+    let _results = system.try_into_results().expect("system should be dead");
 
     drop(std::panic::take_hook());
 

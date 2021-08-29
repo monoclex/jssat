@@ -13,11 +13,9 @@ pub fn can_lift_registers_in_near_blocks() {
     let mut program = ProgramBuilder::new();
 
     let mut main = program.start_function_main();
-    let main_id = main.id;
 
     let mut block1 = main.start_block_main();
     let (block2, []) = main.start_block();
-    let block1_id = block1.id;
 
     let undefined = block1.make_undefined();
     main.end_block(block1.jmp(block2.signature(), []));
@@ -52,14 +50,12 @@ pub fn can_lift_registers_in_far_blocks() {
     let mut program = ProgramBuilder::new();
 
     let mut main = program.start_function_main();
-    let main_id = main.id;
 
     let mut block1 = main.start_block_main();
     let (block2, []) = main.start_block();
     let (block3, []) = main.start_block();
     let (block4, []) = main.start_block();
     let (block5, []) = main.start_block();
-    let block1_id = block1.id;
 
     let undefined = block1.make_undefined();
     main.end_block(block1.jmp(block2.signature(), []));
@@ -99,7 +95,7 @@ pub fn can_lift_registers_in_far_blocks() {
     // that parameter shall be used to jump to another block
     let param = block.parameters[0];
     println!("got: {:?}", &block.end);
-    if let EndInstruction::Jump(Jump(BlockJump(to, args))) = &block.end {
+    if let EndInstruction::Jump(Jump(BlockJump(_, args))) = &block.end {
         assert_eq!(args.len(), 1);
         assert_eq!(param, args[0]);
     } else {

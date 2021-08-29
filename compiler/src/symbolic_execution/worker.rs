@@ -7,7 +7,6 @@ use rustc_hash::FxHashMap;
 use crate::frontend::ir;
 use crate::frontend::ir::Returns;
 use crate::id::*;
-use crate::isa::BinaryOperator;
 use crate::lifted;
 use crate::lifted::{Function, LiftedProgram};
 use crate::retag::ExtFnPassRetagger;
@@ -57,7 +56,7 @@ impl WorkerResults {
         target_bag: &mut TypeBag,
         me_to_target_typs: &FxHashMap<AllocationId<LiftedCtx>, AllocationId<LiftedCtx>>,
     ) -> ReturnType {
-        let mut rev_alloc_map = me_to_target_typs
+        let rev_alloc_map = me_to_target_typs
             .iter()
             .map(|(k, v)| (*v, *k))
             .collect::<FxHashMap<_, _>>();
@@ -142,7 +141,7 @@ impl<'p> Worker for SymbWorker<'p> {
                     let (lhs, rhs) = (self.types.get(i.lhs), self.types.get(i.rhs));
 
                     let res_typ =
-                        i.op.make_executor(&self.types)
+                        i.op.make_executor(&mut self.types)
                             .execute(lhs, rhs)
                             .expect("expected binary operator to perform");
 
@@ -170,7 +169,7 @@ impl<'p> Worker for SymbWorker<'p> {
                     let id = self.fn_ids.id_of(fn_id, types, true);
                     let r = system.spawn(id);
 
-                    let mut rev_alloc_map = alloc_map
+                    let rev_alloc_map = alloc_map
                         .iter()
                         .map(|(k, v)| (*v, *k))
                         .collect::<FxHashMap<_, _>>();
@@ -210,7 +209,7 @@ impl<'p> Worker for SymbWorker<'p> {
                     let id = self.fn_ids.id_of(i.calling, types, true);
                     let r = system.spawn(id);
 
-                    let mut rev_alloc_map = alloc_map
+                    let rev_alloc_map = alloc_map
                         .iter()
                         .map(|(k, v)| (*v, *k))
                         .collect::<FxHashMap<_, _>>();
@@ -253,7 +252,7 @@ impl<'p> Worker for SymbWorker<'p> {
                         }
                     };
                 }
-                ir::Instruction::Generalize(i) => {
+                ir::Instruction::Generalize(_) => {
                     todo!("generalization algorithm");
                 }
             }
@@ -265,7 +264,7 @@ impl<'p> Worker for SymbWorker<'p> {
         }
 
         self.inst_on = CurrentInstruction::ControlFlow(&self.func.end);
-        let rs = if self.never_infected {
+        let _ = if self.never_infected {
             vec![]
         } else {
             match &self.func.end {
@@ -277,7 +276,7 @@ impl<'p> Worker for SymbWorker<'p> {
                     let id = self.fn_ids.id_of(i.0 .0, types, false);
                     let r = system.spawn(id);
 
-                    let mut rev_alloc_map = alloc_map
+                    let rev_alloc_map = alloc_map
                         .iter()
                         .map(|(k, v)| (*v, *k))
                         .collect::<FxHashMap<_, _>>();
@@ -305,7 +304,7 @@ impl<'p> Worker for SymbWorker<'p> {
                         let id = self.fn_ids.id_of(i.if_so.0, types, false);
                         let r = system.spawn(id);
 
-                        let mut rev_alloc_map = alloc_map
+                        let rev_alloc_map = alloc_map
                             .iter()
                             .map(|(k, v)| (*v, *k))
                             .collect::<FxHashMap<_, _>>();
@@ -332,7 +331,7 @@ impl<'p> Worker for SymbWorker<'p> {
                         let id = self.fn_ids.id_of(i.other.0, types, false);
                         let r = system.spawn(id);
 
-                        let mut rev_alloc_map = alloc_map
+                        let rev_alloc_map = alloc_map
                             .iter()
                             .map(|(k, v)| (*v, *k))
                             .collect::<FxHashMap<_, _>>();

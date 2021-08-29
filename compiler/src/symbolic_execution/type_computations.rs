@@ -4,13 +4,13 @@ use thiserror::Error;
 use super::types::{RegisterType, TypeBag};
 
 impl BinaryOperator {
-    pub fn make_executor<'t>(&self, types: &'t TypeBag) -> BinOpExecutor<'t> {
+    pub fn make_executor<'t>(&self, types: &'t mut TypeBag) -> BinOpExecutor<'t> {
         BinOpExecutor { types, op: *self }
     }
 }
 
 pub struct BinOpExecutor<'a> {
-    types: &'a TypeBag,
+    types: &'a mut TypeBag,
     op: BinaryOperator,
 }
 
@@ -29,7 +29,7 @@ pub enum BinaryOperatorExecutionError {
 
 impl BinOpExecutor<'_> {
     pub fn execute(
-        &self,
+        &mut self,
         lhs: RegisterType,
         rhs: RegisterType,
     ) -> Result<RegisterType, BinOpExecErr> {
@@ -39,7 +39,7 @@ impl BinOpExecutor<'_> {
             BinaryOperator::Or => self.or(lhs, rhs),
             BinaryOperator::Equals => self.equals(lhs, rhs),
             BinaryOperator::LessThan => todo!(),
-            _ => Err(BinaryOperatorExecutionError::Unimplemented),
+            // _ => Err(BinaryOperatorExecutionError::Unimplemented),
         };
 
         match result {
@@ -54,7 +54,7 @@ impl BinOpExecutor<'_> {
     }
 
     fn add(
-        &self,
+        &mut self,
         lhs: RegisterType,
         rhs: RegisterType,
     ) -> Result<RegisterType, BinaryOperatorExecutionError> {
@@ -62,7 +62,12 @@ impl BinOpExecutor<'_> {
 
         Ok(match (lhs, rhs) {
             (Bytes, Bytes) | (Byts(_), Bytes) | (Bytes, Byts(_)) => Bytes,
-            (Byts(a), Byts(b)) => Byts(todo!()),
+            (Byts(a), Byts(b)) => {
+                let mut new = self.types.unintern_const(a).to_owned();
+                new.extend(self.types.unintern_const(b));
+                let id = self.types.intern_constant(&new);
+                Byts(id)
+            }
             _ => return Err(BinaryOperatorExecutionError::Unimplemented),
         })
     }

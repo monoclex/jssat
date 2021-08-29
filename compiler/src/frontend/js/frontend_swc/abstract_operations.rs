@@ -1,9 +1,12 @@
 //! <https://tc39.es/ecma262/#sec-abstract-operations>
 
 use crate::{
-    frontend::builder::{DynBlockBuilder, DynFinalizedBlockBuilder, ProgramBuilder, RegisterId},
+    frontend::builder::{DynBlockBuilder, DynFinalizedBlockBuilder, RegisterId},
     isa::InternalSlot,
 };
+
+#[cfg(test)]
+use crate::frontend::builder::ProgramBuilder;
 
 use super::Emitter;
 
@@ -123,13 +126,13 @@ fn manual_test_if_then_else() {
 fn manual_test_if_then_x_else_y() {
     let mut program = ProgramBuilder::new();
     let mut main = program.start_function_main();
-    let b = main.start_block_main();
-    main.end_block(b.ret(None));
+    let block = main.start_block_main();
+    main.end_block(block.ret(None));
     program.end_function(main);
-    let (f, [cond, x, y]) = program.start_function();
-    let mut e = Emitter::new(&mut program, f);
+    let (func, [cond, x, y]) = program.start_function();
+    let mut e = Emitter::new(&mut program, func);
     e.comment("if");
-    let z = e.if_then_x_else_y(
+    let _ = e.if_then_x_else_y(
         cond,
         |e| {
             e.comment("then");

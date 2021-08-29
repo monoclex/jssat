@@ -5,7 +5,7 @@ pub struct BuildArtifact {
     pub obj: Vec<u8>,
 }
 
-pub fn compile(program: ()) -> BuildArtifact {
+pub fn compile(_program: ()) -> BuildArtifact {
     todo!()
     // let backend_ir = skeleton::translate(program);
     // llvm::compile(backend_ir)

@@ -56,6 +56,7 @@ impl<T> Set<T> {
         self.set.iter_mut().map(|i| &mut i.0)
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn into_iter(self) -> impl Iterator<Item = T> {
         self.set.into_iter().map(|i| i.0)
     }

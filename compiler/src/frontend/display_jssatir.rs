@@ -1,7 +1,4 @@
-use crate::{
-    frontend::ir::{ControlFlowInstruction, Instruction},
-    isa::ISAInstruction,
-};
+use crate::{frontend::ir::ControlFlowInstruction, isa::ISAInstruction};
 
 use super::ir::{FFIValueType, IR};
 use std::fmt::Write;

@@ -5,6 +5,7 @@
 
 // TODO: this file was one beautiful, containing only the logic for the grpah system.
 // now, it must contain additional code to handle panics, and is ugly.
+#![allow(clippy::type_complexity)]
 
 // TODO: there's heaves of unsafe here to support getting mutable access to workers
 // after a panic occurs. there's also probably a lot of UB here too.
@@ -207,6 +208,9 @@ pub struct SuperUnsafeCell<T>(UnsafeCell<T>);
 unsafe impl<T> Send for SuperUnsafeCell<T> {}
 unsafe impl<T> Sync for SuperUnsafeCell<T> {}
 impl<T> SuperUnsafeCell<T> {
+    /// # Safety
+    ///
+    /// This is not safe. Know what you're doing
     #[allow(clippy::mut_from_ref)]
     pub unsafe fn raw_get(&self) -> &mut T {
         &mut *UnsafeCell::raw_get(&self.0 as *const UnsafeCell<T>)

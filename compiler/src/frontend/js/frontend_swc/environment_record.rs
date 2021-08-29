@@ -13,7 +13,7 @@ use super::{abstract_operations::EmitterExt, Emitter};
 pub struct EnvironmentRecordFactory {
     declarative_environment_vtable: EnvironmentRecordVTable,
     object_environment_vtable: EnvironmentRecordVTable,
-    function_environment_vtable: EnvironmentRecordVTable,
+    _function_environment_vtable: EnvironmentRecordVTable,
     global_environment_vtable: GlobalEnvironmentRecordVTable,
     // module_environment_vtable: EnvironmentRecordVTable,
 }
@@ -31,7 +31,7 @@ impl EnvironmentRecordFactory {
         Self {
             declarative_environment_vtable,
             object_environment_vtable,
-            function_environment_vtable,
+            _function_environment_vtable: function_environment_vtable,
             global_environment_vtable,
         }
     }
@@ -44,9 +44,9 @@ impl EnvironmentRecordFactory {
         self.make_env_rec(block, &self.object_environment_vtable)
     }
 
-    pub fn make_func_env_rec(&self, block: &mut DynBlockBuilder) -> EnvironmentRecord {
-        self.make_env_rec(block, &self.function_environment_vtable)
-    }
+    // pub fn make_func_env_rec(&self, block: &mut DynBlockBuilder) -> EnvironmentRecord {
+    //     self.make_env_rec(block, &self._function_environment_vtable)
+    // }
 
     pub fn make_global_env_rec(&self, block: &mut DynBlockBuilder) -> GlobalEnvironmentRecord {
         let vtable = &self.global_environment_vtable;
@@ -127,7 +127,7 @@ impl EnvironmentRecordFactory {
         };
 
         let get_binding_value = {
-            let (f, [env, N, S]) = writer.start_function();
+            let (f, [env, N, _S]) = writer.start_function();
             let mut b = Emitter::new(writer, f);
 
             // https://tc39.es/ecma262/#sec-declarative-environment-records-getbindingvalue-n-s
@@ -148,7 +148,7 @@ impl EnvironmentRecordFactory {
 
     fn init_vtable_object(writer: &mut ProgramBuilder) -> EnvironmentRecordVTable {
         let has_binding = {
-            let (mut f, [envRec, N]) = writer.start_function();
+            let (f, [envRec, N]) = writer.start_function();
             let mut w = Emitter::new(writer, f);
             w.comment("ObjectEnvironmentRecord::HasBinding");
 
@@ -234,7 +234,7 @@ impl EnvironmentRecordFactory {
     }
 
     fn init_vtable_function(
-        writer: &mut ProgramBuilder,
+        _writer: &mut ProgramBuilder,
         declarative_environment_vtable: &EnvironmentRecordVTable,
     ) -> EnvironmentRecordVTable {
         // function declarative objects inherit most methods from the declarative environment
@@ -247,7 +247,7 @@ impl EnvironmentRecordFactory {
 
     fn init_vtable_global(writer: &mut ProgramBuilder) -> GlobalEnvironmentRecordVTable {
         let has_binding = {
-            let (mut f, [envRec, N]) = writer.start_function();
+            let (f, [envRec, N]) = writer.start_function();
             let mut w = Emitter::new(writer, f);
 
             // <https://tc39.es/ecma262/#sec-global-environment-records-hasbinding-n>
@@ -310,7 +310,7 @@ impl EnvironmentRecordFactory {
         };
 
         let has_restricted_global_property = {
-            let (mut f, [envRec, N]) = writer.start_function();
+            let (mut f, [envRec, _N]) = writer.start_function();
             let mut w = f.start_block_main();
 
             // <https://tc39.es/ecma262/#sec-hasrestrictedglobalproperty>
@@ -320,7 +320,7 @@ impl EnvironmentRecordFactory {
             let ObjRec = w.record_get_slot(envRec, InternalSlot::ObjectRecord);
 
             //# 2. Let globalObject be ObjRec.[[BindingObject]].
-            let globalObject = w.record_get_slot(ObjRec, InternalSlot::BindingObject);
+            let _globalObject = w.record_get_slot(ObjRec, InternalSlot::BindingObject);
 
             //# 3. Let existingProp be ? globalObject.[[GetOwnProperty]](N).
             //# 4. If existingProp is undefined, return false.

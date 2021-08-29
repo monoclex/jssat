@@ -1,7 +1,7 @@
 //! <https://tc39.es/ecma262/#sec-ordinary-object-internal-methods-and-internal-slots>
 
 use crate::{
-    frontend::builder::{FnSignature, ProgramBuilder, RegisterId},
+    frontend::builder::{FnSignature, ProgramBuilder},
     isa::InternalSlot,
 };
 
@@ -165,13 +165,13 @@ impl OrdinaryInternalMethods {
 
     /// <https://tc39.es/ecma262/#sec-ordinarysetprototypeof>
     fn make_OrdinarySetPrototypeOf(builder: &mut ProgramBuilder) -> FnSignature<2> {
-        let (mut f, [O, V]) = builder.start_function();
+        let (mut f, [O, _V]) = builder.start_function();
         let mut b = f.start_block_main();
         b.comment("OrdinarySetPrototypeOf");
 
         //# 1. Assert: Either Type(V) is Object or Type(V) is Null.
         //# 2. Let current be O.[[Prototype]].
-        let current = b.record_get_slot(O, InternalSlot::Prototype);
+        let _current = b.record_get_slot(O, InternalSlot::Prototype);
 
         //# 3. If SameValue(V, current) is true, return true.
         //# 4. Let extensible be O.[[Extensible]].
@@ -211,7 +211,7 @@ impl OrdinaryInternalMethods {
         builder: &mut ProgramBuilder,
         ValidateAndApplyPropertyDescriptor: FnSignature<5>,
     ) -> FnSignature<3> {
-        let (mut f, [O, P, Desc]) = builder.start_function();
+        let (f, [O, P, Desc]) = builder.start_function();
         let mut b = Emitter::new(builder, f);
         b.comment("OrdinaryDefineOwnProperty");
 
@@ -251,7 +251,7 @@ impl OrdinaryInternalMethods {
         b.if_then_end(is_undefined, |b| {
             //# a. If extensible is false, return false.
             let is_false = b.compare_equal(extensible, r#false);
-            b.if_then_end(is_false, |b| |b| b.ret(Some(r#false)));
+            b.if_then_end(is_false, |_| |b| b.ret(Some(r#false)));
 
             //# b. Assert: extensible is true.
             //# c. If IsGenericDescriptor(Desc) is true or IsDataDescriptor(Desc) is true, then
@@ -319,7 +319,6 @@ impl OrdinaryInternalMethods {
 
         //# 3. If every field in Desc is absent, return true.
         // TODO: instruction to check if record is empty
-        let TODO_INSTRUCTION_RECORD_IS_EMPTY = 1;
 
         //# 4. If current.[[Configurable]] is false, then
         let configurable = b.record_get_slot(current, InternalSlot::Configurable);
@@ -330,7 +329,7 @@ impl OrdinaryInternalMethods {
             b.if_then(has_configurable, |b| {
                 let value = b.record_get_slot(Desc, InternalSlot::Configurable);
                 let value_is_true = b.compare_equal(value, r#true);
-                b.if_then_end(value_is_true, |b| |b| b.ret(Some(r#false)));
+                b.if_then_end(value_is_true, |_| |b| b.ret(Some(r#false)));
             })
 
             //# b. If Desc.[[Enumerable]] is present and ! SameValue(Desc.[[Enumerable]], current.[[Enumerable]]) is false, return false.
@@ -344,8 +343,8 @@ impl OrdinaryInternalMethods {
 
                 //# a. NOTE: No further validation is required.
             },
-            |b| {
-                let TODO_ASSERTION_INSTRUCTION = 1;
+            |_| {
+                todo!("ASSERTION INSTRUCTION")
 
                 //# 6. Else if ! SameValue(! IsDataDescriptor(current), ! IsDataDescriptor(Desc)) is false, then
                 //# a. If current.[[Configurable]] is false, return false.
@@ -370,7 +369,7 @@ impl OrdinaryInternalMethods {
         //# 9. If O is not undefined, then
         let is_undefined = b.compare_equal(O, undefined);
         let is_not_undefined = b.negate(is_undefined);
-        b.if_then(is_not_undefined, |b| {
+        b.if_then(is_not_undefined, |_| {
             //# a. For each field of Desc that is present, set the corresponding
             //#    attribute of the property named P of object O to the value of
             //#    the field.

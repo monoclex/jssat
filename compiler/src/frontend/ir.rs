@@ -264,7 +264,7 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
     }
 
     pub fn as_display(&self) -> DisplayInst<C, F> {
-        DisplayInst(&self)
+        DisplayInst(self)
     }
 
     pub fn display(&self, w: &mut impl std::fmt::Write) -> std::fmt::Result {
