@@ -342,6 +342,7 @@ dependencies = [
  "petgraph",
  "ref-cast",
  "rustc-hash",
+ "string-interner",
  "swc_atoms",
  "swc_common",
  "swc_ecmascript",
@@ -874,6 +875,17 @@ name = "static_assertions"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
+
+[[package]]
+name = "string-interner"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ecc77d3a5728ef82235df1f9b9430507f555c7404797f42b49c2403d4c1d8c6c"
+dependencies = [
+ "cfg-if 1.0.0",
+ "hashbrown",
+ "serde",
+]
 
 [[package]]
 name = "string_cache"

@@ -6,13 +6,15 @@
 //! [blog post]: https://sirjosh3917.com/posts/jssat-typing-objects-in-ssa-form/
 
 use derive_more::Display;
+use lasso::{Key, Rodeo};
 use std::collections::VecDeque;
 use std::fmt::Display;
 use std::sync::{Arc, Mutex};
+use string_interner::{StringInterner, Symbol};
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::id::{Counter, LiftedCtx, SymbolicCtx};
+use crate::id::{Counter, IdCompat, LiftedCtx, SymbolicCtx};
 use crate::isa::{InternalSlot, TrivialItem};
 use crate::UnwrapNone;
 
@@ -103,8 +105,10 @@ impl Default for LookingUpStatus {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct TypeBag {
+    registers: FxHashMap<RegisterId, RegisterType>,
+    constants: StringInterner<ConstantId>,
     status: LookingUp,
 }
 
@@ -130,28 +134,39 @@ impl TypeBag {
     }
 
     pub fn assign_type(&mut self, register: RegisterId, typ: RegisterType) {
-        todo!()
+        self.registers.insert(register, typ).expect_free();
     }
 
     pub fn intern_constant(&mut self, payload: &[u8]) -> ConstantId {
-        todo!()
+        // we don't really want or care about strigns specifically
+        // but the API wants strings
+        // TODO: is this safe?
+        let str = unsafe { std::str::from_utf8_unchecked(payload) };
+        self.constants.get_or_intern(str)
+    }
+
+    pub fn unintern_const(&self, id: ConstantId) -> &[u8] {
+        self.constants.resolve(id).unwrap().as_bytes()
     }
 
     pub fn get(&self, register: RegisterId) -> RegisterType {
-        todo!()
+        self.status.set(LookingUpStatus::Register(register));
+        let typ = *self.registers.get(&register).unwrap();
+        self.status.set(LookingUpStatus::Nothing);
+        typ
     }
 
     pub fn get_fnptr(&self, register: RegisterId) -> DynFnId {
-        todo!()
-    }
-
-    pub fn unintern_const(&self, id: ConstantId) -> &Vec<u8> {
-        todo!()
+        if let RegisterType::FnPtr(f) = self.get(register) {
+            f
+        } else {
+            panic!("expected `get_fnptr` to give a register that's a fnptr");
+        }
     }
 
     pub fn display(&self, register: RegisterId) -> String {
         DisplayContext {
-            types: &self,
+            types: self,
             records_shown: Vec::new(),
         }
         .display(register)
@@ -186,6 +201,16 @@ impl TypeBag {
         me_to_them_alloc_map: &FxHashMap<AllocationId, AllocationId>,
     ) -> RegisterType {
         todo!()
+    }
+}
+
+impl Default for TypeBag {
+    fn default() -> Self {
+        TypeBag {
+            registers: Default::default(),
+            constants: StringInterner::new(),
+            status: Default::default(),
+        }
     }
 }
 
@@ -255,5 +280,15 @@ impl DisplayContext<'_> {
         }
 
         write!(w, "{:?}", payload)
+    }
+}
+
+impl Symbol for ConstantId {
+    fn to_usize(self) -> usize {
+        self.raw_value()
+    }
+
+    fn try_from_usize(int: usize) -> Option<Self> {
+        ConstantId::try_new_with_value_raw_const(int)
     }
 }

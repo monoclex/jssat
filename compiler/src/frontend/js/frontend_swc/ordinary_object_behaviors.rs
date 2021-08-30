@@ -344,7 +344,7 @@ impl OrdinaryInternalMethods {
                 //# a. NOTE: No further validation is required.
             },
             |_| {
-                todo!("ASSERTION INSTRUCTION")
+                // TODO: ASSERTION INSTRUCTION
 
                 //# 6. Else if ! SameValue(! IsDataDescriptor(current), ! IsDataDescriptor(Desc)) is false, then
                 //# a. If current.[[Configurable]] is false, return false.

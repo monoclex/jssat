@@ -247,29 +247,9 @@ impl SymbWorker<'_> {
             );
         }
 
-        r.clone_ret_typ(&mut self.types, &alloc_map)
-    }
-}
-
-impl WorkerResults {
-    // TODO: there is probably a bug with this method in regards to object types
-    // since the allocation map isn't used to map records into the source typebag
-    fn clone_ret_typ(
-        &self,
-        target_bag: &mut TypeBag,
-        me_to_target_typs: &FxHashMap<AllocationId<LiftedCtx>, AllocationId<LiftedCtx>>,
-    ) -> ReturnType {
-        let rev_alloc_map = me_to_target_typs
-            .iter()
-            .map(|(k, v)| (*v, *k))
-            .collect::<FxHashMap<_, _>>();
-
-        match self.return_type {
-            ReturnType::Void => ReturnType::Void,
-            ReturnType::Never => ReturnType::Never,
-            ReturnType::Value(v) => {
-                ReturnType::Value(self.types.pull_type_into(v, target_bag, &rev_alloc_map))
-            }
-        }
+        // TODO: there is probably a bug with this method in regards to object types
+        // since the allocation map isn't used to map records into the source typebag
+        r.return_type
+            .map(|v| r.types.pull_type_into(v, &mut self.types, &rev_alloc_map))
     }
 }
