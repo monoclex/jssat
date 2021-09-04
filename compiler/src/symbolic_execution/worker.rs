@@ -126,7 +126,7 @@ impl SymbWorker<'_> {
             ir::Instruction::RecordSet(i) => {
                 let field_typ = self.types.get(i.value);
                 self.types
-                    .record_set_field(i.record, i.key, field_typ, inst_idx);
+                    .record_set_field(i.record, i.key, Some(field_typ), inst_idx);
             }
             ir::Instruction::RecordHasKey(i) => {
                 match self.types.get(i.record) {
