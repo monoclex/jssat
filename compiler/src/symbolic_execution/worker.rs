@@ -58,9 +58,9 @@ impl<'p> Worker for SymbWorker<'p> {
     type Result = WorkerResults;
 
     fn work(&mut self, system: &impl System<Self>) -> Computation<Self::Result> {
-        for inst in self.func.instructions.iter() {
+        for (inst_idx, inst) in self.func.instructions.iter().enumerate() {
             self.inst_on = CurrentInstruction::Sequential(inst);
-            self.exec_inst(inst, system);
+            self.exec_inst(inst, inst_idx, system);
 
             if self.never_infected {
                 break;
@@ -73,11 +73,18 @@ impl<'p> Worker for SymbWorker<'p> {
             // TODO: write "unreachable" instruction
             ReturnType::Never
         } else {
+            let inst_idx = self.func.instructions.len();
             match &self.func.end {
-                crate::lifted::EndInstruction::Jump(i) => self.exec_types(system, i.0 .0, &i.0 .1),
+                crate::lifted::EndInstruction::Jump(i) => {
+                    self.exec_types(system, i.0 .0, &i.0 .1, inst_idx)
+                }
                 crate::lifted::EndInstruction::JumpIf(i) => match self.types.get(i.condition) {
-                    RegisterType::Bool(true) => self.exec_types(system, i.if_so.0, &i.if_so.1),
-                    RegisterType::Bool(false) => self.exec_types(system, i.other.0, &i.other.1),
+                    RegisterType::Bool(true) => {
+                        self.exec_types(system, i.if_so.0, &i.if_so.1, inst_idx)
+                    }
+                    RegisterType::Bool(false) => {
+                        self.exec_types(system, i.other.0, &i.other.1, inst_idx)
+                    }
                     RegisterType::Boolean => todo!("cannot handle divergence atm"),
                     r => unimplemented!("cannot use non-boolean register as conditional {:?}", r),
                 },
@@ -106,6 +113,7 @@ impl SymbWorker<'_> {
     fn exec_inst(
         &mut self,
         inst: &ir::Instruction<LiftedCtx, LiftedCtx>,
+        inst_idx: usize,
         system: &impl System<Self>,
     ) {
         match inst {
@@ -117,7 +125,8 @@ impl SymbWorker<'_> {
             }
             ir::Instruction::RecordSet(i) => {
                 let field_typ = self.types.get(i.value);
-                self.types.record_set_field(i.record, i.key, field_typ);
+                self.types
+                    .record_set_field(i.record, i.key, field_typ, inst_idx);
             }
             ir::Instruction::RecordHasKey(i) => {
                 match self.types.get(i.record) {
@@ -169,9 +178,11 @@ impl SymbWorker<'_> {
             }
             ir::Instruction::CallVirt(i) => {
                 let fn_id = self.types.get_fnptr(i.calling);
-                self.call_fn(system, i.result, fn_id, &i.args);
+                self.call_fn(system, i.result, fn_id, &i.args, inst_idx);
             }
-            ir::Instruction::CallStatic(i) => self.call_fn(system, i.result, i.calling, &i.args),
+            ir::Instruction::CallStatic(i) => {
+                self.call_fn(system, i.result, i.calling, &i.args, inst_idx)
+            }
             ir::Instruction::CallExtern(i) => {
                 // TODO: ensure/make args are coercible into `fn_id`,
                 // although the `assembler` phase does this for us as of the time of writing
@@ -201,8 +212,9 @@ impl SymbWorker<'_> {
         result: Option<RegisterId<LiftedCtx>>,
         fn_id: FunctionId<LiftedCtx>,
         args: &[RegisterId<LiftedCtx>],
+        inst_idx: usize,
     ) {
-        let return_type = self.exec_types(system, fn_id, args);
+        let return_type = self.exec_types(system, fn_id, args, inst_idx);
 
         match (result, return_type) {
             (_, ReturnType::Never) => {
@@ -225,31 +237,53 @@ impl SymbWorker<'_> {
         system: &impl System<Self>,
         fn_id: FunctionId<LiftedCtx>,
         fn_args: &[RegisterId<LiftedCtx>],
+        inst_idx: usize,
     ) -> ReturnType {
-        let src_fn = self.program.functions.get(&fn_id).unwrap();
-        debug_assert_eq!(src_fn.parameters.len(), fn_args.len());
-        let map_args = (fn_args.iter().copied()).zip(src_fn.parameters.iter().copied());
-        let (types, alloc_map) = self.types.extract_map(map_args);
-        let id = self.fn_ids.id_of(fn_id, types, false);
-        let r = system.spawn(id);
+        let target_fn = self.program.functions.get(&fn_id).unwrap();
+        debug_assert_eq!(
+            target_fn.parameters.len(),
+            fn_args.len(),
+            "param count should match"
+        );
 
-        let rev_alloc_map = alloc_map
+        let mut subset = self.types.subset(fn_args, &target_fn.parameters, inst_idx);
+
+        let target_id = self.fn_ids.id_of(fn_id, subset.child(), false);
+        let results = system.spawn(target_id);
+
+        target_fn
+            .parameters
             .iter()
-            .map(|(k, v)| (*v, *k))
-            .collect::<FxHashMap<_, _>>();
+            .for_each(|reg| subset.update_reg(&results.types, *reg));
 
-        for (_, its_alloc) in alloc_map.iter() {
-            // update the register type
-            r.types.pull_type_into(
-                RegisterType::Record(*its_alloc),
-                &mut self.types,
-                &rev_alloc_map,
-            );
-        }
+        results
+            .return_type
+            .map(|v| subset.update_typ(&results.types, v))
 
-        // TODO: there is probably a bug with this method in regards to object types
-        // since the allocation map isn't used to map records into the source typebag
-        r.return_type
-            .map(|v| r.types.pull_type_into(v, &mut self.types, &rev_alloc_map))
+        // let src_fn = self.program.functions.get(&fn_id).unwrap();
+        // debug_assert_eq!(src_fn.parameters.len(), fn_args.len());
+        // let map_args = (fn_args.iter().copied()).zip(src_fn.parameters.iter().copied());
+        // let (types, alloc_map) = self.types.extract_map(map_args);
+        // let id = self.fn_ids.id_of(fn_id, types, false);
+        // let r = system.spawn(id);
+
+        // let rev_alloc_map = alloc_map
+        //     .iter()
+        //     .map(|(k, v)| (*v, *k))
+        //     .collect::<FxHashMap<_, _>>();
+
+        // for (_, its_alloc) in alloc_map.iter() {
+        //     // update the register type
+        //     r.types.pull_type_into(
+        //         RegisterType::Record(*its_alloc),
+        //         &mut self.types,
+        //         &rev_alloc_map,
+        //     );
+        // }
+
+        // // TODO: there is probably a bug with this method in regards to object types
+        // // since the allocation map isn't used to map records into the source typebag
+        // r.return_type
+        //     .map(|v| r.types.pull_type_into(v, &mut self.types, &rev_alloc_map))
     }
 }

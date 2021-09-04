@@ -105,6 +105,33 @@ impl Default for LookingUpStatus {
     }
 }
 
+pub struct Subset<'a> {
+    original: &'a mut TypeBag,
+    child: TypeBag,
+    pub inst_idx: usize,
+    mapping: (),
+}
+
+impl<'a> Subset<'a> {
+    /// Produces the representation of the subset typebag
+    pub fn child(&self) -> TypeBag {
+        self.child.clone()
+    }
+
+    /// Given a register type in a `type_bag` which is expected to be similar to
+    /// this subset's `child`, this will perform all necessary work to
+    pub fn update_reg(&mut self, type_bag: &TypeBag, target_reg: RegisterId) {
+        todo!()
+    }
+
+    /// Given a single type in a `type_bag` which is expected to be similar to
+    /// this subset's `child`, this will perform all necessary work to bring
+    /// that type into the scope of this subset.
+    pub fn update_typ(&mut self, type_bag: &TypeBag, typ: RegisterType) -> RegisterType {
+        todo!()
+    }
+}
+
 #[derive(Clone)]
 pub struct TypeBag {
     registers: FxHashMap<RegisterId, RegisterType>,
@@ -125,7 +152,13 @@ impl TypeBag {
         todo!()
     }
 
-    pub fn record_set_field(&self, record: RegisterId, field: RecordKey, value: RegisterType) {
+    pub fn record_set_field(
+        &self,
+        record: RegisterId,
+        field: RecordKey,
+        value: RegisterType,
+        inst_idx: usize,
+    ) {
         todo!()
     }
 
@@ -172,34 +205,13 @@ impl TypeBag {
         .display(register)
     }
 
-    /// Given a set of registers, will pull out the types of those registers
-    /// and create a new `TypeBag` containing only the types of the registers
-    /// specified.
-    ///
-    /// This is useful for continuing execution of a function after a block.
-    #[deprecated]
-    pub fn extract(&self, regs: &[RegisterId]) -> (Self, FxHashMap<AllocationId, AllocationId>) {
-        todo!()
-    }
-
-    /// Given a set of registers, it will extract the type out of them and
-    /// place those types into the register specified (RHS in the tuple)
-    #[deprecated]
-    pub fn extract_map(
-        &self,
-        regs: impl Iterator<Item = (RegisterId, RegisterId)>,
-    ) -> (Self, FxHashMap<AllocationId, AllocationId>) {
-        todo!()
-    }
-
-    // TODO: deduplicate this code
-    #[deprecated]
-    pub fn pull_type_into(
-        &self,
-        typ: RegisterType,
-        into: &mut TypeBag,
-        me_to_them_alloc_map: &FxHashMap<AllocationId, AllocationId>,
-    ) -> RegisterType {
+    pub fn subset(
+        &mut self,
+        src_args: &[RegisterId],
+        target_args: &[RegisterId],
+        inst_idx: usize,
+    ) -> Subset {
+        debug_assert_eq!(src_args.len(), target_args.len());
         todo!()
     }
 }
