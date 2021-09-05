@@ -6,11 +6,12 @@
 //! [blog post]: https://sirjosh3917.com/posts/jssat-typing-objects-in-ssa-form/
 
 use derive_more::{Deref, DerefMut, Display};
+use lasso::{Key, Rodeo};
 use std::sync::{Arc, Mutex};
-use string_interner::{StringInterner, Symbol};
 
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
+use crate::collections::FxBiHashMap;
 use crate::id::{IdCompat, LiftedCtx, SymbolicCtx};
 use crate::isa::{InternalSlot, TrivialItem};
 use crate::UnwrapNone;
@@ -27,6 +28,37 @@ type WorkRecordKey = crate::isa::RecordKey<LiftedCtx>;
 enum RecordKey {
     Key(RegisterType),
     Slot(InternalSlot),
+}
+
+impl RecordKey {
+    fn into_record_key_eq(self) -> RecordKeyEq {
+        match self {
+            RecordKey::Key(a) => RecordKeyEq::Key(a),
+            RecordKey::Slot(a) => RecordKeyEq::Slot(a),
+        }
+    }
+}
+
+/// usually you don't want equality because to compare if two register tpyes
+/// are equal you often need to look them up into a type bag, this is because
+/// atm there are no guarantees that two different constant ids don't point to
+/// the same constant or that two union ids don't point to different unions
+///
+/// but to show that i don't care that much about that at the moment, this is
+/// a sort of hack to make it explicit "hey im aware what im doing is djumb"
+#[derive(Clone, Copy, Hash, PartialEq, Eq)]
+enum RecordKeyEq {
+    Key(RegisterType),
+    Slot(InternalSlot),
+}
+
+impl RecordKeyEq {
+    fn into_record_key(self) -> RecordKey {
+        match self {
+            RecordKeyEq::Key(a) => RecordKey::Key(a),
+            RecordKeyEq::Slot(a) => RecordKey::Slot(a),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -127,11 +159,11 @@ enum Fact {
     Set {
         key: RecordKey,
         value: RegisterType,
-        inst_idx: usize,
+        inst_idx: InstIdx,
     },
     Remove {
         key: RecordKey,
-        inst_idx: usize,
+        inst_idx: InstIdx,
     },
 }
 
@@ -142,7 +174,7 @@ impl Fact {
         }
     }
 
-    fn inst_idx(&self) -> usize {
+    fn inst_idx(&self) -> InstIdx {
         match self {
             Fact::Set { inst_idx, .. } | Fact::Remove { inst_idx, .. } => *inst_idx,
         }
@@ -158,11 +190,15 @@ impl RecordBag {
         id
     }
 
+    /// F : (the field : RecordKey, a fact's key : RecordKey) -> true if should include fact, false if not
+    ///
+    /// the ordering of F's params is specified so that functions that want to
+    /// check for subtying relationships can
     pub fn record_facts_of<F>(
         &self,
         record: AllocationId,
         field: RecordKey,
-        keys_eq: F,
+        should_include_fact: F,
     ) -> Union<&Fact>
     where
         F: Fn(RecordKey, RecordKey) -> bool,
@@ -172,7 +208,7 @@ impl RecordBag {
         let mut field_facts = vec![];
         for facts in record.iter() {
             for fact in facts.iter().rev() {
-                if keys_eq(fact.key(), field) {
+                if should_include_fact(field, fact.key()) {
                     field_facts.push(fact);
                     break;
                 }
@@ -182,7 +218,12 @@ impl RecordBag {
         Union(field_facts)
     }
 
-    pub fn record_fact_remove(&mut self, record: AllocationId, field: RecordKey, inst_idx: usize) {
+    pub fn record_fact_remove(
+        &mut self,
+        record: AllocationId,
+        field: RecordKey,
+        inst_idx: InstIdx,
+    ) {
         let record = self.records.get_mut(&record).unwrap();
 
         for facts in record.iter_mut() {
@@ -198,7 +239,7 @@ impl RecordBag {
         record: AllocationId,
         field: RecordKey,
         value: RegisterType,
-        inst_idx: usize,
+        inst_idx: InstIdx,
     ) {
         let record = self.records.get_mut(&record).unwrap();
 
@@ -268,13 +309,218 @@ impl RecordBag {
             Some(initial)
         }
     }
+
+    pub fn record_keys(&self, id: AllocationId) -> FxHashSet<RecordKeyEq> {
+        let facts = self.records.get(&id).unwrap();
+
+        let keys = (facts.iter())
+            .flat_map(|facts| facts.iter())
+            .map(|fact| fact.key().into_record_key_eq())
+            .collect::<FxHashSet<_>>();
+
+        keys
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+struct ChildRecordInfo {
+    id: AllocationId,
+    initial_facts: usize,
+}
+
+/// we need a number to determine when a fact was added so that optimization
+/// passes acting on the list of facts can know at the instruction it's looking
+/// at if a fact is true or false
+///
+/// when calling functions, each record in the typebag has an initial fact set up
+/// so that's represented by `prologue`, and during execution if types change
+/// *after* an instruction that's represented with `inst`
+#[derive(Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub enum InstIdx {
+    Prologue,
+    Inst(usize),
+    /// only needed as a hack really but oh well
+    Epilogue,
+}
+
+struct Syncer<'a, R> {
+    inst_idx: InstIdx,
+    src: &'a TypeBag,
+    dest: &'a mut TypeBag,
+    resolve: R,
+}
+
+trait SyncResolver {
+    /// record id in src -> record id in dest
+    /// if `None`, that means generate a new record id
+    fn map_record_id(&self, id: AllocationId) -> Option<AllocationId>;
+
+    /// if a `None` was returned this will be called with `id` and the generated id
+    fn save_record_id(&mut self, src_id: AllocationId, gen_id: AllocationId);
+}
+
+struct ResolveLeft<'a>(&'a mut FxBiHashMap<AllocationId, AllocationId>);
+struct ResolveRight<'a>(&'a mut FxBiHashMap<AllocationId, AllocationId>);
+
+impl<'a> SyncResolver for ResolveLeft<'a> {
+    fn map_record_id(&self, id: AllocationId) -> Option<AllocationId> {
+        self.0.get_by_left(&id).cloned()
+    }
+    fn save_record_id(&mut self, src_id: AllocationId, gen_id: AllocationId) {
+        self.0.insert(src_id, gen_id).expect_free();
+    }
+}
+impl<'a> SyncResolver for ResolveRight<'a> {
+    fn map_record_id(&self, id: AllocationId) -> Option<AllocationId> {
+        self.0.get_by_right(&id).cloned()
+    }
+    fn save_record_id(&mut self, src_id: AllocationId, gen_id: AllocationId) {
+        self.0.insert(gen_id, src_id).expect_free();
+    }
+}
+
+impl<'a, R: SyncResolver> Syncer<'a, R> {
+    pub fn sync_type(&mut self, typ: RegisterType) -> RegisterType {
+        match typ {
+            RegisterType::Any
+            | RegisterType::Trivial(_)
+            | RegisterType::Bytes
+            | RegisterType::Number
+            | RegisterType::Int(_)
+            | RegisterType::Boolean
+            | RegisterType::Bool(_)
+            | RegisterType::FnPtr(_) => typ,
+            RegisterType::Byts(id) => {
+                let payload = self.src.unintern_const(id);
+                let id = self.dest.intern_constant(payload);
+                RegisterType::Byts(id)
+            }
+            RegisterType::Union(u) => {
+                let union = self.src.unions.unintern(u);
+                let id = self.dest.unions.intern(union.clone());
+                RegisterType::Union(id)
+            }
+            RegisterType::Record(id) => {
+                let dest_id = match self.resolve.map_record_id(id) {
+                    Some(id) => {
+                        // TODO: is this correct logic? maybe we might actually need to sync *more*,
+                        // in which case that would be as simple as writing logic to check if the
+                        // two records are completely equal on both ends
+                        return RegisterType::Record(id);
+                    }
+                    None => {
+                        let gen_id = self.dest.records.new_record();
+                        self.resolve.save_record_id(id, gen_id);
+                        gen_id
+                    }
+                };
+
+                // we want to sync up the record from the src to the dest
+                // a record is a list of facts, so we want to propagate these facts into the child
+                //
+                // algo steps:
+                // 1. get list of keys
+                //    this way we can determine what facts to pull into the child record
+                // 2. for each key
+                //    a. get history of facts from key
+                //    b. discard facts that don't change anything about the record's behavior
+                //    c. union all facts into a single type
+                //    d. save (key, type) into record
+                // 3. return record
+
+                let keys = self.src.records.record_keys(id);
+
+                for key in keys.into_iter().map(|k| k.into_record_key()) {
+                    let is_subtype = |a, b| {
+                        // a : field
+                        // b : comparing against
+
+                        use RecordKey::*;
+                        match (a, b) {
+                            (Slot(a), Slot(b)) => a == b,
+                            // we want to include fact if a <: b
+                            (Key(a), Key(b)) => self.src.is_subtype(a, b),
+                            _ => false,
+                        }
+                    };
+
+                    let facts = self.src.records.record_facts_of(id, key, is_subtype);
+
+                    // facts : [most recent, ..., least recent]
+                    {
+                        // assertion for the above constraint
+                        let mut idx = InstIdx::Prologue;
+                        for fact in facts.iter() {
+                            debug_assert!(idx <= fact.inst_idx());
+                            idx = fact.inst_idx();
+                        }
+                    }
+
+                    debug_assert!(
+                        facts.len() > 0,
+                        "for the record to have a key there must be facts about it"
+                    );
+
+                    // we lose any relevent facts as soon as we delete something
+                    let facts = (facts.iter()).take_while(|fact| matches!(fact, Fact::Set { .. }));
+                    // facts : [set a => 1, remove a, set a => 2]
+                    // =>      [set a => 1]
+
+                    // the type of the value is the union of all of the facts
+                    let field_types = facts
+                        .map(|f| match f {
+                            Fact::Set {
+                                key: fact_key,
+                                value,
+                                ..
+                            } => {
+                                debug_assert!(
+                                    fact_key.into_record_key_eq() == key.into_record_key_eq(),
+                                    "should only be operating on facts of key type key"
+                                );
+
+                                *value
+                            }
+                            Fact::Remove { .. } => unreachable!(),
+                        })
+                        .map(|typ| self.sync_type(typ))
+                        .collect::<Vec<_>>();
+
+                    let value_typ = match field_types.len() {
+                        // no need to set a field if it doesn't have any type
+                        // ^ in that case, facts : [remove a] => facts : []
+                        0 => continue,
+                        // only a single type, no need to union anything
+                        1 => field_types[0],
+                        _ => {
+                            todo!("union all types")
+                        }
+                    };
+
+                    self.dest
+                        .records
+                        .record_fact_set(dest_id, key, value_typ, self.inst_idx);
+                }
+
+                RegisterType::Record(dest_id)
+            }
+        }
+    }
 }
 
 pub struct Subset<'a> {
     original: &'a mut TypeBag,
     child: TypeBag,
-    pub inst_idx: usize,
-    mapping: (),
+    /// this might be used for like mutable state inside the subset lol
+    pub inst_idx: InstIdx,
+    // // { original register id |-> child register id }
+    // reg_map: FxBiHashMap<RegisterId, RegisterId>,
+    // { original record id |-> child record id }
+    rec_map: FxBiHashMap<AllocationId, AllocationId>,
+    // { record id in original |-> number of facts present at subset creation }
+    src_fact_init: FxHashMap<AllocationId, usize>,
+    // { record id in dest |-> number of facts present at subset creation }
+    dest_fact_init: FxHashMap<AllocationId, usize>,
 }
 
 impl<'a> Subset<'a> {
@@ -283,8 +529,28 @@ impl<'a> Subset<'a> {
         self.child.clone()
     }
 
+    // this might just be update_reg
+    fn sync_to_child(&mut self, src_reg: RegisterId, child_reg: RegisterId, inst_idx: InstIdx) {
+        let typ = self.original.get(src_reg);
+
+        let res_typ = Syncer {
+            inst_idx,
+            src: self.original,
+            dest: &mut self.child,
+            resolve: ResolveLeft(&mut self.rec_map),
+        }
+        .sync_type(typ);
+
+        self.child.assign_type(child_reg, res_typ);
+    }
+
+    fn sync_from_child(&mut self, child: &TypeBag, dest: RegisterId) {
+        todo!()
+    }
+
     /// Given a register type in a `type_bag` which is expected to be similar to
-    /// this subset's `child`, this will perform all necessary work to
+    /// this subset's `child`, this will perform all necessary work to bring
+    /// that type into subset
     pub fn update_reg(&mut self, type_bag: &TypeBag, target_reg: RegisterId) {
         todo!()
     }
@@ -324,12 +590,34 @@ impl UnionInterner {
     }
 }
 
+#[derive(Deref, DerefMut)]
+struct CloneRodeo<T>(Rodeo<T>);
+
+impl<T: Key> Default for CloneRodeo<T> {
+    fn default() -> Self {
+        CloneRodeo(Rodeo::new())
+    }
+}
+
+impl<T: Key + Default> Clone for CloneRodeo<T> {
+    fn clone(&self) -> Self {
+        let mut new = Rodeo::new();
+
+        for (k, v) in self.iter() {
+            let k_new = new.get_or_intern(v);
+            assert!(k == k_new, "need keys on rodeos to match");
+        }
+
+        CloneRodeo(new)
+    }
+}
+
 #[derive(Clone)]
 pub struct TypeBag {
     registers: FxHashMap<RegisterId, RegisterType>,
     records: RecordBag,
     unions: UnionInterner,
-    constants: StringInterner<ConstantId>,
+    constants: CloneRodeo<ConstantId>,
     status: LookingUp,
 }
 
@@ -404,7 +692,7 @@ impl TypeBag {
         record: RegisterId,
         field: WorkRecordKey,
         value: Option<RegisterType>,
-        inst_idx: usize,
+        inst_idx: InstIdx,
     ) {
         let typ = self.get(record);
 
@@ -462,7 +750,7 @@ impl TypeBag {
     }
 
     pub fn unintern_const(&self, id: ConstantId) -> &[u8] {
-        self.constants.resolve(id).unwrap().as_bytes()
+        self.constants.resolve(&id).as_bytes()
     }
 
     pub fn get(&self, register: RegisterId) -> RegisterType {
@@ -492,13 +780,42 @@ impl TypeBag {
         &mut self,
         src_args: &[RegisterId],
         target_args: &[RegisterId],
-        inst_idx: usize,
+        inst_idx: InstIdx,
     ) -> Subset {
         debug_assert_eq!(src_args.len(), target_args.len());
-        todo!()
+
+        if src_args.is_empty() {
+            return Subset {
+                original: self,
+                child: Default::default(),
+                inst_idx,
+                rec_map: Default::default(),
+                src_fact_init: Default::default(),
+                dest_fact_init: Default::default(),
+            };
+        }
+
+        let mut subset = Subset {
+            original: self,
+            child: Default::default(),
+            inst_idx,
+            rec_map: Default::default(),
+            src_fact_init: Default::default(),
+            dest_fact_init: Default::default(),
+        };
+
+        for (src_reg, child_reg) in src_args.iter().zip(target_args.iter()) {
+            subset.sync_to_child(*src_reg, *child_reg, InstIdx::Prologue);
+        }
+
+        subset
     }
 
     pub fn typ_eq(&self, a: RegisterType, b: RegisterType) -> bool {
+        todo!()
+    }
+
+    pub fn is_subtype(&self, subset: RegisterType, superset: RegisterType) -> bool {
         todo!()
     }
 }
@@ -509,7 +826,7 @@ impl Default for TypeBag {
             registers: Default::default(),
             unions: Default::default(),
             records: Default::default(),
-            constants: StringInterner::new(),
+            constants: Default::default(),
             status: Default::default(),
         }
     }
@@ -531,7 +848,8 @@ impl DisplayContext<'_> {
     pub fn display(&mut self, register: RegisterId) -> String {
         let mut s = String::new();
 
-        todo!();
+        let typ = self.types.get(register);
+        self.display_typ(&mut s, &typ).expect("to format");
 
         s
     }
@@ -553,8 +871,9 @@ impl DisplayContext<'_> {
             RegisterType::Int(v) => write!(w, "Int({})", v)?,
             RegisterType::Bool(v) => write!(w, "Boolean({})", v)?,
             RegisterType::FnPtr(f) => write!(w, "FnPtr(@{})", f)?,
-            RegisterType::Record(r) => todo!(),
-            RegisterType::Union(_) => todo!(),
+            // TODO: display records and unions
+            RegisterType::Record(r) => write!(w, "TODO: record {}", r)?,
+            RegisterType::Union(u) => write!(w, "TODO: union {}", u)?,
         };
 
         Ok(())
@@ -563,7 +882,7 @@ impl DisplayContext<'_> {
     fn display_cnst(&self, w: &mut String, cnst: ConstantId) -> std::fmt::Result {
         use std::fmt::Write;
 
-        let payload = todo!();
+        let payload = self.types.unintern_const(cnst);
 
         if let Ok(str) = std::str::from_utf8(payload) {
             write!(w, "{:?}", str)?;
@@ -583,12 +902,13 @@ impl DisplayContext<'_> {
     }
 }
 
-impl Symbol for ConstantId {
-    fn to_usize(self) -> usize {
-        self.raw_value()
+unsafe impl Key for ConstantId {
+    // fn to_usize(self) -> usize {
+    fn into_usize(self) -> usize {
+        self.raw_value() - 1
     }
 
     fn try_from_usize(int: usize) -> Option<Self> {
-        ConstantId::try_new_with_value_raw_const(int)
+        ConstantId::try_new_with_value_raw_const(int + 1)
     }
 }

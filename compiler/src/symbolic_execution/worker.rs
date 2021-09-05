@@ -14,6 +14,7 @@ use crate::retag::ExtFnPassRetagger;
 use crate::symbolic_execution::types::{RegisterType, ReturnType};
 
 use super::graph_system::Computation;
+use super::types::InstIdx;
 use super::{
     graph_system::{System, Worker},
     types::TypeBag,
@@ -60,7 +61,7 @@ impl<'p> Worker for SymbWorker<'p> {
     fn work(&mut self, system: &impl System<Self>) -> Computation<Self::Result> {
         for (inst_idx, inst) in self.func.instructions.iter().enumerate() {
             self.inst_on = CurrentInstruction::Sequential(inst);
-            self.exec_inst(inst, inst_idx, system);
+            self.exec_inst(inst, InstIdx::Inst(inst_idx), system);
 
             if self.never_infected {
                 break;
@@ -73,7 +74,7 @@ impl<'p> Worker for SymbWorker<'p> {
             // TODO: write "unreachable" instruction
             ReturnType::Never
         } else {
-            let inst_idx = self.func.instructions.len();
+            let inst_idx = InstIdx::Epilogue;
             match &self.func.end {
                 crate::lifted::EndInstruction::Jump(i) => {
                     self.exec_types(system, i.0 .0, &i.0 .1, inst_idx)
@@ -113,7 +114,7 @@ impl SymbWorker<'_> {
     fn exec_inst(
         &mut self,
         inst: &ir::Instruction<LiftedCtx, LiftedCtx>,
-        inst_idx: usize,
+        inst_idx: InstIdx,
         system: &impl System<Self>,
     ) {
         match inst {
@@ -212,7 +213,7 @@ impl SymbWorker<'_> {
         result: Option<RegisterId<LiftedCtx>>,
         fn_id: FunctionId<LiftedCtx>,
         args: &[RegisterId<LiftedCtx>],
-        inst_idx: usize,
+        inst_idx: InstIdx,
     ) {
         let return_type = self.exec_types(system, fn_id, args, inst_idx);
 
@@ -237,7 +238,7 @@ impl SymbWorker<'_> {
         system: &impl System<Self>,
         fn_id: FunctionId<LiftedCtx>,
         fn_args: &[RegisterId<LiftedCtx>],
-        inst_idx: usize,
+        inst_idx: InstIdx,
     ) -> ReturnType {
         let target_fn = self.program.functions.get(&fn_id).unwrap();
         debug_assert_eq!(
