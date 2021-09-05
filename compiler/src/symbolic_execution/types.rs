@@ -298,10 +298,12 @@ impl RecordBag {
         let initial = fact_paths_that_have_key.next().unwrap();
 
         // check if all other lines of facts are the same
-        let all_same = fact_paths_that_have_key.fold(initial, |a, b| a == b);
+        let any_different = fact_paths_that_have_key
+            .map(|has| initial == has)
+            .any(|has| has == false);
 
         // if any other line of facts is different,
-        if !all_same {
+        if any_different {
             // we both have and don't have a key
             None
         } else {
@@ -359,6 +361,17 @@ trait SyncResolver {
     fn save_record_id(&mut self, src_id: AllocationId, gen_id: AllocationId);
 }
 
+// TODO: the resolvers need to be aware of src_fact_init and dest_fact_init
+// so that they don't inline already known facts, probably?
+// e.g.
+// src : [a => 1, b => 2], dest : []
+//   sync src -> dest
+// src : prev, dest : [a => 1, b => 2]
+//   run code
+// src : prev, dest : prev ++ [c => 3]
+//   sync dest -> src
+// src : [a => 1, b => 2, a => 1, b => 2, c => 3], dest : prev
+// or something^
 struct ResolveLeft<'a>(&'a mut FxBiHashMap<AllocationId, AllocationId>);
 struct ResolveRight<'a>(&'a mut FxBiHashMap<AllocationId, AllocationId>);
 
@@ -511,8 +524,6 @@ impl<'a, R: SyncResolver> Syncer<'a, R> {
 pub struct Subset<'a> {
     original: &'a mut TypeBag,
     child: TypeBag,
-    /// this might be used for like mutable state inside the subset lol
-    pub inst_idx: InstIdx,
     // // { original register id |-> child register id }
     // reg_map: FxBiHashMap<RegisterId, RegisterId>,
     // { original record id |-> child record id }
@@ -529,37 +540,59 @@ impl<'a> Subset<'a> {
         self.child.clone()
     }
 
-    // this might just be update_reg
-    fn sync_to_child(&mut self, src_reg: RegisterId, child_reg: RegisterId, inst_idx: InstIdx) {
-        let typ = self.original.get(src_reg);
-
-        let res_typ = Syncer {
+    fn self_to_child_syncer<'b>(&'b mut self, inst_idx: InstIdx) -> Syncer<'b, ResolveLeft> {
+        Syncer {
             inst_idx,
             src: self.original,
             dest: &mut self.child,
             resolve: ResolveLeft(&mut self.rec_map),
         }
-        .sync_type(typ);
+    }
+
+    fn child_to_self_syncer<'b>(
+        &'b mut self,
+        child: &'b TypeBag,
+        inst_idx: InstIdx,
+    ) -> Syncer<'b, ResolveRight> {
+        Syncer {
+            inst_idx,
+            src: child,
+            dest: &mut self.original,
+            resolve: ResolveRight(&mut self.rec_map),
+        }
+    }
+
+    // this might just be update_reg
+    fn sync_to_child(&mut self, src_reg: RegisterId, child_reg: RegisterId, inst_idx: InstIdx) {
+        let typ = self.original.get(src_reg);
+
+        let res_typ = self.self_to_child_syncer(inst_idx).sync_type(typ);
 
         self.child.assign_type(child_reg, res_typ);
     }
 
-    fn sync_from_child(&mut self, child: &TypeBag, dest: RegisterId) {
-        todo!()
+    fn sync_from_child(&mut self, child: &TypeBag, dest: RegisterId, inst_idx: InstIdx) {
+        let typ = child.get(dest);
+        self.child_to_self_syncer(child, inst_idx).sync_type(typ);
     }
 
     /// Given a register type in a `type_bag` which is expected to be similar to
     /// this subset's `child`, this will perform all necessary work to bring
     /// that type into subset
-    pub fn update_reg(&mut self, type_bag: &TypeBag, target_reg: RegisterId) {
-        todo!()
+    pub fn update_reg(&mut self, type_bag: &TypeBag, target_reg: RegisterId, inst_idx: InstIdx) {
+        self.sync_from_child(type_bag, target_reg, inst_idx)
     }
 
     /// Given a single type in a, Deref `type_bag` which is expected to be similar to
     /// this subset's `child`, this will perform all necessary work to bring
     /// that type into the scope of this subset.
-    pub fn update_typ(&mut self, type_bag: &TypeBag, typ: RegisterType) -> RegisterType {
-        todo!()
+    pub fn update_typ(
+        &mut self,
+        type_bag: &TypeBag,
+        typ: RegisterType,
+        inst_idx: InstIdx,
+    ) -> RegisterType {
+        self.child_to_self_syncer(type_bag, inst_idx).sync_type(typ)
     }
 }
 
@@ -753,9 +786,14 @@ impl TypeBag {
         self.constants.resolve(&id).as_bytes()
     }
 
+    pub fn try_get(&self, register: RegisterId) -> Option<RegisterType> {
+        self.registers.get(&register).cloned()
+    }
+
+    #[track_caller]
     pub fn get(&self, register: RegisterId) -> RegisterType {
         self.status.set(LookingUpStatus::Register(register));
-        let typ = *self.registers.get(&register).unwrap();
+        let typ = self.try_get(register).unwrap();
         self.status.set(LookingUpStatus::Nothing);
         typ
     }
@@ -788,7 +826,6 @@ impl TypeBag {
             return Subset {
                 original: self,
                 child: Default::default(),
-                inst_idx,
                 rec_map: Default::default(),
                 src_fact_init: Default::default(),
                 dest_fact_init: Default::default(),
@@ -798,7 +835,6 @@ impl TypeBag {
         let mut subset = Subset {
             original: self,
             child: Default::default(),
-            inst_idx,
             rec_map: Default::default(),
             src_fact_init: Default::default(),
             dest_fact_init: Default::default(),
@@ -848,8 +884,11 @@ impl DisplayContext<'_> {
     pub fn display(&mut self, register: RegisterId) -> String {
         let mut s = String::new();
 
-        let typ = self.types.get(register);
-        self.display_typ(&mut s, &typ).expect("to format");
+        if let Some(typ) = self.types.try_get(register) {
+            self.display_typ(&mut s, &typ).expect("to format");
+        } else {
+            s.push('?');
+        }
 
         s
     }

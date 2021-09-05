@@ -255,11 +255,11 @@ impl SymbWorker<'_> {
         target_fn
             .parameters
             .iter()
-            .for_each(|reg| subset.update_reg(&results.types, *reg));
+            .for_each(|reg| subset.update_reg(&results.types, *reg, inst_idx));
 
         results
             .return_type
-            .map(|v| subset.update_typ(&results.types, v))
+            .map(|v| subset.update_typ(&results.types, v, inst_idx))
 
         // let src_fn = self.program.functions.get(&fn_id).unwrap();
         // debug_assert_eq!(src_fn.parameters.len(), fn_args.len());

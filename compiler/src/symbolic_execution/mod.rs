@@ -66,7 +66,11 @@ pub fn execute(program: &'static LiftedProgram) {
 
     match result {
         Ok(_) => {}
-        Err(e) => handle_panic(system, e),
+        Err(e) => {
+            handle_panic(system, e);
+            drop(std::panic::take_hook());
+            return;
+        }
     };
 
     drop(std::panic::take_hook());
@@ -80,7 +84,7 @@ pub fn execute(program: &'static LiftedProgram) {
 fn handle_panic<'p>(
     system: ComputeGraphSys<SymbWorker<'p>, SymbFactory<'p>>,
     panic_payload: Box<dyn Any + Send>,
-) -> ! {
+) {
     println!();
     println!("! note: at this time, type information is inaccurate");
     println!("! as it only reflects the most current state of abstract interpretation");
@@ -189,8 +193,6 @@ fn handle_panic<'p>(
             println!("| ...");
         }
     }
-
-    todo!()
 }
 
 struct SymbFactory<'program> {
