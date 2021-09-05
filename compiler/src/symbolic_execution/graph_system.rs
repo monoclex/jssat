@@ -14,7 +14,7 @@
 use std::{
     cell::UnsafeCell,
     hash::Hash,
-    panic::PanicInfo,
+    panic::{PanicInfo, RefUnwindSafe, UnwindSafe},
     sync::{atomic::AtomicBool, Arc, Mutex, TryLockError},
 };
 
@@ -124,54 +124,39 @@ where
     }
 }
 
-impl<W: 'static, F> ComputeGraphSys<W, F>
+impl<W, F> ComputeGraphSys<W, F>
 where
     W: Worker + Send + Sync,
     W::Id: 'static + Send + Sync,
     F: WorkerFactory<Worker = W>,
 {
-    pub fn set_panic_hook(
-        &self,
-        hook: Box<
-            dyn Fn(&PanicInfo<'_>, Vec<(W::Id, Arc<SuperUnsafeCell<W>>)>) + 'static + Sync + Send,
-        >,
-    ) {
+    pub fn load_callstack_within_panic(&self) -> Vec<(<W as Worker>::Id, Arc<SuperUnsafeCell<W>>)> {
         let callstack = self.global_callstack.clone();
-        let in_panic_again = AtomicBool::new(false);
 
-        std::panic::set_hook(Box::new(move |panic_info| {
-            if in_panic_again.load(std::sync::atomic::Ordering::Relaxed) {
-                println!("got in panic again: {:?}", panic_info);
-                return;
+        let callstack = match callstack.try_lock() {
+            Ok(c) => c,
+            Err(TryLockError::Poisoned(g)) => g.into_inner(),
+            Err(TryLockError::WouldBlock) => {
+                panic!("wtf?");
             }
-            in_panic_again.store(false, std::sync::atomic::Ordering::Relaxed);
+        };
 
-            let callstack = match callstack.try_lock() {
-                Ok(c) => c,
-                Err(TryLockError::Poisoned(g)) => g.into_inner(),
-                Err(TryLockError::WouldBlock) => {
-                    println!("wtf?");
-                    return;
-                }
-            };
+        let mut frames = Vec::new();
 
-            let mut frames = Vec::new();
+        let mut current_frame = (**callstack).clone();
 
-            let mut current_frame = (**callstack).clone();
+        while let CallStack::Child {
+            level: _,
+            previous,
+            frame,
+            worker,
+        } = current_frame
+        {
+            frames.push((frame, worker));
+            current_frame = (*previous).clone();
+        }
 
-            while let CallStack::Child {
-                level: _,
-                previous,
-                frame,
-                worker,
-            } = current_frame
-            {
-                frames.push((frame, worker));
-                current_frame = (*previous).clone();
-            }
-
-            hook(panic_info, frames);
-        }));
+        frames
     }
 }
 
@@ -204,9 +189,11 @@ impl<W, F: Clone> Clone for CallStack<W, F> {
     }
 }
 
-pub struct SuperUnsafeCell<T>(UnsafeCell<T>);
+pub struct SuperUnsafeCell<T>(pub UnsafeCell<T>);
 unsafe impl<T> Send for SuperUnsafeCell<T> {}
 unsafe impl<T> Sync for SuperUnsafeCell<T> {}
+impl<T> UnwindSafe for SuperUnsafeCell<T> {}
+impl<T> RefUnwindSafe for SuperUnsafeCell<T> {}
 impl<T> SuperUnsafeCell<T> {
     /// # Safety
     ///
