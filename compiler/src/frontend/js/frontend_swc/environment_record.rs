@@ -208,15 +208,8 @@ impl EnvironmentRecordFactory {
             w.if_then_end(is_false, |w| {
                 //# a. If S is false, return the value undefined; otherwise throw a ReferenceError exception.
                 let S_false = w.negate(S);
-                let result = w.if_then_x_else_y(
-                    S_false,
-                    |w| w.make_undefined(),
-                    |w| {
-                        // panic
-                        let null = w.make_null();
-                        w.negate(null)
-                    },
-                );
+                let result =
+                    w.if_then_x_else_y(S_false, |w| w.make_undefined(), |w| w.unreachable());
                 move |w| w.ret(Some(result))
             });
 

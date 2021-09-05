@@ -1496,9 +1496,7 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
 
             // panic (this is only for development)
             // we should never hit ReturnIfAbrupt in development (i think)
-            let a = on_abrupt_completion.make_number_decimal(1);
-            let b = on_abrupt_completion.make_null();
-            on_abrupt_completion.compare_equal(a, b);
+            on_abrupt_completion.unreachable();
 
             self.bld_fn
                 .end_block(on_abrupt_completion.ret(Some(argument)))

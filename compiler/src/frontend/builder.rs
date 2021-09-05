@@ -426,6 +426,15 @@ impl DynBlockBuilder {
         }
     }
 
+    /// this will be the unreachable instruction when added, but for the time
+    /// being, it causes a panic if the symbolic execution engine reaches it
+    #[track_caller]
+    pub fn unreachable(&mut self) -> RegisterId {
+        self.comment("unreachable");
+        let null = self.make_null();
+        self.negate(null)
+    }
+
     #[track_caller]
     pub fn comment(&mut self, message: &'static str) {
         self.instructions.push(Instruction::Comment(Comment {
