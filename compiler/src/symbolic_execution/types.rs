@@ -8,6 +8,7 @@
 use derive_more::{Deref, DerefMut, Display};
 use lasso::{Key, Rodeo};
 use std::sync::{Arc, Mutex};
+use swc_common::pass::All;
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -93,6 +94,65 @@ pub enum RegisterType {
     FnPtr(DynFnId),
     Record(AllocationId),
     Union(UnionId),
+}
+
+impl PartialOrd for RegisterType {
+    /// Order's the type of a register based on whether a register type is a
+    /// subtype of another. The following subtypes are defined:
+    ///
+    /// ```text
+    /// forall t . t :> t
+    /// forall t . Any :> t
+    /// Bytes :> Byts
+    /// Number :> Int
+    /// Boolean :> Bool
+    /// ```
+    ///
+    /// Any undefined relation produces `None`.
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        use std::cmp::Ordering::{self, *};
+        use RegisterType::*;
+
+        fn algo(lhs: &RegisterType, rhs: &RegisterType) -> Option<Ordering> {
+            // forall t . t :> t
+            if lhs == rhs {
+                return Some(Equal);
+            }
+
+            // forall t . Any :> t
+            if let Any = rhs {
+                return Some(match lhs {
+                    Any => Equal,
+                    _ => Less,
+                });
+            }
+
+            // Bytes :> Byts
+            if let Bytes = lhs {
+                if let Byts(_) = rhs {
+                    return Some(Greater);
+                }
+            }
+
+            // Number :> Int
+            if let Number = lhs {
+                if let Int(_) = rhs {
+                    return Some(Greater);
+                }
+            }
+
+            // Boolean :> Bool
+            if let Boolean = lhs {
+                if let Bool(_) = rhs {
+                    return Some(Greater);
+                }
+            }
+
+            None
+        }
+
+        algo(self, other).or_else(|| algo(other, self).map(Ordering::reverse))
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -215,6 +275,19 @@ impl RecordBag {
             }
         }
 
+        if field_facts.is_empty() {
+            println!("we do it aagain buddy");
+            for facts in record.iter() {
+                for fact in facts.iter().rev() {
+                    if should_include_fact(field, fact.key()) {
+                        field_facts.push(fact);
+                        break;
+                    }
+                }
+            }
+        }
+
+        debug_assert!(!field_facts.is_empty(), "should have field facts");
         Union(field_facts)
     }
 
@@ -444,75 +517,14 @@ impl<'a, R: SyncResolver> Syncer<'a, R> {
                 let keys = self.src.records.record_keys(id);
 
                 for key in keys.into_iter().map(|k| k.into_record_key()) {
-                    let is_subtype = |a, b| {
-                        // a : field
-                        // b : comparing against
-
-                        use RecordKey::*;
-                        match (a, b) {
-                            (Slot(a), Slot(b)) => a == b,
-                            // we want to include fact if a <: b
-                            (Key(a), Key(b)) => self.src.is_subtype(a, b),
-                            _ => false,
-                        }
-                    };
-
-                    let facts = self.src.records.record_facts_of(id, key, is_subtype);
-
-                    // facts : [most recent, ..., least recent]
-                    {
-                        // assertion for the above constraint
-                        let mut idx = InstIdx::Prologue;
-                        for fact in facts.iter() {
-                            debug_assert!(idx <= fact.inst_idx());
-                            idx = fact.inst_idx();
-                        }
-                    }
-
-                    debug_assert!(
-                        facts.len() > 0,
-                        "for the record to have a key there must be facts about it"
-                    );
-
-                    // we lose any relevent facts as soon as we delete something
-                    let facts = (facts.iter()).take_while(|fact| matches!(fact, Fact::Set { .. }));
-                    // facts : [set a => 1, remove a, set a => 2]
-                    // =>      [set a => 1]
-
-                    // the type of the value is the union of all of the facts
-                    let field_types = facts
-                        .map(|f| match f {
-                            Fact::Set {
-                                key: fact_key,
-                                value,
-                                ..
-                            } => {
-                                debug_assert!(
-                                    fact_key.into_record_key_eq() == key.into_record_key_eq(),
-                                    "should only be operating on facts of key type key"
-                                );
-
-                                *value
-                            }
-                            Fact::Remove { .. } => unreachable!(),
-                        })
-                        .map(|typ| self.sync_type(typ))
-                        .collect::<Vec<_>>();
-
-                    let value_typ = match field_types.len() {
-                        // no need to set a field if it doesn't have any type
-                        // ^ in that case, facts : [remove a] => facts : []
-                        0 => continue,
-                        // only a single type, no need to union anything
-                        1 => field_types[0],
-                        _ => {
-                            todo!("union all types")
-                        }
+                    let value_type = match self.src.value_type_at_record_key(id, key) {
+                        None => continue,
+                        Some(t) => self.sync_type(t),
                     };
 
                     self.dest
                         .records
-                        .record_fact_set(dest_id, key, value_typ, self.inst_idx);
+                        .record_fact_set(dest_id, key, value_type, self.inst_idx);
                 }
 
                 RegisterType::Record(dest_id)
@@ -848,11 +860,229 @@ impl TypeBag {
     }
 
     pub fn typ_eq(&self, a: RegisterType, b: RegisterType) -> bool {
-        todo!()
+        let mut record_constraints = vec![];
+        let mut union_constraints = vec![];
+
+        let is_maybe_equal =
+            self.maybe_equal(&self, a, b, &mut record_constraints, &mut union_constraints);
+
+        if !is_maybe_equal {
+            return false;
+        }
+
+        self.solve_constraints(&self, &mut record_constraints, &mut union_constraints)
     }
 
     pub fn is_subtype(&self, subset: RegisterType, superset: RegisterType) -> bool {
+        subset <= superset
+    }
+
+    /// true - maybe equal, false - definitely not equal
+    fn maybe_equal(
+        &self,
+        other: &TypeBag,
+        self_reg_type: RegisterType,
+        other_reg_type: RegisterType,
+        record_constraints: &mut Vec<(AllocationId, AllocationId)>,
+        union_constraints: &mut Vec<(UnionId, UnionId)>,
+    ) -> bool {
+        use RegisterType::*;
+
+        let maybe_equal = match (self_reg_type, other_reg_type) {
+            // -> true  => maybe equal
+            // -> false => definitely not equal
+            (Record(a), Record(b)) => {
+                record_constraints.push((a, b));
+                true
+            }
+            (Union(a), Union(b)) => {
+                union_constraints.push((a, b));
+                true
+            }
+            (Byts(a), Byts(b)) => self.unintern_const(a) == other.unintern_const(b),
+            (a, b) => a == b,
+        };
+
+        maybe_equal
+    }
+
+    /// true if all constraints can be resolve, false if not
+    fn solve_constraints(
+        &self,
+        other: &TypeBag,
+        record_constraints: &mut Vec<(AllocationId, AllocationId)>,
+        union_constraints: &mut Vec<(UnionId, UnionId)>,
+    ) -> bool {
+        let mut solved_records = FxHashSet::default();
+        let mut solved_unions = FxHashSet::default();
+
+        while !record_constraints.is_empty() || !union_constraints.is_empty() {
+            while let Some(constraint) = record_constraints.pop() {
+                // because we don't use `solved_records`, it doesn't matter at which point within
+                // this loop we add the records to `solved_records`
+                //
+                // thus, we do it at the beginning to prevent duplicate work in-case we are working
+                // on an already solved constraint
+                if !solved_records.insert(constraint) {
+                    continue;
+                }
+
+                let (me, them) = constraint;
+
+                if !self.rec_eq(other, me, them, record_constraints, union_constraints) {
+                    return false;
+                }
+            }
+
+            while let Some(constraint) = union_constraints.pop() {
+                if !solved_unions.insert(constraint) {
+                    continue;
+                }
+
+                let (me, them) = constraint;
+
+                if !self.union_eq(other, me, them, record_constraints, union_constraints) {
+                    return false;
+                }
+            }
+        }
+
+        // all constraints were solved
+        true
+    }
+
+    fn rec_eq(
+        &self,
+        other: &TypeBag,
+        self_rec: AllocationId,
+        other_rec: AllocationId,
+        record_constraints: &mut Vec<(AllocationId, AllocationId)>,
+        union_constraints: &mut Vec<(UnionId, UnionId)>,
+    ) -> bool {
+        let self_keys = self.records.record_keys(self_rec);
+        let other_keys = other.records.record_keys(other_rec);
+
+        if self_keys.len() != other_keys.len() {
+            return false;
+        }
+
+        for key in self_keys {
+            if !other_keys.contains(&key) {
+                return false;
+            }
+
+            let key = key.into_record_key();
+            let my_value = self.value_type_at_record_key(self_rec, key);
+            let other_value = other.value_type_at_record_key(other_rec, key);
+
+            let maybe_equal = match (my_value, other_value) {
+                (Some(a), Some(b)) => {
+                    self.maybe_equal(other, a, b, record_constraints, union_constraints)
+                }
+                (None, None) => true,
+                _ => false,
+            };
+
+            if !maybe_equal {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    fn union_eq(
+        &self,
+        other: &TypeBag,
+        self_union: UnionId,
+        other_union: UnionId,
+        record_constraints: &mut Vec<(AllocationId, AllocationId)>,
+        union_constraints: &mut Vec<(UnionId, UnionId)>,
+    ) -> bool {
         todo!()
+    }
+
+    fn value_type_at_record_key(&self, id: AllocationId, key: RecordKey) -> Option<RegisterType> {
+        let is_subtype = |a, b| {
+            // a : field
+            // b : comparing against
+
+            // if our key is "asdf"
+            // we also want to find keys of `String`
+            // thus, we want to find *supertypes*,
+            // i.e. b :> a or a <: b
+
+            use RecordKey::*;
+            match (a, b) {
+                (Slot(a), Slot(b)) => a == b,
+                // a <: b
+                (Key(a), Key(b)) => self.is_subtype(a, b),
+                _ => false,
+            }
+        };
+
+        let has_key = self
+            .records
+            .record_keys(id)
+            .contains(&key.into_record_key_eq());
+        debug_assert!(
+            has_key,
+            "the `record_keys` of `id` should have the key `key`"
+        );
+
+        let facts = self.records.record_facts_of(id, key, is_subtype);
+
+        // facts : [most recent, ..., least recent]
+        {
+            // assertion for the above constraint
+            let mut idx = InstIdx::Prologue;
+            for fact in facts.iter() {
+                debug_assert!(idx <= fact.inst_idx());
+                idx = fact.inst_idx();
+            }
+        }
+
+        debug_assert!(
+            facts.len() > 0,
+            "for the record to have a key there must be facts about it"
+        );
+
+        // we lose any relevent facts as soon as we delete something
+        let facts = (facts.iter()).take_while(|fact| matches!(fact, Fact::Set { .. }));
+        // facts : [set a => 1, remove a, set a => 2]
+        // =>      [set a => 1]
+
+        // the type of the value is the union of all of the facts
+        let field_types = facts
+            .map(|f| match f {
+                Fact::Set {
+                    key: fact_key,
+                    value,
+                    ..
+                } => {
+                    debug_assert!(
+                        fact_key.into_record_key_eq() == key.into_record_key_eq(),
+                        "should only be operating on facts of key type key"
+                    );
+
+                    *value
+                }
+                Fact::Remove { .. } => unreachable!(),
+            })
+            .collect::<Vec<_>>();
+
+        match field_types.len() {
+            // no need to set a field if it doesn't have any type
+            // ^ in that case, facts : [remove a] => facts : []
+            0 => None,
+            // only a single type, no need to union anything
+            1 => Some(field_types[0]),
+            _ => {
+                todo!("todo: support unions, but need to somehow intern unions while &self")
+                // let union_id = self.unions.intern(todo!("union all types"));
+                // Some(RegisterType::Union(union_id))
+            }
+        }
     }
 }
 
@@ -871,7 +1101,33 @@ impl Default for TypeBag {
 impl PartialEq for TypeBag {
     /// Makes sure that every register pairing of two type bags are the same.
     fn eq(&self, other: &Self) -> bool {
-        todo!()
+        if self.registers.len() != other.registers.len() {
+            return false;
+        }
+
+        let mut record_constraints = vec![];
+        let mut union_constraints = vec![];
+
+        for (key, value) in self.registers.iter() {
+            let other_value = match other.registers.get(key) {
+                Some(v) => v,
+                None => return false,
+            };
+
+            let maybe_equal = self.maybe_equal(
+                other,
+                *value,
+                *other_value,
+                &mut record_constraints,
+                &mut union_constraints,
+            );
+
+            if !maybe_equal {
+                return false;
+            }
+        }
+
+        self.solve_constraints(other, &mut record_constraints, &mut union_constraints)
     }
 }
 
