@@ -48,6 +48,7 @@ impl<T> UnwrapNone for Option<T> {
 }
 
 impl<L, R> UnwrapNone for bimap::Overwritten<L, R> {
+    #[track_caller]
     fn expect_none(self, msg: &str) {
         assert!(
             matches!(self, bimap::Overwritten::<L, R>::Neither),
@@ -56,6 +57,7 @@ impl<L, R> UnwrapNone for bimap::Overwritten<L, R> {
         );
     }
 
+    #[track_caller]
     fn expect_free(self) {
         self.expect_none("must be free insertion slot");
     }

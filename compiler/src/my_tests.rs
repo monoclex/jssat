@@ -141,7 +141,9 @@ pub fn mutations_in_function_propagate_to_caller() {
     let lifted = crate::lifted::lift(ir);
 
     let engine = symbolic_execution::make_system(&lifted);
-    let results = symbolic_execution::system_run(engine, lifted.entrypoint, |_| Vec::new());
+    let (fn_id, results) =
+        symbolic_execution::system_run(engine, lifted.entrypoint, |_| Vec::new());
+    let results = results.get(&fn_id).unwrap();
 
     assert_eq!(
         results.return_type,

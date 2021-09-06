@@ -261,31 +261,5 @@ impl SymbWorker<'_> {
         results
             .return_type
             .map(|v| subset.update_typ(&results.types, v, inst_idx))
-
-        // let src_fn = self.program.functions.get(&fn_id).unwrap();
-        // debug_assert_eq!(src_fn.parameters.len(), fn_args.len());
-        // let map_args = (fn_args.iter().copied()).zip(src_fn.parameters.iter().copied());
-        // let (types, alloc_map) = self.types.extract_map(map_args);
-        // let id = self.fn_ids.id_of(fn_id, types, false);
-        // let r = system.spawn(id);
-
-        // let rev_alloc_map = alloc_map
-        //     .iter()
-        //     .map(|(k, v)| (*v, *k))
-        //     .collect::<FxHashMap<_, _>>();
-
-        // for (_, its_alloc) in alloc_map.iter() {
-        //     // update the register type
-        //     r.types.pull_type_into(
-        //         RegisterType::Record(*its_alloc),
-        //         &mut self.types,
-        //         &rev_alloc_map,
-        //     );
-        // }
-
-        // // TODO: there is probably a bug with this method in regards to object types
-        // // since the allocation map isn't used to map records into the source typebag
-        // r.return_type
-        //     .map(|v| r.types.pull_type_into(v, &mut self.types, &rev_alloc_map))
     }
 }

@@ -267,6 +267,20 @@ impl RecordBag {
     where
         F: Fn(RecordKey, RecordKey) -> bool,
     {
+        let field_facts = self.try_record_facts_of(record, field, should_include_fact);
+        debug_assert!(!field_facts.is_empty(), "should have field facts");
+        field_facts
+    }
+
+    pub fn try_record_facts_of<F>(
+        &self,
+        record: AllocationId,
+        field: RecordKey,
+        should_include_fact: F,
+    ) -> Union<&Fact>
+    where
+        F: Fn(RecordKey, RecordKey) -> bool,
+    {
         let record = self.records.get(&record).unwrap();
 
         let mut field_facts = vec![];
@@ -279,19 +293,6 @@ impl RecordBag {
             }
         }
 
-        if field_facts.is_empty() {
-            println!("we do it aagain buddy");
-            for facts in record.iter() {
-                for fact in facts.iter().rev() {
-                    if should_include_fact(field, fact.key()) {
-                        field_facts.push(fact);
-                        break;
-                    }
-                }
-            }
-        }
-
-        debug_assert!(!field_facts.is_empty(), "should have field facts");
         Union(field_facts)
     }
 
@@ -433,10 +434,14 @@ struct Syncer<'a, R> {
 trait SyncResolver {
     /// record id in src -> record id in dest
     /// if `None`, that means generate a new record id
-    fn map_record_id(&self, id: AllocationId) -> Option<AllocationId>;
+    fn map_record_id(&mut self, id: AllocationId) -> Option<AllocationId>;
+
+    fn sync_stats(&self, id: AllocationId) -> Option<&SyncStats>;
 
     /// if a `None` was returned this will be called with `id` and the generated id
     fn save_record_id(&mut self, src_id: AllocationId, gen_id: AllocationId);
+
+    fn save_sync_stats(&mut self, id: AllocationId, stats: SyncStats);
 }
 
 // TODO: the resolvers need to be aware of src_fact_init and dest_fact_init
@@ -450,23 +455,41 @@ trait SyncResolver {
 //   sync dest -> src
 // src : [a => 1, b => 2, a => 1, b => 2, c => 3], dest : prev
 // or something^
-struct ResolveLeft<'a>(&'a mut FxBiHashMap<AllocationId, AllocationId>);
-struct ResolveRight<'a>(&'a mut FxBiHashMap<AllocationId, AllocationId>);
+struct ResolveLeft<'a>(
+    &'a mut FxBiHashMap<AllocationId, AllocationId>,
+    &'a mut FxHashMap<AllocationId, SyncStats>,
+);
+struct ResolveRight<'a>(
+    &'a mut FxBiHashMap<AllocationId, AllocationId>,
+    &'a mut FxHashMap<AllocationId, SyncStats>,
+);
 
 impl<'a> SyncResolver for ResolveLeft<'a> {
-    fn map_record_id(&self, id: AllocationId) -> Option<AllocationId> {
+    fn map_record_id(&mut self, id: AllocationId) -> Option<AllocationId> {
         self.0.get_by_left(&id).cloned()
+    }
+    fn sync_stats(&self, id: AllocationId) -> Option<&SyncStats> {
+        self.1.get(&id)
     }
     fn save_record_id(&mut self, src_id: AllocationId, gen_id: AllocationId) {
         self.0.insert(src_id, gen_id).expect_free();
     }
+    fn save_sync_stats(&mut self, id: AllocationId, stats: SyncStats) {
+        self.1.insert(id, stats);
+    }
 }
 impl<'a> SyncResolver for ResolveRight<'a> {
-    fn map_record_id(&self, id: AllocationId) -> Option<AllocationId> {
+    fn map_record_id(&mut self, id: AllocationId) -> Option<AllocationId> {
         self.0.get_by_right(&id).cloned()
+    }
+    fn sync_stats(&self, id: AllocationId) -> Option<&SyncStats> {
+        self.1.get(&id)
     }
     fn save_record_id(&mut self, src_id: AllocationId, gen_id: AllocationId) {
         self.0.insert(gen_id, src_id).expect_free();
+    }
+    fn save_sync_stats(&mut self, id: AllocationId, stats: SyncStats) {
+        self.1.insert(id, stats);
     }
 }
 
@@ -493,12 +516,7 @@ impl<'a, R: SyncResolver> Syncer<'a, R> {
             }
             RegisterType::Record(id) => {
                 let dest_id = match self.resolve.map_record_id(id) {
-                    Some(id) => {
-                        // TODO: is this correct logic? maybe we might actually need to sync *more*,
-                        // in which case that would be as simple as writing logic to check if the
-                        // two records are completely equal on both ends
-                        return RegisterType::Record(id);
-                    }
+                    Some(id) => id,
                     None => {
                         let gen_id = self.dest.records.new_record();
                         self.resolve.save_record_id(id, gen_id);
@@ -522,20 +540,38 @@ impl<'a, R: SyncResolver> Syncer<'a, R> {
                 let keys = self.src.records.record_keys(id);
 
                 for key in keys.into_iter().map(|k| k.into_record_key()) {
-                    let value_type = match self.src.value_type_at_record_key(id, key) {
+                    let src_value_type = match self.src.value_type_at_record_key(id, key) {
                         None => continue,
-                        Some(t) => self.sync_type(t),
+                        Some(t) => t,
                     };
+
+                    let dest_value_type = self.sync_type(src_value_type);
+
+                    if let Some(Some(current_typ)) =
+                        self.dest.try_value_type_at_record_key(dest_id, key)
+                    {
+                        let are_typs_equal =
+                            self.src.typ_eq_oth(self.dest, src_value_type, current_typ);
+
+                        // no reason to update the record
+                        if are_typs_equal {
+                            continue;
+                        }
+                    }
 
                     self.dest
                         .records
-                        .record_fact_set(dest_id, key, value_type, self.inst_idx);
+                        .record_fact_set(dest_id, key, dest_value_type, self.inst_idx);
                 }
 
                 RegisterType::Record(dest_id)
             }
         }
     }
+}
+
+struct SyncStats {
+    num_facts_at_last_sync: usize,
 }
 
 pub struct Subset<'a> {
@@ -545,10 +581,11 @@ pub struct Subset<'a> {
     // reg_map: FxBiHashMap<RegisterId, RegisterId>,
     // { original record id |-> child record id }
     rec_map: FxBiHashMap<AllocationId, AllocationId>,
+
     // { record id in original |-> number of facts present at subset creation }
-    src_fact_init: FxHashMap<AllocationId, usize>,
+    src_fact_init: FxHashMap<AllocationId, SyncStats>,
     // { record id in dest |-> number of facts present at subset creation }
-    dest_fact_init: FxHashMap<AllocationId, usize>,
+    dest_fact_init: FxHashMap<AllocationId, SyncStats>,
 }
 
 impl<'a> Subset<'a> {
@@ -562,7 +599,7 @@ impl<'a> Subset<'a> {
             inst_idx,
             src: self.original,
             dest: &mut self.child,
-            resolve: ResolveLeft(&mut self.rec_map),
+            resolve: ResolveLeft(&mut self.rec_map, &mut self.src_fact_init),
         }
     }
 
@@ -575,7 +612,7 @@ impl<'a> Subset<'a> {
             inst_idx,
             src: child,
             dest: &mut self.original,
-            resolve: ResolveRight(&mut self.rec_map),
+            resolve: ResolveRight(&mut self.rec_map, &mut self.dest_fact_init),
         }
     }
 
@@ -840,16 +877,6 @@ impl TypeBag {
     ) -> Subset {
         debug_assert_eq!(src_args.len(), target_args.len());
 
-        if src_args.is_empty() {
-            return Subset {
-                original: self,
-                child: Default::default(),
-                rec_map: Default::default(),
-                src_fact_init: Default::default(),
-                dest_fact_init: Default::default(),
-            };
-        }
-
         let mut subset = Subset {
             original: self,
             child: Default::default(),
@@ -857,6 +884,10 @@ impl TypeBag {
             src_fact_init: Default::default(),
             dest_fact_init: Default::default(),
         };
+
+        if src_args.is_empty() {
+            return subset;
+        }
 
         for (src_reg, child_reg) in src_args.iter().zip(target_args.iter()) {
             subset.sync_to_child(*src_reg, *child_reg, InstIdx::Prologue);
@@ -866,17 +897,31 @@ impl TypeBag {
     }
 
     pub fn typ_eq(&self, a: RegisterType, b: RegisterType) -> bool {
+        self.typ_eq_oth(&self, a, b)
+    }
+
+    pub fn typ_eq_oth(
+        &self,
+        other: &TypeBag,
+        typ_self: RegisterType,
+        typ_other: RegisterType,
+    ) -> bool {
         let mut record_constraints = vec![];
         let mut union_constraints = vec![];
 
-        let is_maybe_equal =
-            self.maybe_equal(&self, a, b, &mut record_constraints, &mut union_constraints);
+        let is_maybe_equal = self.maybe_equal(
+            other,
+            typ_self,
+            typ_other,
+            &mut record_constraints,
+            &mut union_constraints,
+        );
 
         if !is_maybe_equal {
             return false;
         }
 
-        self.solve_constraints(&self, &mut record_constraints, &mut union_constraints)
+        self.solve_constraints(other, &mut record_constraints, &mut union_constraints)
     }
 
     pub fn is_subtype(&self, subset: RegisterType, superset: RegisterType) -> bool {
@@ -1008,7 +1053,11 @@ impl TypeBag {
         todo!()
     }
 
-    fn value_type_at_record_key(&self, id: AllocationId, key: RecordKey) -> Option<RegisterType> {
+    fn try_value_type_at_record_key(
+        &self,
+        id: AllocationId,
+        key: RecordKey,
+    ) -> Option<Option<RegisterType>> {
         let is_subtype = |a, b| {
             // a : field
             // b : comparing against
@@ -1027,16 +1076,7 @@ impl TypeBag {
             }
         };
 
-        let has_key = self
-            .records
-            .record_keys(id)
-            .contains(&key.into_record_key_eq());
-        debug_assert!(
-            has_key,
-            "the `record_keys` of `id` should have the key `key`"
-        );
-
-        let facts = self.records.record_facts_of(id, key, is_subtype);
+        let facts = self.records.try_record_facts_of(id, key, is_subtype);
 
         // facts : [most recent, ..., least recent]
         {
@@ -1048,10 +1088,9 @@ impl TypeBag {
             }
         }
 
-        debug_assert!(
-            facts.len() > 0,
-            "for the record to have a key there must be facts about it"
-        );
+        if facts.len() == 0 {
+            return None;
+        }
 
         // we lose any relevent facts as soon as we delete something
         let facts = (facts.iter()).take_while(|fact| matches!(fact, Fact::Set { .. }));
@@ -1080,15 +1119,30 @@ impl TypeBag {
         match field_types.len() {
             // no need to set a field if it doesn't have any type
             // ^ in that case, facts : [remove a] => facts : []
-            0 => None,
+            0 => Some(None),
             // only a single type, no need to union anything
-            1 => Some(field_types[0]),
+            1 => Some(Some(field_types[0])),
             _ => {
                 todo!("todo: support unions, but need to somehow intern unions while &self")
                 // let union_id = self.unions.intern(todo!("union all types"));
                 // Some(RegisterType::Union(union_id))
             }
         }
+    }
+
+    fn value_type_at_record_key(&self, id: AllocationId, key: RecordKey) -> Option<RegisterType> {
+        let has_key = self
+            .records
+            .record_keys(id)
+            .contains(&key.into_record_key_eq());
+        debug_assert!(
+            has_key,
+            "the `record_keys` of `id` should have the key `key`"
+        );
+
+        let result = self.try_value_type_at_record_key(id, key);
+
+        result.expect("for the record to have a key there must be facts about it")
     }
 }
 

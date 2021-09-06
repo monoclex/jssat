@@ -4,6 +4,8 @@ use std::panic::PanicInfo;
 use std::sync::Arc;
 use std::sync::Mutex;
 
+use rustc_hash::FxHashMap;
+
 use crate::id::*;
 use crate::isa;
 use crate::lifted::LiftedProgram;
@@ -36,7 +38,6 @@ pub struct Engine<'a> {
 pub fn execute(program: &LiftedProgram) {
     let engine = make_system(program);
     system_run(engine, program.entrypoint, |_| Vec::new());
-    todo!()
 }
 
 pub fn make_system(program: &LiftedProgram) -> Engine {
@@ -67,7 +68,10 @@ pub fn system_run(
     engine: Engine,
     fn_id: FunctionId<LiftedCtx>,
     args: impl FnOnce(&mut TypeBag) -> Vec<RegisterType>,
-) -> WorkerResults {
+) -> (
+    FunctionId<SymbolicCtx>,
+    FxHashMap<FunctionId<SymbolicCtx>, WorkerResults>,
+) {
     let mut types = TypeBag::default();
     let args = args(&mut types);
 
@@ -117,7 +121,7 @@ pub fn system_run(
         .try_into_results()
         .expect("system should be dead");
 
-    results.get(&engine_fn_id).unwrap().clone()
+    (engine_fn_id, results)
 }
 
 fn handle_panic<'p>(
