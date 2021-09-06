@@ -35,9 +35,9 @@ pub struct Engine<'a> {
     system: ComputeGraphSys<SymbWorker<'a>, SymbFactory<'a>>,
 }
 
-pub fn execute(program: &LiftedProgram) {
+pub fn execute(program: &LiftedProgram) -> SystemRun {
     let engine = make_system(program);
-    system_run(engine, program.entrypoint, |_| Vec::new());
+    system_run(engine, program.entrypoint, |_| Vec::new())
 }
 
 pub fn make_system(program: &LiftedProgram) -> Engine {
@@ -64,14 +64,17 @@ pub fn make_system(program: &LiftedProgram) -> Engine {
     }
 }
 
+#[derive(Clone)]
+pub struct SystemRun {
+    pub entry_fn: FunctionId<SymbolicCtx>,
+    pub results: FxHashMap<FunctionId<SymbolicCtx>, WorkerResults>,
+}
+
 pub fn system_run(
     engine: Engine,
     fn_id: FunctionId<LiftedCtx>,
     args: impl FnOnce(&mut TypeBag) -> Vec<RegisterType>,
-) -> (
-    FunctionId<SymbolicCtx>,
-    FxHashMap<FunctionId<SymbolicCtx>, WorkerResults>,
-) {
+) -> SystemRun {
     let mut types = TypeBag::default();
     let args = args(&mut types);
 
@@ -121,7 +124,10 @@ pub fn system_run(
         .try_into_results()
         .expect("system should be dead");
 
-    (engine_fn_id, results)
+    SystemRun {
+        entry_fn: engine_fn_id,
+        results,
+    }
 }
 
 fn handle_panic<'p>(

@@ -11,6 +11,7 @@ use crate::{
     symbolic_execution::{
         self,
         types::{RegisterType, ReturnType},
+        SystemRun,
     },
 };
 
@@ -141,9 +142,9 @@ pub fn mutations_in_function_propagate_to_caller() {
     let lifted = crate::lifted::lift(ir);
 
     let engine = symbolic_execution::make_system(&lifted);
-    let (fn_id, results) =
+    let SystemRun { entry_fn, results } =
         symbolic_execution::system_run(engine, lifted.entrypoint, |_| Vec::new());
-    let results = results.get(&fn_id).unwrap();
+    let results = results.get(&entry_fn).unwrap();
 
     assert_eq!(
         results.return_type,

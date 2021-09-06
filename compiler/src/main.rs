@@ -168,7 +168,7 @@ print('Hello, World!');
     println!("=== PRE OPT ===");
     // println!("{}", display(&program));
 
-    let build = backend::compile(program);
+    let build = backend::compile(());
     eprintln!("OUTPUT LLVM IR (use unix pipes to redirect this into a file):");
     println!("{}", build.llvm_ir);
 
