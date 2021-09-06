@@ -14,9 +14,10 @@
 
 use std::{io::Write, process::Command};
 
-use crate::frontend::display_jssatir;
+use crate::{frontend::display_jssatir, symbolic_execution::SystemRun};
 
 pub mod backend;
+pub mod codegen;
 pub mod collections;
 pub mod frontend;
 pub mod id;
@@ -162,8 +163,14 @@ print('Hello, World!');
     println!("{}", display_jssatir::display(&ir));
 
     let lifted = lifted::lift(ir);
-    let lifted_ref = Box::leak(Box::new(lifted));
-    let program = symbolic_execution::execute(lifted_ref);
+    let SystemRun {
+        entry_fn, results, ..
+    } = symbolic_execution::execute(&lifted);
+
+    println!("lowering run");
+    let lowered = codegen::lower(lifted);
+
+    println!("{:?}", entry_fn);
 
     println!("=== PRE OPT ===");
     // println!("{}", display(&program));

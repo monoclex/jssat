@@ -3,6 +3,8 @@
 //! execution engine to focus on handling symbolic execution, while behavior
 //! regarding cyclic executions are handled by the graph system.
 
+// TODO: use `stacker` for recursion needs
+
 // TODO: this file was one beautiful, containing only the logic for the grpah system.
 // now, it must contain additional code to handle panics, and is ugly.
 #![allow(clippy::type_complexity)]
@@ -14,8 +16,8 @@
 use std::{
     cell::UnsafeCell,
     hash::Hash,
-    panic::{PanicInfo, RefUnwindSafe, UnwindSafe},
-    sync::{atomic::AtomicBool, Arc, Mutex, TryLockError},
+    panic::{RefUnwindSafe, UnwindSafe},
+    sync::{Arc, Mutex, TryLockError},
 };
 
 use rustc_hash::FxHashMap;

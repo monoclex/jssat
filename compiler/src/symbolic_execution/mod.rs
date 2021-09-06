@@ -65,7 +65,8 @@ pub fn make_system(program: &LiftedProgram) -> Engine {
 }
 
 #[derive(Clone)]
-pub struct SystemRun {
+pub struct SystemRun<'a> {
+    pub program: &'a LiftedProgram,
     pub entry_fn: FunctionId<SymbolicCtx>,
     pub results: FxHashMap<FunctionId<SymbolicCtx>, WorkerResults>,
 }
@@ -125,6 +126,7 @@ pub fn system_run(
         .expect("system should be dead");
 
     SystemRun {
+        program: engine.program,
         entry_fn: engine_fn_id,
         results,
     }
