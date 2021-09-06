@@ -1,3 +1,5 @@
+use crate::codegen::Program;
+
 pub mod llvm;
 
 pub struct BuildArtifact {
@@ -5,7 +7,7 @@ pub struct BuildArtifact {
     pub obj: Vec<u8>,
 }
 
-pub fn compile(_program: ()) -> BuildArtifact {
+pub fn compile(_program: Program) -> BuildArtifact {
     todo!()
     // let backend_ir = skeleton::translate(program);
     // llvm::compile(backend_ir)

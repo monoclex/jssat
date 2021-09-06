@@ -18,6 +18,7 @@ type ExternalFunctionId = crate::id::ExternalFunctionId<AssemblerCtx>;
 type ConstantId = crate::id::ConstantId<AssemblerCtx>;
 
 pub struct Program {
+    pub entrypoint: FunctionId,
     pub external_functions: FxHashMap<ExternalFunctionId, ExternalFunction>,
     pub constants: FxHashMap<ConstantId, Constant>,
     pub functions: FxHashMap<FunctionId, Function>,

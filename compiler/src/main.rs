@@ -25,6 +25,7 @@ pub mod interner;
 pub mod isa;
 pub mod lifted;
 pub mod my_tests;
+pub mod opt;
 pub mod retag;
 pub mod symbolic_execution;
 
@@ -163,19 +164,15 @@ print('Hello, World!');
     println!("{}", display_jssatir::display(&ir));
 
     let lifted = lifted::lift(ir);
-    let SystemRun {
-        entry_fn, results, ..
-    } = symbolic_execution::execute(&lifted);
+    let run = symbolic_execution::execute(&lifted);
+
+    println!("optimizing system run");
+    let run = opt::opt(run);
 
     println!("lowering run");
-    let lowered = codegen::lower(lifted);
+    let lowered = codegen::lower(run);
 
-    println!("{:?}", entry_fn);
-
-    println!("=== PRE OPT ===");
-    // println!("{}", display(&program));
-
-    let build = backend::compile(());
+    let build = backend::compile(lowered);
     eprintln!("OUTPUT LLVM IR (use unix pipes to redirect this into a file):");
     println!("{}", build.llvm_ir);
 
