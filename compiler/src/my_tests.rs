@@ -3,11 +3,9 @@
 #[cfg(test)]
 use crate::{
     frontend::builder::ProgramBuilder,
+    isa::InternalSlot,
     isa::{BlockJump, Jump},
     lifted::EndInstruction,
-};
-use crate::{
-    isa::InternalSlot,
     symbolic_execution::{
         self,
         types::{RegisterType, ReturnType},
@@ -125,7 +123,7 @@ pub fn mutations_in_function_propagate_to_caller() {
         program.end_function(mutate)
     };
 
-    let main = {
+    {
         let mut main = program.start_function_main();
         let mut block = main.start_block_main();
 

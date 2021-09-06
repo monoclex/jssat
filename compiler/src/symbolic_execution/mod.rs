@@ -1,6 +1,3 @@
-use std::any::Any;
-use std::cell::UnsafeCell;
-use std::panic::PanicInfo;
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -11,7 +8,6 @@ use crate::isa;
 use crate::lifted::LiftedProgram;
 use crate::retag::ExtFnPassRetagger;
 use crate::retag::ExtFnRetagger;
-use crate::symbolic_execution::graph_system::SuperUnsafeCell;
 use crate::symbolic_execution::types::InstIdx;
 
 use self::graph_system::{ComputeGraphSys, System, Worker, WorkerFactory};
@@ -111,8 +107,8 @@ pub fn system_run(
 
     match result {
         Ok(_) => {}
-        Err(e) => {
-            handle_panic(engine.system, e);
+        Err(_) => {
+            handle_panic(engine.system);
             drop(std::panic::take_hook());
             panic!("panic handler ran");
         }
@@ -132,10 +128,7 @@ pub fn system_run(
     }
 }
 
-fn handle_panic<'p>(
-    system: ComputeGraphSys<SymbWorker<'p>, SymbFactory<'p>>,
-    panic_payload: Box<dyn Any + Send>,
-) {
+fn handle_panic<'p>(system: ComputeGraphSys<SymbWorker<'p>, SymbFactory<'p>>) {
     println!();
     println!("! note: at this time, type information is inaccurate");
     println!("! as it only reflects the most current state of abstract interpretation");

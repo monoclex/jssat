@@ -1,4 +1,4 @@
-use crate::{lifted::LiftedProgram, symbolic_execution::SystemRun};
+use crate::symbolic_execution::SystemRun;
 
 use super::Program;
 

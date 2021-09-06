@@ -14,7 +14,7 @@
 
 use std::{io::Write, process::Command};
 
-use crate::{frontend::display_jssatir, symbolic_execution::SystemRun};
+use crate::frontend::display_jssatir;
 
 pub mod backend;
 pub mod codegen;

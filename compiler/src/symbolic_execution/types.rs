@@ -8,7 +8,6 @@
 use derive_more::{Deref, DerefMut, Display};
 use lasso::{Key, Rodeo};
 use std::sync::{Arc, Mutex};
-use swc_common::pass::All;
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -378,7 +377,7 @@ impl RecordBag {
         // check if all other lines of facts are the same
         let any_different = fact_paths_that_have_key
             .map(|has| initial == has)
-            .any(|has| has == false);
+            .any(|has| !has);
 
         // if any other line of facts is different,
         if any_different {
@@ -571,7 +570,7 @@ impl<'a, R: SyncResolver> Syncer<'a, R> {
 }
 
 struct SyncStats {
-    num_facts_at_last_sync: usize,
+    // num_facts_at_last_sync: usize,
 }
 
 pub struct Subset<'a> {
@@ -869,12 +868,7 @@ impl TypeBag {
         .display(register)
     }
 
-    pub fn subset(
-        &mut self,
-        src_args: &[RegisterId],
-        target_args: &[RegisterId],
-        inst_idx: InstIdx,
-    ) -> Subset {
+    pub fn subset(&mut self, src_args: &[RegisterId], target_args: &[RegisterId]) -> Subset {
         debug_assert_eq!(src_args.len(), target_args.len());
 
         let mut subset = Subset {
@@ -897,7 +891,7 @@ impl TypeBag {
     }
 
     pub fn typ_eq(&self, a: RegisterType, b: RegisterType) -> bool {
-        self.typ_eq_oth(&self, a, b)
+        self.typ_eq_oth(self, a, b)
     }
 
     pub fn typ_eq_oth(
@@ -1044,11 +1038,11 @@ impl TypeBag {
 
     fn union_eq(
         &self,
-        other: &TypeBag,
-        self_union: UnionId,
-        other_union: UnionId,
-        record_constraints: &mut Vec<(AllocationId, AllocationId)>,
-        union_constraints: &mut Vec<(UnionId, UnionId)>,
+        _other: &TypeBag,
+        _self_union: UnionId,
+        _other_union: UnionId,
+        _record_constraints: &mut Vec<(AllocationId, AllocationId)>,
+        _union_constraints: &mut Vec<(UnionId, UnionId)>,
     ) -> bool {
         todo!()
     }

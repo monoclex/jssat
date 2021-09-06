@@ -2,8 +2,6 @@
 
 use std::sync::Arc;
 
-use rustc_hash::FxHashMap;
-
 use crate::frontend::ir;
 use crate::frontend::ir::Returns;
 use crate::id::*;
@@ -248,7 +246,7 @@ impl SymbWorker<'_> {
             "param count should match"
         );
 
-        let mut subset = self.types.subset(fn_args, &target_fn.parameters, inst_idx);
+        let mut subset = self.types.subset(fn_args, &target_fn.parameters);
 
         let target_id = self.fn_ids.id_of(fn_id, subset.child(), false);
         let results = system.spawn(target_id);

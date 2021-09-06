@@ -6,7 +6,7 @@
 //! In addition, whole-program optimization is done after individual
 //! optimizations.
 
-use crate::{lifted::LiftedProgram, symbolic_execution::SystemRun};
+use crate::symbolic_execution::SystemRun;
 
 pub fn opt(program: SystemRun) -> SystemRun {
     program
