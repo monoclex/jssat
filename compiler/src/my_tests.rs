@@ -6,6 +6,13 @@ use crate::{
     isa::{BlockJump, Jump},
     lifted::EndInstruction,
 };
+use crate::{
+    isa::InternalSlot,
+    symbolic_execution::{
+        self,
+        types::{RegisterType, ReturnType},
+    },
+};
 
 /// Confirm that registers are passed one block away properly
 #[test]
@@ -101,4 +108,43 @@ pub fn can_lift_registers_in_far_blocks() {
     } else {
         panic!("block must end in jump")
     }
+}
+
+/// Confirm that mutations from within a function propagate to the caller
+#[test]
+pub fn mutations_in_function_propagate_to_caller() {
+    let mut program = ProgramBuilder::new();
+
+    let mutate = {
+        let (mut mutate, [record]) = program.start_function();
+        let mut block = mutate.start_block_main();
+        let null = block.make_null();
+        block.record_set_slot(record, InternalSlot::Base, null);
+        mutate.end_block(block.ret(None));
+        program.end_function(mutate)
+    };
+
+    let main = {
+        let mut main = program.start_function_main();
+        let mut block = main.start_block_main();
+
+        let record = block.record_new();
+        block.call(mutate, [record]);
+        let has_key = block.record_has_slot(record, InternalSlot::Base);
+
+        main.end_block(block.ret(Some(has_key)));
+
+        program.end_function(main)
+    };
+
+    let ir = program.finish();
+    let lifted = crate::lifted::lift(ir);
+
+    let engine = symbolic_execution::make_system(&lifted);
+    let results = symbolic_execution::system_run(engine, lifted.entrypoint, |_| Vec::new());
+
+    assert_eq!(
+        results.return_type,
+        ReturnType::Value(RegisterType::Bool(true))
+    );
 }

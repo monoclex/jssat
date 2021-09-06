@@ -29,8 +29,11 @@ pub fn display(program: &IR) -> String {
         iw!(text, ");\n\n");
     }
 
-    for (id, f) in program.functions.iter() {
-        iw!(text, "fn @{}(", id);
+    let mut fns = program.functions.iter().collect::<Vec<_>>();
+    fns.sort_by(|(a, _), (b, _)| a.cmp(b));
+
+    for (fn_id, f) in fns {
+        iw!(text, "fn @{}(", fn_id);
 
         for p in f.parameters.iter() {
             iw!(text, "%{}, ", p.register);
@@ -38,11 +41,13 @@ pub fn display(program: &IR) -> String {
 
         iw!(text, ") {{\n");
 
-        let blocks = std::iter::once((&f.entry_block, f.blocks.get(&f.entry_block).unwrap()))
-            .chain(f.blocks.iter().filter(|(id, _)| **id != f.entry_block));
+        let mut blocks = std::iter::once((&f.entry_block, f.blocks.get(&f.entry_block).unwrap()))
+            .chain(f.blocks.iter().filter(|(id, _)| **id != f.entry_block))
+            .collect::<Vec<_>>();
+        blocks.sort_by(|(a, _), (b, _)| a.cmp(b));
 
         for (id, block) in blocks {
-            iw!(text, "  ${}(", id);
+            iw!(text, "  @{}.${}(", fn_id, id);
             for arg in block.parameters.iter() {
                 iw!(text, "%{}, ", arg);
             }

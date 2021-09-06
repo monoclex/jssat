@@ -250,6 +250,10 @@ impl RecordBag {
         id
     }
 
+    pub fn try_all_facts(&self, record: AllocationId) -> Option<&Union<Facts<Fact>>> {
+        self.records.get(&record)
+    }
+
     /// F : (the field : RecordKey, a fact's key : RecordKey) -> true if should include fact, false if not
     ///
     /// the ordering of F's params is specified so that functions that want to
@@ -410,9 +414,10 @@ struct ChildRecordInfo {
 /// when calling functions, each record in the typebag has an initial fact set up
 /// so that's represented by `prologue`, and during execution if types change
 /// *after* an instruction that's represented with `inst`
-#[derive(Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord, Debug, Display)]
 pub enum InstIdx {
     Prologue,
+    #[display(fmt = "{0}", _0)]
     Inst(usize),
     /// only needed as a hack really but oh well
     Epilogue,
@@ -818,10 +823,11 @@ impl TypeBag {
         }
     }
 
-    pub fn display(&self, register: RegisterId) -> String {
+    pub fn display(&self, register: RegisterId, inst_idx: InstIdx) -> String {
         DisplayContext {
             types: self,
-            records_shown: Vec::new(),
+            records_shown: Default::default(),
+            inst_idx,
         }
         .display(register)
     }
@@ -1133,7 +1139,8 @@ impl PartialEq for TypeBag {
 
 pub struct DisplayContext<'types> {
     types: &'types TypeBag,
-    records_shown: Vec<AllocationId>,
+    records_shown: FxHashSet<AllocationId>,
+    inst_idx: InstIdx,
 }
 
 impl DisplayContext<'_> {
@@ -1167,11 +1174,91 @@ impl DisplayContext<'_> {
             RegisterType::Bool(v) => write!(w, "Boolean({})", v)?,
             RegisterType::FnPtr(f) => write!(w, "FnPtr(@{})", f)?,
             // TODO: display records and unions
-            RegisterType::Record(r) => write!(w, "TODO: record {}", r)?,
             RegisterType::Union(u) => write!(w, "TODO: union {}", u)?,
+            RegisterType::Record(r) => {
+                if !self.records_shown.insert(r) {
+                    write!(w, "{} @ ...", r.raw_value())?;
+                } else {
+                    write!(w, "{} @ ", r.raw_value())?;
+
+                    if let Some(fact_list) = self.types.records.try_all_facts(r) {
+                        write!(w, "{{ ")?;
+
+                        debug_assert!(!fact_list.is_empty());
+
+                        let mut facts = fact_list.iter();
+
+                        let first_fact_list = facts.next().unwrap();
+                        self.display_facts(w, first_fact_list)?;
+
+                        for more_facts in facts {
+                            write!(w, " | ")?;
+                            self.display_facts(w, more_facts)?;
+                        }
+
+                        write!(w, " }}")?;
+                    } else {
+                        write!(w, "{{ ? }}")?;
+                    }
+                }
+            }
         };
 
         Ok(())
+    }
+
+    fn display_facts(&mut self, w: &mut String, facts: &Facts<Fact>) -> std::fmt::Result {
+        if facts.len() == 0 {
+            w.push_str("[]");
+            return Ok(());
+        }
+
+        w.push('[');
+
+        let inst_idx = self.inst_idx;
+        let mut facts = facts.iter().filter(|f| f.inst_idx() <= inst_idx);
+
+        if let Some(fact) = facts.next() {
+            self.display_fact(w, fact)?;
+
+            for fact in facts {
+                w.push_str(", ");
+                self.display_fact(w, fact)?;
+            }
+        }
+
+        w.push(']');
+        Ok(())
+    }
+
+    fn display_fact(&mut self, w: &mut String, fact: &Fact) -> std::fmt::Result {
+        use std::fmt::Write;
+
+        match fact {
+            Fact::Set {
+                key,
+                value,
+                inst_idx,
+            } => {
+                write!(w, "{}: set ", inst_idx)?;
+                self.display_rec_key(w, key)?;
+                w.push_str(" => ");
+                self.display_typ(w, value)
+            }
+            Fact::Remove { key, inst_idx } => {
+                write!(w, "{}: remove ", inst_idx)?;
+                self.display_rec_key(w, key)
+            }
+        }
+    }
+
+    fn display_rec_key(&mut self, w: &mut String, key: &RecordKey) -> std::fmt::Result {
+        use std::fmt::Write;
+
+        match key {
+            RecordKey::Key(k) => self.display_typ(w, k),
+            RecordKey::Slot(s) => write!(w, "[[{}]]", s),
+        }
     }
 
     fn display_cnst(&self, w: &mut String, cnst: ConstantId) -> std::fmt::Result {

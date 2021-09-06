@@ -44,6 +44,7 @@ pub struct SymbWorker<'program> {
     pub never_infected: bool,
 }
 
+#[derive(Clone)]
 pub struct WorkerResults {
     pub is_entry_fn: bool,
     pub return_type: ReturnType,

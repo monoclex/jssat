@@ -10,13 +10,16 @@ use crate::lifted::LiftedProgram;
 use crate::retag::ExtFnPassRetagger;
 use crate::retag::ExtFnRetagger;
 use crate::symbolic_execution::graph_system::SuperUnsafeCell;
+use crate::symbolic_execution::types::InstIdx;
 
 use self::graph_system::{ComputeGraphSys, System, Worker, WorkerFactory};
+use self::types::RegisterType;
 use self::types::ReturnType;
 use self::types::TypeBag;
 use self::unique_id::{UniqueFnId, UniqueFnIdShared};
 use self::worker::CurrentInstruction;
 use self::worker::SymbWorker;
+use self::worker::WorkerResults;
 
 pub mod graph_system;
 pub mod type_computations;
@@ -24,24 +27,58 @@ pub mod types;
 pub mod unique_id;
 pub mod worker;
 
-pub fn execute(program: &'static LiftedProgram) {
+pub struct Engine<'a> {
+    program: &'a LiftedProgram,
+    fn_ids: UniqueFnIdShared,
+    system: ComputeGraphSys<SymbWorker<'a>, SymbFactory<'a>>,
+}
+
+pub fn execute(program: &LiftedProgram) {
+    let engine = make_system(program);
+    system_run(engine, program.entrypoint, |_| Vec::new());
+    todo!()
+}
+
+pub fn make_system(program: &LiftedProgram) -> Engine {
     let mut asm_ext_map = ExtFnPassRetagger::default();
     for (id, _) in program.external_functions.iter() {
         asm_ext_map.retag_new(*id);
     }
 
-    let mut fn_ids = UniqueFnId::default();
-    let entry_fn_id = fn_ids.id_of(program.entrypoint, TypeBag::default(), true);
-
+    let fn_ids = UniqueFnId::default();
     let fn_ids_shared = UniqueFnIdShared(Arc::new(Mutex::new(fn_ids)));
 
     let factory = SymbFactory {
         program,
-        fn_ids: fn_ids_shared,
+        fn_ids: fn_ids_shared.clone(),
         asm_ext_map: Arc::new(asm_ext_map),
     };
 
     let system = ComputeGraphSys::new(factory);
+
+    Engine {
+        program,
+        fn_ids: fn_ids_shared,
+        system,
+    }
+}
+
+pub fn system_run(
+    engine: Engine,
+    fn_id: FunctionId<LiftedCtx>,
+    args: impl FnOnce(&mut TypeBag) -> Vec<RegisterType>,
+) -> WorkerResults {
+    let mut types = TypeBag::default();
+    let args = args(&mut types);
+
+    let program_fn = engine.program.functions.get(&fn_id).unwrap();
+
+    debug_assert_eq!(args.len(), program_fn.parameters.len());
+    for (fn_reg, arg_typ) in program_fn.parameters.iter().zip(args) {
+        types.assign_type(*fn_reg, arg_typ);
+    }
+
+    let engine_fn_id = engine.fn_ids.id_of(fn_id, types, false);
 
     let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -51,7 +88,7 @@ pub fn execute(program: &'static LiftedProgram) {
     }));
 
     let result = std::panic::catch_unwind(|| {
-        system.spawn(entry_fn_id);
+        engine.system.spawn(engine_fn_id);
     });
 
     drop(std::panic::take_hook());
@@ -67,18 +104,20 @@ pub fn execute(program: &'static LiftedProgram) {
     match result {
         Ok(_) => {}
         Err(e) => {
-            handle_panic(system, e);
+            handle_panic(engine.system, e);
             drop(std::panic::take_hook());
-            return;
+            panic!("panic handler ran");
         }
     };
 
     drop(std::panic::take_hook());
 
-    let _results = system.try_into_results().expect("system should be dead");
+    let results = engine
+        .system
+        .try_into_results()
+        .expect("system should be dead");
 
-    // assembler_glue::glue(entry_fn_id, &program, results)
-    todo!()
+    results.get(&engine_fn_id).unwrap().clone()
 }
 
 fn handle_panic<'p>(
@@ -93,7 +132,13 @@ fn handle_panic<'p>(
     println!("callstack:");
     let callstack = system.load_callstack_within_panic();
 
-    for (_, worker) in callstack {
+    // print `nw` workers before quitting
+    let nw = std::env::var("JSSAT_VIEW_WORKERS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(usize::MAX);
+
+    for (_, worker) in callstack.into_iter().take(nw) {
         // TODO: we don't actually need mutable access, just immutable access
         let w: &mut SymbWorker = unsafe { worker.raw_get() };
 
@@ -121,7 +166,7 @@ fn handle_panic<'p>(
         };
 
         // print `n` instructions before and after the instruction we're on
-        let n = std::env::var("JSSAT_VIEW")
+        let n = std::env::var("JSSAT_VIEW_LINES")
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(7);
@@ -172,13 +217,15 @@ fn handle_panic<'p>(
                 false => println!("| {}", inst.as_display()),
             };
 
+            let inst_idx = InstIdx::Inst(i);
+
             // TODO: setup a `DisplayContext` for self referential structs
             if let Some(reg) = inst.assigned_to() {
-                println!("# %{} : {}", reg, w.types.display(reg))
+                println!("# %{} : {}", reg, w.types.display(reg, inst_idx))
             }
 
             for reg in inst.used_registers() {
-                println!("# %{} : {}", reg, w.types.display(reg))
+                println!("# %{} : {}", reg, w.types.display(reg, inst_idx))
             }
         }
 
