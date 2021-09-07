@@ -163,16 +163,24 @@ print('Hello, World!');
     let ir = frontend::js::traverse(content);
     println!("{}", display_jssatir::display(&ir));
 
-    let lifted = lifted::lift(ir);
-    let run = symbolic_execution::execute(&lifted);
+    println!("lifting program");
+    let program = lifted::lift(ir);
+
+    println!("executing program");
+    let program = symbolic_execution::execute(&program);
+
+    println!("typing program");
+    let program = codegen::type_program(program);
 
     println!("optimizing system run");
-    let run = opt::opt(run);
+    let program = opt::opt(program);
 
     println!("lowering run");
-    let lowered = codegen::lower(run);
+    let program = codegen::lower(program);
 
-    let build = backend::compile(lowered);
+    println!("compiling");
+    let build = backend::compile(program);
+
     eprintln!("OUTPUT LLVM IR (use unix pipes to redirect this into a file):");
     println!("{}", build.llvm_ir);
 

@@ -1,7 +1,5 @@
-use crate::symbolic_execution::SystemRun;
+use super::{Program, TypedProgram};
 
-use super::Program;
-
-pub fn lower(program: SystemRun) -> Program {
+pub fn lower(_program: TypedProgram) -> Program {
     todo!()
 }

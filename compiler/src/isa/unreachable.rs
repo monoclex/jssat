@@ -4,6 +4,7 @@ use tinyvec::TinyVec;
 use super::ISAInstruction;
 use crate::id::*;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Unreachable;
 
 impl<C: Tag> ISAInstruction<C> for Unreachable {

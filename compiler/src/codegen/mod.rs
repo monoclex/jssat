@@ -3,6 +3,9 @@
 mod lower;
 pub use lower::lower;
 
+mod typed_program;
+pub use typed_program::type_program;
+
 use std::fmt::Write;
 
 use rustc_hash::FxHashMap;
@@ -11,12 +14,14 @@ use tinyvec::TinyVec;
 use crate::frontend::ir::{Constant, ExternalFunction};
 use crate::id::AssemblerCtx;
 use crate::isa::*;
+use crate::symbolic_execution::types::TypeBag;
 type RegisterId = crate::id::RegisterId<AssemblerCtx>;
 type FunctionId = crate::id::FunctionId<AssemblerCtx>;
 type BlockId = crate::id::BlockId<AssemblerCtx>;
 type ExternalFunctionId = crate::id::ExternalFunctionId<AssemblerCtx>;
 type ConstantId = crate::id::ConstantId<AssemblerCtx>;
 
+#[derive(Clone)]
 pub struct Program {
     pub entrypoint: FunctionId,
     pub external_functions: FxHashMap<ExternalFunctionId, ExternalFunction>,
@@ -24,16 +29,29 @@ pub struct Program {
     pub functions: FxHashMap<FunctionId, Function>,
 }
 
+#[derive(Clone)]
 pub struct Function {
     pub entry: BlockId,
     pub blocks: FxHashMap<BlockId, Block>,
 }
 
-pub struct Block {
-    pub instructions: Vec<Instruction>,
-    pub end: EndInstruction,
+#[derive(Clone)]
+pub struct TypedProgram {
+    pub entrypoint: FunctionId,
+    pub external_functions: FxHashMap<ExternalFunctionId, ExternalFunction>,
+    pub constants: FxHashMap<ConstantId, Constant>,
+    pub functions: FxHashMap<FunctionId, Block<TypeBag>>,
 }
 
+#[derive(Clone)]
+pub struct Block<T = ()> {
+    pub parameters: Vec<RegisterId>,
+    pub instructions: Vec<Instruction>,
+    pub end: EndInstruction,
+    pub type_info: T,
+}
+
+#[derive(Clone)]
 pub enum Instruction {
     Noop(Noop),
     Comment(Comment),
@@ -160,6 +178,7 @@ impl Instruction {
     }
 }
 
+#[derive(Clone)]
 pub enum EndInstruction {
     Unreachable(Unreachable),
     Jump(Jump<BlockId, AssemblerCtx>),

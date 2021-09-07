@@ -27,17 +27,9 @@ pub struct LiftedProgram {
     pub functions: FxHashMap<FunctionId, Function>,
 }
 
-#[derive(Debug, Clone)]
-pub struct Constant {
-    pub payload: Vec<u8>,
-}
+pub type Constant = crate::frontend::ir::Constant;
 
-#[derive(Debug, Clone)]
-pub struct ExternalFunction {
-    pub name: String,
-    pub parameters: Vec<FFIValueType>,
-    pub returns: Returns<FFIValueType>,
-}
+pub type ExternalFunction = crate::frontend::ir::ExternalFunction;
 
 #[derive(Debug, Clone)]
 pub struct Function {
@@ -136,7 +128,7 @@ pub fn lift(ir: IR) -> LiftedProgram {
         let value = ExternalFunction {
             name: ext_fn.name,
             parameters: ext_fn.parameters,
-            returns: ext_fn.return_type,
+            return_type: ext_fn.return_type,
         };
         external_functions.insert(id, value).expect_free();
     }

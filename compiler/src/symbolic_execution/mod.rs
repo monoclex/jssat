@@ -64,6 +64,7 @@ pub fn make_system(program: &LiftedProgram) -> Engine {
 pub struct SystemRun<'a> {
     pub program: &'a LiftedProgram,
     pub entry_fn: FunctionId<SymbolicCtx>,
+    pub fn_ids: UniqueFnIdShared,
     pub results: FxHashMap<FunctionId<SymbolicCtx>, WorkerResults>,
 }
 
@@ -123,6 +124,7 @@ pub fn system_run(
 
     SystemRun {
         program: engine.program,
+        fn_ids: engine.fn_ids,
         entry_fn: engine_fn_id,
         results,
     }
@@ -262,6 +264,7 @@ impl<'p> WorkerFactory for SymbFactory<'p> {
         SymbWorker {
             program: self.program,
             func: self.program.functions.get(&lifted_id).unwrap(),
+            lifted_id,
             id,
             fn_ids: self.fn_ids.clone(),
             types,

@@ -34,6 +34,7 @@ pub struct SymbWorker<'program> {
     /// Otherwise, it's part of a block.
     pub is_entry_fn: bool,
     pub id: <Self as Worker>::Id,
+    pub lifted_id: FunctionId<LiftedCtx>,
     pub fn_ids: UniqueFnIdShared,
     pub types: TypeBag,
     pub return_type: ReturnType,
@@ -44,6 +45,9 @@ pub struct SymbWorker<'program> {
 
 #[derive(Clone)]
 pub struct WorkerResults {
+    /// mimics <SymbWorker as Worker>::Id
+    pub id: FunctionId<SymbolicCtx>,
+    pub lifted_id: FunctionId<LiftedCtx>,
     pub is_entry_fn: bool,
     pub return_type: ReturnType,
     pub types: TypeBag,
@@ -102,6 +106,8 @@ impl<'p> Worker for SymbWorker<'p> {
         assert_ne!(return_type, ReturnType::Never, "why is ret typ never");
 
         Computation::Result(WorkerResults {
+            id: self.id,
+            lifted_id: self.lifted_id,
             is_entry_fn: self.is_entry_fn,
             return_type,
             types: self.types.clone(),
@@ -188,7 +194,7 @@ impl SymbWorker<'_> {
                 // although the `assembler` phase does this for us as of the time of writing
                 let ext_fn = self.program.external_functions.get(&i.calling).unwrap();
 
-                match (i.result, &ext_fn.returns) {
+                match (i.result, &ext_fn.return_type) {
                     (Some(_), Returns::Void) => panic!("cannot assign `void` to register"),
                     (None, _) => {}
                     (Some(_), Returns::Value(_)) => {
