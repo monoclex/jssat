@@ -73,22 +73,7 @@ impl UniqueFnId {
         types: TypeBag,
         is_entry_fn: bool,
     ) -> Option<FunctionId<SymbolicCtx>> {
-        println!("tryign to get poor map for");
-        println!("R :");
-        for r in types.all_registers() {
-            println!("  {:?} : {}", r, types.display(r, InstIdx::Prologue));
-        }
-
         let poor_map = self.fns.get(&fn_id)?;
-
-        println!("okay getting poor map, got it");
-        for (k, v) in poor_map.iter() {
-            println!("K :");
-            for r in k.all_registers() {
-                println!("  {:?} : {}", r, k.display(r, InstIdx::Prologue));
-            }
-            println!("V : {:?}", v);
-        }
         poor_map.get(&types).cloned()
     }
 

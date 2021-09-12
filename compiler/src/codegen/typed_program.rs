@@ -6,7 +6,7 @@ use tinyvec::TinyVec;
 
 use crate::{
     id::{AssemblerCtx, FunctionId, LiftedCtx, RegisterId, SymbolicCtx},
-    isa::{BlockJump, Call, Jump, JumpIf, Make},
+    isa::{BlockJump, Call, Comment, Jump, JumpIf, Make, Noop},
     lifted::LiftedProgram,
     retag::{
         CnstPassRetagger, CnstRetagger, ExtFnPassRetagger, ExtFnRetagger, FnPassRetagger,
@@ -258,7 +258,6 @@ impl<'r> FnTyper<'r, '_> {
         let target_fn = self.program.functions.get(symb_id).unwrap();
         let prev = InstIdx::from_inst_len(self.lifted_fn.instructions.len());
 
-        println!("THE FUNCTION JUMPING TO: {:?}", target_fn);
         let subset = self
             .results
             .types

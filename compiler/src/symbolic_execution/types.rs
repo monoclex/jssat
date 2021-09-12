@@ -264,7 +264,7 @@ impl RecordBag {
         record: AllocationId,
         field: RecordKey,
         should_include_fact: F,
-    ) -> Union<&Fact>
+    ) -> Union<Vec<&Fact>>
     where
         F: Fn(RecordKey, RecordKey) -> bool,
     {
@@ -278,23 +278,27 @@ impl RecordBag {
         record: AllocationId,
         field: RecordKey,
         should_include_fact: F,
-    ) -> Union<&Fact>
+    ) -> Union<Vec<&Fact>>
     where
         F: Fn(RecordKey, RecordKey) -> bool,
     {
         let record = self.records.get(&record).unwrap();
 
-        let mut field_facts = vec![];
+        let mut all_field_facts = vec![];
         for facts in record.iter() {
+            let mut field_facts = vec![];
             for fact in facts.iter().rev() {
                 if should_include_fact(field, fact.key()) {
                     field_facts.push(fact);
-                    break;
                 }
+            }
+
+            if !field_facts.is_empty() {
+                all_field_facts.push(field_facts);
             }
         }
 
-        Union(field_facts)
+        Union(all_field_facts)
     }
 
     pub fn record_fact_remove(
@@ -391,19 +395,41 @@ impl RecordBag {
         }
     }
 
-    pub fn record_keys(&self, id: AllocationId) -> FxHashSet<(RecordKeyEq, InstIdx)> {
+    pub fn record_keys(&self, id: AllocationId) -> FxHashSet<RecordKeyEq> {
         let facts = self.records.get(&id).unwrap();
 
         let keys = (facts.iter())
             .flat_map(|facts| facts.iter())
-            .map(|fact| (fact.key().into_record_key_eq(), fact.inst_idx()))
+            .map(|fact| fact.key().into_record_key_eq())
             .collect::<FxHashSet<_>>();
 
         keys
     }
 
     pub fn only_record_keys(&self, id: AllocationId) -> FxHashSet<RecordKeyEq> {
-        self.record_keys(id).into_iter().map(|(k, _)| k).collect()
+        self.record_keys(id)
+    }
+
+    pub fn record_keys_w_inst_idx(
+        &self,
+        id: AllocationId,
+        up_until: InstIdx,
+    ) -> FxHashSet<(RecordKeyEq, InstIdx)> {
+        let facts = self.records.get(&id).unwrap();
+        let mut new_facts = FxHashSet::default();
+
+        for key in self.record_keys(id) {
+            if let Some(inst_idx) = (facts.iter())
+                .flat_map(|facts| facts.iter())
+                .map(|fact| fact.inst_idx())
+                .filter(|i| *i <= up_until)
+                .max()
+            {
+                new_facts.insert((key, inst_idx));
+            }
+        }
+
+        new_facts
     }
 }
 
@@ -561,10 +587,10 @@ impl<'a, R: SyncResolver> Syncer<'a, R> {
                 //    d. save (key, type) into record
                 // 3. return record
 
-                let keys = self.src.records.record_keys(id);
+                let keys = self.src.records.record_keys_w_inst_idx(id, self.up_until);
 
                 for (key, inst_idx) in keys.into_iter().map(|(k, i)| (k.into_record_key(), i)) {
-                    // TODO: do we want `>=` or `>`?
+                    // TODO: should be more explicit about the `>` thing being done here
                     if inst_idx > self.up_until {
                         continue;
                     }
@@ -574,14 +600,6 @@ impl<'a, R: SyncResolver> Syncer<'a, R> {
                             None => continue,
                             Some(t) => t,
                         };
-                    let dest_value_type = self.sync_type(src_value_type);
-
-                    println!("syncing {} : {:?}", inst_idx, key);
-                    println!("src : {}", self.src.display_type(src_value_type, inst_idx));
-                    println!(
-                        "dest : {}",
-                        self.dest.display_type(dest_value_type, inst_idx)
-                    );
 
                     let mut update_record = true;
 
@@ -855,6 +873,18 @@ impl TypeBag {
         };
 
         let facts = self.records.record_facts_of(record, field, keys_eq);
+
+        // because we don't care about constraining to an `up_until` point,
+        // we can just take the first fact
+        let facts = Union(
+            facts
+                .iter()
+                .map(|v| {
+                    debug_assert!(!v.is_empty(), "should have fax");
+                    v[0]
+                })
+                .collect(),
+        );
 
         // possible lists of facts => the return type (or action)
         // - [] -- empty union, meaning no facts => Any
@@ -1238,7 +1268,9 @@ impl TypeBag {
         if cfg!(debug_assertions) {
             let mut idx = InstIdx::Prologue;
             for fact in facts.iter() {
-                debug_assert!(idx <= fact.inst_idx());
+                assert!(!fact.is_empty());
+                let fact = fact[0];
+                assert!(idx <= fact.inst_idx());
                 idx = fact.inst_idx();
             }
         }
@@ -1247,24 +1279,38 @@ impl TypeBag {
             return None;
         }
 
+        // constrain the facts we take to `up_until`
+        let facts = facts
+            .iter()
+            .map(|f| {
+                // filter out the facts too far in the future
+                let mut f = f.iter().filter(|f| {
+                    // // TODO: do we want `>=` or `>`?
+                    // if inst_idx > self.up_until {
+                    //     continue;
+                    // }
+                    let skip = f.inst_idx() > up_until;
+
+                    // we only keep elements that return true
+                    !skip
+                });
+
+                // the first fact will be the most recent one
+                // and if there is no fact, then we shouldn't've gotten that chain of facts
+                // thus ignore it
+                f.next()
+            })
+            .flatten();
+
         // we lose any relevent facts as soon as we delete something
-        let facts = (facts.iter()).take_while(|fact| matches!(fact, Fact::Set { .. }));
+        let facts = facts.take_while(|fact| {
+            let doesMatch = matches!(fact, Fact::Set { .. });
+            doesMatch
+        });
         // facts : [set a => 1, remove a, set a => 2]
         //       = [set a => 1]
         // facts : [set a => 1, set a => 2]
         //       = [set a => 1, set a => 2]
-
-        // constrain the facts we take to `up_until`
-        let facts = facts.filter(|f| {
-            // // TODO: do we want `>=` or `>`?
-            // if inst_idx > self.up_until {
-            //     continue;
-            // }
-            let skip = f.inst_idx() > up_until;
-
-            // we only keep elements that return true
-            !skip
-        });
 
         // the type of the value is the union of all of the facts
         let field_types = facts
