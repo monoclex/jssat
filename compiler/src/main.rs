@@ -160,33 +160,44 @@ print('Hello, World!');
 "#
     .to_owned();
 
-    let ir = frontend::js::traverse(content);
-    println!("{}", display_jssatir::display(&ir));
+    println!("traversing javascript");
+    let ir = time(move || frontend::js::traverse(content));
+    // println!("{}", display_jssatir::display(&ir));
 
     println!("lifting program");
-    let program = lifted::lift(ir);
+    let program = time(move || lifted::lift(ir));
 
     println!("executing program");
-
-    let start = Instant::now();
-    let program = symbolic_execution::execute(&program);
-    let end = Instant::now();
-    println!("execution took {:?}", end - start);
+    let program = time(|| symbolic_execution::execute(&program));
 
     println!("typing program");
-    let program = codegen::type_program(program);
+    let program = time(move || codegen::type_program(program));
 
     println!("optimizing system run");
-    let program = opt::opt(program);
+    let program = time(move || opt::opt(program));
+
+    println!("{}", codegen::display(&program));
 
     println!("lowering run");
-    let program = codegen::lower(program);
+    let program = time(move || codegen::lower(program));
 
     println!("compiling");
-    let build = backend::compile(program);
+    let build = time(move || backend::compile(program));
 
     eprintln!("OUTPUT LLVM IR (use unix pipes to redirect this into a file):");
     println!("{}", build.llvm_ir);
 
     link_binary(build.obj.as_slice());
+}
+
+fn time<F, R>(f: F) -> R
+where
+    F: FnOnce() -> R,
+{
+    let start = Instant::now();
+    let result = f();
+    let end = Instant::now();
+    println!("took {:?}", end - start);
+    println!();
+    result
 }

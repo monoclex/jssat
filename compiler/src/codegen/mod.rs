@@ -6,6 +6,9 @@ pub use lower::lower;
 mod typed_program;
 pub use typed_program::type_program;
 
+mod display_typed;
+pub use display_typed::display;
+
 use std::fmt::Write;
 
 use rustc_hash::FxHashMap;

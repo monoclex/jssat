@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
 use derive_more::{Deref, DerefMut};
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use tinyvec::TinyVec;
 
 use crate::{
@@ -65,11 +65,18 @@ pub fn type_program(system_run: SystemRun) -> TypedProgram {
         fn_ids: &fn_ids,
         all_results: &results,
         fn_id_mapper: &mut function_id_mapper,
+        ext_fn_id_mapper: &mut external_function_id_mapper,
         constant_id_mapper: &constant_id_mapper,
         explore_queue: &mut explore_queue,
     };
 
+    let mut completed_functions = FxHashSet::default();
     while let Some(id) = fn_typer.explore_queue.pop_front() {
+        if !completed_functions.insert(id) {
+            // we've already handled this function
+            continue;
+        }
+
         let (id, function) = fn_typer.process(id);
         functions.insert(id, function).expect_free();
     }
@@ -87,6 +94,7 @@ struct FnTyperFactory<'a> {
     fn_ids: &'a UniqueFnIdShared,
     all_results: &'a FxHashMap<FunctionId<SymbolicCtx>, WorkerResults>,
     fn_id_mapper: &'a mut FnPassRetagger<SymbolicCtx, AssemblerCtx>,
+    ext_fn_id_mapper: &'a mut ExtFnPassRetagger<LiftedCtx, AssemblerCtx>,
     constant_id_mapper: &'a CnstPassRetagger<LiftedCtx, AssemblerCtx>,
     explore_queue: &'a mut VecDeque<FunctionId<SymbolicCtx>>,
 }
@@ -181,20 +189,9 @@ impl<'r> FnTyper<'r, '_> {
             ir::Instruction::CallStatic(i) => {
                 // TODO: abstract out SymbWorker::exec_types and use their same logic
                 // TODO: this logic is also present in mapping a BlockJump, need to consolidaate the logic
-                let target_fn = self.program.functions.get(&i.calling).unwrap();
                 let prev = inst_idx.back().unwrap();
-
-                let subset = self
-                    .results
-                    .types
-                    .subset_immut(&i.args, &target_fn.parameters, prev);
-
-                let target_id = self
-                    .fn_ids
-                    .id_of_immut(i.calling, subset.child(), false)
-                    .unwrap();
-
-                self.factory.explore_queue.push_back(target_id);
+                let target_id =
+                    self.lookup_symbolic_fn_id_from_invocation(i.calling, &i.args, prev);
 
                 Instruction::CallStatic(Call {
                     result: i.result.map(|r| self.reg_retagger.retag_new(r)),
@@ -206,8 +203,36 @@ impl<'r> FnTyper<'r, '_> {
                         .collect(),
                 })
             }
-            ir::Instruction::CallExtern(_) => todo!(),
-            ir::Instruction::CallVirt(_) => todo!(),
+            ir::Instruction::CallExtern(i) => Instruction::CallExtern(Call {
+                result: i.result.map(|r| self.reg_retagger.retag_new(r)),
+                calling: self.ext_fn_id_mapper.retag_old(i.calling),
+                args: i
+                    .args
+                    .iter()
+                    .map(|r| self.reg_retagger.retag_old(*r))
+                    .collect(),
+            }),
+            ir::Instruction::CallVirt(i) => {
+                // TODO: no support for unions of fnptrs yet
+                // SANITY: this is fine as SSA form prevents registers from being set and we
+                // should only have fnpts stored in the register id
+                let fn_id = self.results.types.get_fnptr(i.calling);
+                let prev = inst_idx.back().unwrap();
+                let target_id = self.lookup_symbolic_fn_id_from_invocation(fn_id, &i.args, prev);
+
+                // TODO: once callvirt supports calling unions,
+                // replace this instruction with a different one maybe? maybe some kind of callvirt instruction?
+                // one that would handle the idea of "here are the unions of functions we may call bla bla bla"
+                Instruction::CallStatic(Call {
+                    result: i.result.map(|r| self.reg_retagger.retag_new(r)),
+                    calling: self.fn_id_mapper.retag_old(target_id),
+                    args: i
+                        .args
+                        .iter()
+                        .map(|r| self.reg_retagger.retag_old(*r))
+                        .collect(),
+                })
+            }
             ir::Instruction::MakeTrivial(i) => {
                 Instruction::MakeTrivial(i.retag(&mut self.reg_retagger))
             }
@@ -255,19 +280,8 @@ impl<'r> FnTyper<'r, '_> {
     ) -> BlockJump<FunctionId<AssemblerCtx>, AssemblerCtx> {
         let BlockJump(symb_id, args) = b;
 
-        let target_fn = self.program.functions.get(symb_id).unwrap();
         let prev = InstIdx::from_inst_len(self.lifted_fn.instructions.len());
-
-        let subset = self
-            .results
-            .types
-            .subset_immut(args, &target_fn.parameters, prev);
-
-        let target_id = self
-            .fn_ids
-            .id_of_immut(*symb_id, subset.child(), false)
-            .unwrap();
-        self.factory.explore_queue.push_back(target_id);
+        let target_id = self.lookup_symbolic_fn_id_from_invocation(*symb_id, args, prev);
 
         let target_fn_id = self.fn_id_mapper.retag_new(target_id);
         let target_args = args
@@ -276,5 +290,28 @@ impl<'r> FnTyper<'r, '_> {
             .collect();
 
         BlockJump(target_fn_id, target_args)
+    }
+
+    fn lookup_symbolic_fn_id_from_invocation(
+        &mut self,
+        fn_id: FunctionId<LiftedCtx>,
+        args: &[RegisterId<LiftedCtx>],
+        up_until: InstIdx,
+    ) -> FunctionId<SymbolicCtx> {
+        let target_fn = self.program.functions.get(&fn_id).unwrap();
+
+        let subset = self
+            .results
+            .types
+            .subset_immut(args, &target_fn.parameters, up_until);
+
+        let target_id = self
+            .fn_ids
+            .id_of_immut(fn_id, subset.child(), false)
+            .unwrap();
+
+        self.factory.explore_queue.push_back(target_id);
+
+        target_id
     }
 }
