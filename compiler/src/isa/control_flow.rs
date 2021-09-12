@@ -303,3 +303,19 @@ impl<F: Tag, R: Tag> JumpIf<FunctionId<F>, R> {
         vec![&mut self.if_so, &mut self.other]
     }
 }
+
+impl<B: IdCompat, T: Tag> JumpIf<B, T> {
+    pub fn take_path(&self, condition: bool) -> &BlockJump<B, T> {
+        match condition {
+            true => &self.if_so,
+            false => &self.other,
+        }
+    }
+
+    pub fn take_path_mut(&mut self, condition: bool) -> &BlockJump<B, T> {
+        match condition {
+            true => &mut self.if_so,
+            false => &mut self.other,
+        }
+    }
+}

@@ -7,7 +7,9 @@
 
 use derive_more::{Deref, DerefMut, Display};
 use lasso::{Key, Rodeo};
+use std::ops::Deref;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -24,7 +26,7 @@ type DynFnId = crate::id::FunctionId<LiftedCtx>;
 type UnionId = crate::id::UnionId<LiftedCtx>;
 type WorkRecordKey = crate::isa::RecordKey<LiftedCtx>;
 
-#[derive(Clone, Copy, Hash)]
+#[derive(Clone, Copy, Hash, Debug)]
 enum RecordKey {
     Key(RegisterType),
     Slot(InternalSlot),
@@ -46,7 +48,7 @@ impl RecordKey {
 ///
 /// but to show that i don't care that much about that at the moment, this is
 /// a sort of hack to make it explicit "hey im aware what im doing is djumb"
-#[derive(Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
 enum RecordKeyEq {
     Key(RegisterType),
     Slot(InternalSlot),
@@ -389,15 +391,19 @@ impl RecordBag {
         }
     }
 
-    pub fn record_keys(&self, id: AllocationId) -> FxHashSet<RecordKeyEq> {
+    pub fn record_keys(&self, id: AllocationId) -> FxHashSet<(RecordKeyEq, InstIdx)> {
         let facts = self.records.get(&id).unwrap();
 
         let keys = (facts.iter())
             .flat_map(|facts| facts.iter())
-            .map(|fact| fact.key().into_record_key_eq())
+            .map(|fact| (fact.key().into_record_key_eq(), fact.inst_idx()))
             .collect::<FxHashSet<_>>();
 
         keys
+    }
+
+    pub fn only_record_keys(&self, id: AllocationId) -> FxHashSet<RecordKeyEq> {
+        self.record_keys(id).into_iter().map(|(k, _)| k).collect()
     }
 }
 
@@ -423,8 +429,27 @@ pub enum InstIdx {
     Epilogue,
 }
 
+impl InstIdx {
+    pub fn from_inst_len(instructions: usize) -> Self {
+        match instructions {
+            0 => InstIdx::Prologue,
+            n => InstIdx::Inst(n - 1),
+        }
+    }
+
+    pub fn back(self) -> Option<Self> {
+        match self {
+            InstIdx::Prologue => None,
+            InstIdx::Inst(0) => Some(InstIdx::Prologue),
+            InstIdx::Inst(n) => Some(InstIdx::Inst(n - 1)),
+            InstIdx::Epilogue => None,
+        }
+    }
+}
+
 struct Syncer<'a, R> {
     inst_idx: InstIdx,
+    up_until: InstIdx,
     src: &'a TypeBag,
     dest: &'a mut TypeBag,
     resolve: R,
@@ -538,29 +563,58 @@ impl<'a, R: SyncResolver> Syncer<'a, R> {
 
                 let keys = self.src.records.record_keys(id);
 
-                for key in keys.into_iter().map(|k| k.into_record_key()) {
-                    let src_value_type = match self.src.value_type_at_record_key(id, key) {
-                        None => continue,
-                        Some(t) => t,
-                    };
+                for (key, inst_idx) in keys.into_iter().map(|(k, i)| (k.into_record_key(), i)) {
+                    // TODO: do we want `>=` or `>`?
+                    if inst_idx > self.up_until {
+                        continue;
+                    }
 
+                    let src_value_type =
+                        match self.src.value_type_at_record_key(id, key, self.up_until) {
+                            None => continue,
+                            Some(t) => t,
+                        };
                     let dest_value_type = self.sync_type(src_value_type);
 
+                    println!("syncing {} : {:?}", inst_idx, key);
+                    println!("src : {}", self.src.display_type(src_value_type, inst_idx));
+                    println!(
+                        "dest : {}",
+                        self.dest.display_type(dest_value_type, inst_idx)
+                    );
+
+                    let mut update_record = true;
+
                     if let Some(Some(current_typ)) =
-                        self.dest.try_value_type_at_record_key(dest_id, key)
+                        self.dest
+                            .try_value_type_at_record_key(dest_id, key, self.up_until)
                     {
                         let are_typs_equal =
                             self.src.typ_eq_oth(self.dest, src_value_type, current_typ);
 
                         // no reason to update the record
                         if are_typs_equal {
-                            continue;
+                            update_record = false;
                         }
                     }
 
-                    self.dest
-                        .records
-                        .record_fact_set(dest_id, key, dest_value_type, self.inst_idx);
+                    // because we are just checking for equality via typ_eq_other,
+                    // we may not have the same ID for constants, even thoug they are equal to eachother in value
+                    // so we will force the record to be updated even if they're equal if they're both bytes
+                    if !update_record && matches!(src_value_type, RegisterType::Byts(_)) {
+                        update_record = true;
+                    }
+
+                    if update_record {
+                        let dest_value_type = self.sync_type(src_value_type);
+
+                        self.dest.records.record_fact_set(
+                            dest_id,
+                            key,
+                            dest_value_type,
+                            self.inst_idx,
+                        );
+                    }
                 }
 
                 RegisterType::Record(dest_id)
@@ -573,8 +627,34 @@ struct SyncStats {
     // num_facts_at_last_sync: usize,
 }
 
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum MaybeMut<'a, T> {
+    Imm(&'a T),
+    Mut(&'a mut T),
+}
+
+impl<'a, T> MaybeMut<'a, T> {
+    pub fn try_into_mut<'b>(&'b mut self) -> Option<&'b mut &'a mut T> {
+        match self {
+            MaybeMut::Imm(_) => None,
+            MaybeMut::Mut(r) => Some(r),
+        }
+    }
+}
+
+impl<'a, T> Deref for MaybeMut<'a, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            MaybeMut::Imm(r) => *r,
+            MaybeMut::Mut(r) => *r,
+        }
+    }
+}
+
 pub struct Subset<'a> {
-    original: &'a mut TypeBag,
+    original: MaybeMut<'a, TypeBag>,
     child: TypeBag,
     // // { original register id |-> child register id }
     // reg_map: FxBiHashMap<RegisterId, RegisterId>,
@@ -593,10 +673,15 @@ impl<'a> Subset<'a> {
         self.child.clone()
     }
 
-    fn self_to_child_syncer<'b>(&'b mut self, inst_idx: InstIdx) -> Syncer<'b, ResolveLeft> {
+    fn self_to_child_syncer<'b>(
+        &'b mut self,
+        inst_idx: InstIdx,
+        up_until: InstIdx,
+    ) -> Syncer<'b, ResolveLeft> {
         Syncer {
             inst_idx,
-            src: self.original,
+            up_until,
+            src: &self.original,
             dest: &mut self.child,
             resolve: ResolveLeft(&mut self.rec_map, &mut self.src_fact_init),
         }
@@ -606,34 +691,56 @@ impl<'a> Subset<'a> {
         &'b mut self,
         child: &'b TypeBag,
         inst_idx: InstIdx,
+        up_until: InstIdx,
     ) -> Syncer<'b, ResolveRight> {
+        let dest = self.original.try_into_mut().unwrap();
         Syncer {
             inst_idx,
+            up_until,
             src: child,
-            dest: &mut self.original,
+            dest,
             resolve: ResolveRight(&mut self.rec_map, &mut self.dest_fact_init),
         }
     }
 
     // this might just be update_reg
-    fn sync_to_child(&mut self, src_reg: RegisterId, child_reg: RegisterId, inst_idx: InstIdx) {
+    fn sync_to_child(
+        &mut self,
+        src_reg: RegisterId,
+        child_reg: RegisterId,
+        inst_idx: InstIdx,
+        up_until: InstIdx,
+    ) {
         let typ = self.original.get(src_reg);
 
-        let res_typ = self.self_to_child_syncer(inst_idx).sync_type(typ);
+        let res_typ = self.self_to_child_syncer(inst_idx, up_until).sync_type(typ);
 
         self.child.assign_type(child_reg, res_typ);
     }
 
-    fn sync_from_child(&mut self, child: &TypeBag, dest: RegisterId, inst_idx: InstIdx) {
+    fn sync_from_child(
+        &mut self,
+        child: &TypeBag,
+        dest: RegisterId,
+        inst_idx: InstIdx,
+        up_until: InstIdx,
+    ) {
         let typ = child.get(dest);
-        self.child_to_self_syncer(child, inst_idx).sync_type(typ);
+        self.child_to_self_syncer(child, inst_idx, up_until)
+            .sync_type(typ);
     }
 
     /// Given a register type in a `type_bag` which is expected to be similar to
     /// this subset's `child`, this will perform all necessary work to bring
     /// that type into subset
-    pub fn update_reg(&mut self, type_bag: &TypeBag, target_reg: RegisterId, inst_idx: InstIdx) {
-        self.sync_from_child(type_bag, target_reg, inst_idx)
+    pub fn update_reg(
+        &mut self,
+        type_bag: &TypeBag,
+        target_reg: RegisterId,
+        inst_idx: InstIdx,
+        up_until: InstIdx,
+    ) {
+        self.sync_from_child(type_bag, target_reg, inst_idx, up_until)
     }
 
     /// Given a single type in a, Deref `type_bag` which is expected to be similar to
@@ -644,8 +751,10 @@ impl<'a> Subset<'a> {
         type_bag: &TypeBag,
         typ: RegisterType,
         inst_idx: InstIdx,
+        up_until: InstIdx,
     ) -> RegisterType {
-        self.child_to_self_syncer(type_bag, inst_idx).sync_type(typ)
+        self.child_to_self_syncer(type_bag, inst_idx, up_until)
+            .sync_type(typ)
     }
 }
 
@@ -700,7 +809,7 @@ impl<T: Key + Default> Clone for CloneRodeo<T> {
 
 #[derive(Clone)]
 pub struct TypeBag {
-    registers: FxHashMap<RegisterId, RegisterType>,
+    pub(crate) registers: FxHashMap<RegisterId, RegisterType>,
     records: RecordBag,
     unions: UnionInterner,
     constants: CloneRodeo<ConstantId>,
@@ -710,6 +819,10 @@ pub struct TypeBag {
 impl TypeBag {
     pub fn looking_up(&self) -> LookingUpStatus {
         self.status.get()
+    }
+
+    pub(crate) fn all_registers(&self) -> Vec<RegisterId> {
+        self.registers.iter().map(|(r, _)| *r).collect()
     }
 
     pub fn new_record(&mut self, register: RegisterId) {
@@ -835,7 +948,22 @@ impl TypeBag {
         self.constants.get_or_intern(str)
     }
 
+    // TODO: this function shouldn't exist,
+    // there is a bug somewhere that causes the assertion in `unintern_const` to trigger
+    // but at the time of writing i'm not here to fix that
+    pub fn mayb_unintern_const(&self, id: ConstantId) -> Option<&[u8]> {
+        if id.into_usize() >= self.constants.len() {
+            return None;
+        }
+
+        Some(self.constants.resolve(&id).as_bytes())
+    }
+
     pub fn unintern_const(&self, id: ConstantId) -> &[u8] {
+        if id.into_usize() >= self.constants.len() {
+            panic!("this will be terrible for the economy");
+        }
+
         self.constants.resolve(&id).as_bytes()
     }
 
@@ -868,11 +996,43 @@ impl TypeBag {
         .display(register)
     }
 
-    pub fn subset(&mut self, src_args: &[RegisterId], target_args: &[RegisterId]) -> Subset {
+    pub fn display_type(&self, register_type: RegisterType, inst_idx: InstIdx) -> String {
+        DisplayContext {
+            types: self,
+            records_shown: Default::default(),
+            inst_idx,
+        }
+        .display_type(&register_type)
+    }
+
+    pub fn subset(
+        &mut self,
+        src_args: &[RegisterId],
+        target_args: &[RegisterId],
+        up_until: InstIdx,
+    ) -> Subset {
+        TypeBag::subset_impl(MaybeMut::Mut(self), src_args, target_args, up_until)
+    }
+
+    pub fn subset_immut(
+        &self,
+        src_args: &[RegisterId],
+        target_args: &[RegisterId],
+        up_until: InstIdx,
+    ) -> Subset {
+        TypeBag::subset_impl(MaybeMut::Imm(self), src_args, target_args, up_until)
+    }
+
+    fn subset_impl<'a>(
+        original: MaybeMut<'a, TypeBag>,
+        src_args: &[RegisterId],
+        target_args: &[RegisterId],
+        up_until: InstIdx,
+    ) -> Subset<'a> {
         debug_assert_eq!(src_args.len(), target_args.len());
 
         let mut subset = Subset {
-            original: self,
+            original,
             child: Default::default(),
             rec_map: Default::default(),
             src_fact_init: Default::default(),
@@ -884,7 +1044,7 @@ impl TypeBag {
         }
 
         for (src_reg, child_reg) in src_args.iter().zip(target_args.iter()) {
-            subset.sync_to_child(*src_reg, *child_reg, InstIdx::Prologue);
+            subset.sync_to_child(*src_reg, *child_reg, InstIdx::Prologue, up_until);
         }
 
         subset
@@ -1004,8 +1164,8 @@ impl TypeBag {
         record_constraints: &mut Vec<(AllocationId, AllocationId)>,
         union_constraints: &mut Vec<(UnionId, UnionId)>,
     ) -> bool {
-        let self_keys = self.records.record_keys(self_rec);
-        let other_keys = other.records.record_keys(other_rec);
+        let self_keys = self.records.only_record_keys(self_rec);
+        let other_keys = other.records.only_record_keys(other_rec);
 
         if self_keys.len() != other_keys.len() {
             return false;
@@ -1017,8 +1177,8 @@ impl TypeBag {
             }
 
             let key = key.into_record_key();
-            let my_value = self.value_type_at_record_key(self_rec, key);
-            let other_value = other.value_type_at_record_key(other_rec, key);
+            let my_value = self.value_type_at_record_key(self_rec, key, InstIdx::Epilogue);
+            let other_value = other.value_type_at_record_key(other_rec, key, InstIdx::Epilogue);
 
             let maybe_equal = match (my_value, other_value) {
                 (Some(a), Some(b)) => {
@@ -1051,6 +1211,7 @@ impl TypeBag {
         &self,
         id: AllocationId,
         key: RecordKey,
+        up_until: InstIdx,
     ) -> Option<Option<RegisterType>> {
         let is_subtype = |a, b| {
             // a : field
@@ -1073,8 +1234,8 @@ impl TypeBag {
         let facts = self.records.try_record_facts_of(id, key, is_subtype);
 
         // facts : [most recent, ..., least recent]
-        {
-            // assertion for the above constraint
+        // assertion for the above:
+        if cfg!(debug_assertions) {
             let mut idx = InstIdx::Prologue;
             for fact in facts.iter() {
                 debug_assert!(idx <= fact.inst_idx());
@@ -1089,7 +1250,21 @@ impl TypeBag {
         // we lose any relevent facts as soon as we delete something
         let facts = (facts.iter()).take_while(|fact| matches!(fact, Fact::Set { .. }));
         // facts : [set a => 1, remove a, set a => 2]
-        // =>      [set a => 1]
+        //       = [set a => 1]
+        // facts : [set a => 1, set a => 2]
+        //       = [set a => 1, set a => 2]
+
+        // constrain the facts we take to `up_until`
+        let facts = facts.filter(|f| {
+            // // TODO: do we want `>=` or `>`?
+            // if inst_idx > self.up_until {
+            //     continue;
+            // }
+            let skip = f.inst_idx() > up_until;
+
+            // we only keep elements that return true
+            !skip
+        });
 
         // the type of the value is the union of all of the facts
         let field_types = facts
@@ -1124,17 +1299,22 @@ impl TypeBag {
         }
     }
 
-    fn value_type_at_record_key(&self, id: AllocationId, key: RecordKey) -> Option<RegisterType> {
+    fn value_type_at_record_key(
+        &self,
+        id: AllocationId,
+        key: RecordKey,
+        up_until: InstIdx,
+    ) -> Option<RegisterType> {
         let has_key = self
             .records
-            .record_keys(id)
+            .only_record_keys(id)
             .contains(&key.into_record_key_eq());
         debug_assert!(
             has_key,
             "the `record_keys` of `id` should have the key `key`"
         );
 
-        let result = self.try_value_type_at_record_key(id, key);
+        let result = self.try_value_type_at_record_key(id, key, up_until);
 
         result.expect("for the record to have a key there must be facts about it")
     }
@@ -1201,6 +1381,12 @@ impl DisplayContext<'_> {
             s.push('?');
         }
 
+        s
+    }
+
+    pub fn display_type(&mut self, reg_typ: &RegisterType) -> String {
+        let mut s = String::new();
+        self.display_typ(&mut s, &reg_typ).expect("to format");
         s
     }
 
@@ -1312,7 +1498,13 @@ impl DisplayContext<'_> {
     fn display_cnst(&self, w: &mut String, cnst: ConstantId) -> std::fmt::Result {
         use std::fmt::Write;
 
-        let payload = self.types.unintern_const(cnst);
+        let payload = match self.types.mayb_unintern_const(cnst) {
+            Some(c) => c,
+            None => {
+                write!(w, "<bugged>")?;
+                return Ok(());
+            }
+        };
 
         if let Ok(str) = std::str::from_utf8(payload) {
             write!(w, "{:?}", str)?;

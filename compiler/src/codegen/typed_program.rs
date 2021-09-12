@@ -1,16 +1,19 @@
+use std::collections::VecDeque;
+
 use derive_more::{Deref, DerefMut};
 use rustc_hash::FxHashMap;
 use tinyvec::TinyVec;
 
 use crate::{
     id::{AssemblerCtx, FunctionId, LiftedCtx, RegisterId, SymbolicCtx},
+    isa::{BlockJump, Call, Jump, JumpIf, Make},
     lifted::LiftedProgram,
     retag::{
         CnstPassRetagger, CnstRetagger, ExtFnPassRetagger, ExtFnRetagger, FnPassRetagger,
         FnRetagger, RegPassRetagger, RegRetagger,
     },
     symbolic_execution::{
-        types::{InstIdx, TypeBag},
+        types::{InstIdx, RegisterType, TypeBag},
         unique_id::UniqueFnIdShared,
         worker::WorkerResults,
         SystemRun,
@@ -55,17 +58,18 @@ pub fn type_program(system_run: SystemRun) -> TypedProgram {
 
     let mut functions = FxHashMap::default();
 
-    let mut explore_queue = vec![entry_fn];
+    let mut explore_queue = VecDeque::from(vec![entry_fn]);
 
     let mut fn_typer = FnTyperFactory {
         program,
         fn_ids: &fn_ids,
-        results: &results,
+        all_results: &results,
         fn_id_mapper: &mut function_id_mapper,
+        constant_id_mapper: &constant_id_mapper,
         explore_queue: &mut explore_queue,
     };
 
-    while let Some(id) = fn_typer.explore_queue.pop() {
+    while let Some(id) = fn_typer.explore_queue.pop_front() {
         let (id, function) = fn_typer.process(id);
         functions.insert(id, function).expect_free();
     }
@@ -81,9 +85,10 @@ pub fn type_program(system_run: SystemRun) -> TypedProgram {
 struct FnTyperFactory<'a> {
     program: &'a LiftedProgram,
     fn_ids: &'a UniqueFnIdShared,
-    results: &'a FxHashMap<FunctionId<SymbolicCtx>, WorkerResults>,
+    all_results: &'a FxHashMap<FunctionId<SymbolicCtx>, WorkerResults>,
     fn_id_mapper: &'a mut FnPassRetagger<SymbolicCtx, AssemblerCtx>,
-    explore_queue: &'a mut Vec<FunctionId<SymbolicCtx>>,
+    constant_id_mapper: &'a CnstPassRetagger<LiftedCtx, AssemblerCtx>,
+    explore_queue: &'a mut VecDeque<FunctionId<SymbolicCtx>>,
 }
 
 impl<'a> FnTyperFactory<'a> {
@@ -92,7 +97,7 @@ impl<'a> FnTyperFactory<'a> {
         id: FunctionId<SymbolicCtx>,
     ) -> (FunctionId<AssemblerCtx>, Block<TypeBag>) {
         let function_id = self.fn_id_mapper.retag_new(id);
-        let results = self.results.get(&id).unwrap();
+        let results = self.all_results.get(&id).unwrap();
         let (lifted_fn_id, _) = self.fn_ids.types_of(id);
         let lifted_fn = self.program.functions.get(&lifted_fn_id).unwrap();
         let reg_retagger = RegPassRetagger::default();
@@ -160,24 +165,117 @@ impl<'r> FnTyper<'r, '_> {
             ir::Instruction::NewRecord(i) => {
                 Instruction::NewRecord(i.retag(&mut self.reg_retagger))
             }
-            ir::Instruction::RecordGet(_) => todo!(),
-            ir::Instruction::RecordSet(_) => todo!(),
-            ir::Instruction::RecordHasKey(_) => todo!(),
-            ir::Instruction::GetFnPtr(_) => todo!(),
-            ir::Instruction::CallStatic(_) => todo!(),
+            ir::Instruction::RecordGet(i) => {
+                Instruction::RecordGet(i.retag(&mut self.reg_retagger))
+            }
+            ir::Instruction::RecordSet(i) => {
+                Instruction::RecordSet(i.retag(&mut self.reg_retagger))
+            }
+            ir::Instruction::RecordHasKey(i) => {
+                Instruction::RecordHasKey(i.retag(&mut self.reg_retagger))
+            }
+            ir::Instruction::GetFnPtr(i) => Instruction::GetFnPtr(Make {
+                result: self.reg_retagger.retag_new(i.result),
+                item: i.item,
+            }),
+            ir::Instruction::CallStatic(i) => {
+                // TODO: abstract out SymbWorker::exec_types and use their same logic
+                // TODO: this logic is also present in mapping a BlockJump, need to consolidaate the logic
+                let target_fn = self.program.functions.get(&i.calling).unwrap();
+                let prev = inst_idx.back().unwrap();
+
+                let subset = self
+                    .results
+                    .types
+                    .subset_immut(&i.args, &target_fn.parameters, prev);
+
+                let target_id = self
+                    .fn_ids
+                    .id_of_immut(i.calling, subset.child(), false)
+                    .unwrap();
+
+                self.factory.explore_queue.push_back(target_id);
+
+                Instruction::CallStatic(Call {
+                    result: i.result.map(|r| self.reg_retagger.retag_new(r)),
+                    calling: self.fn_id_mapper.retag_old(target_id),
+                    args: i
+                        .args
+                        .iter()
+                        .map(|r| self.reg_retagger.retag_old(*r))
+                        .collect(),
+                })
+            }
             ir::Instruction::CallExtern(_) => todo!(),
             ir::Instruction::CallVirt(_) => todo!(),
-            ir::Instruction::MakeTrivial(_) => todo!(),
-            ir::Instruction::MakeBytes(_) => todo!(),
-            ir::Instruction::MakeInteger(_) => todo!(),
-            ir::Instruction::MakeBoolean(_) => todo!(),
-            ir::Instruction::BinOp(_) => todo!(),
-            ir::Instruction::Negate(_) => todo!(),
+            ir::Instruction::MakeTrivial(i) => {
+                Instruction::MakeTrivial(i.retag(&mut self.reg_retagger))
+            }
+            ir::Instruction::MakeBytes(i) => {
+                let const_retagger = self.constant_id_mapper;
+                let reg_retagger = &mut self.reg_retagger;
+                Instruction::MakeBytes(i.retag(reg_retagger, const_retagger))
+            }
+            ir::Instruction::MakeInteger(i) => {
+                Instruction::MakeInteger(i.retag(&mut self.reg_retagger))
+            }
+            ir::Instruction::MakeBoolean(i) => {
+                Instruction::MakeBoolean(i.retag(&mut self.reg_retagger))
+            }
+            ir::Instruction::BinOp(i) => Instruction::BinOp(i.retag(&mut self.reg_retagger)),
+            ir::Instruction::Negate(i) => Instruction::Negate(i.retag(&mut self.reg_retagger)),
             ir::Instruction::Generalize(_) => todo!(),
         }
     }
 
-    fn process_end(&mut self, end_inst: &crate::lifted::EndInstruction) -> EndInstruction {
-        todo!()
+    fn process_end(
+        &mut self,
+        end_inst: &crate::lifted::EndInstruction,
+    ) -> EndInstruction<FunctionId<AssemblerCtx>> {
+        match end_inst {
+            crate::lifted::EndInstruction::Jump(i) => {
+                EndInstruction::Jump(Jump(self.translate_blockjump(&i.0)))
+            }
+            crate::lifted::EndInstruction::JumpIf(i) => {
+                if let RegisterType::Bool(b) = self.results.types.get(i.condition) {
+                    EndInstruction::Jump(Jump(self.translate_blockjump(i.take_path(b))))
+                } else {
+                    panic!("TODO: handle both paths")
+                }
+            }
+            crate::lifted::EndInstruction::Return(i) => {
+                EndInstruction::Return(i.retag(&self.reg_retagger))
+            }
+        }
+    }
+
+    fn translate_blockjump(
+        &mut self,
+        b: &BlockJump<FunctionId<LiftedCtx>, LiftedCtx>,
+    ) -> BlockJump<FunctionId<AssemblerCtx>, AssemblerCtx> {
+        let BlockJump(symb_id, args) = b;
+
+        let target_fn = self.program.functions.get(symb_id).unwrap();
+        let prev = InstIdx::from_inst_len(self.lifted_fn.instructions.len());
+
+        println!("THE FUNCTION JUMPING TO: {:?}", target_fn);
+        let subset = self
+            .results
+            .types
+            .subset_immut(args, &target_fn.parameters, prev);
+
+        let target_id = self
+            .fn_ids
+            .id_of_immut(*symb_id, subset.child(), false)
+            .unwrap();
+        self.factory.explore_queue.push_back(target_id);
+
+        let target_fn_id = self.fn_id_mapper.retag_new(target_id);
+        let target_args = args
+            .iter()
+            .map(|r| self.reg_retagger.retag_old(*r))
+            .collect();
+
+        BlockJump(target_fn_id, target_args)
     }
 }

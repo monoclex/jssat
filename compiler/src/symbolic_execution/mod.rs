@@ -247,6 +247,9 @@ fn handle_panic<'p>(system: ComputeGraphSys<SymbWorker<'p>, SymbFactory<'p>>) {
             println!("| ...");
         }
     }
+
+    println!();
+    println!("set `JSSAT_VIEW_WORKERS` or `JSSAT_VIEW_LINES` to configure the error output");
 }
 
 struct SymbFactory<'program> {

@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::{collections::PoorMap, id::*};
+use crate::{collections::PoorMap, id::*, symbolic_execution::types::InstIdx};
 
 use super::types::TypeBag;
 
@@ -26,6 +26,16 @@ impl Clone for UniqueFnIdShared {
 }
 
 impl UniqueFnIdShared {
+    pub fn id_of_immut(
+        &self,
+        fn_id: FunctionId<LiftedCtx>,
+        types: TypeBag,
+        is_entry_fn: bool,
+    ) -> Option<FunctionId<SymbolicCtx>> {
+        let me = self.0.try_lock().expect("should be contentionless");
+        me.id_of_immut(fn_id, types, is_entry_fn)
+    }
+
     pub fn id_of(
         &self,
         fn_id: FunctionId<LiftedCtx>,
@@ -57,6 +67,31 @@ impl UniqueFnIdShared {
 }
 
 impl UniqueFnId {
+    pub fn id_of_immut(
+        &self,
+        fn_id: FunctionId<LiftedCtx>,
+        types: TypeBag,
+        is_entry_fn: bool,
+    ) -> Option<FunctionId<SymbolicCtx>> {
+        println!("tryign to get poor map for");
+        println!("R :");
+        for r in types.all_registers() {
+            println!("  {:?} : {}", r, types.display(r, InstIdx::Prologue));
+        }
+
+        let poor_map = self.fns.get(&fn_id)?;
+
+        println!("okay getting poor map, got it");
+        for (k, v) in poor_map.iter() {
+            println!("K :");
+            for r in k.all_registers() {
+                println!("  {:?} : {}", r, k.display(r, InstIdx::Prologue));
+            }
+            println!("V : {:?}", v);
+        }
+        poor_map.get(&types).cloned()
+    }
+
     pub fn id_of(
         &mut self,
         fn_id: FunctionId<LiftedCtx>,

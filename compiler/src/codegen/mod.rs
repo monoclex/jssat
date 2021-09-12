@@ -12,7 +12,7 @@ use rustc_hash::FxHashMap;
 use tinyvec::TinyVec;
 
 use crate::frontend::ir::{Constant, ExternalFunction};
-use crate::id::AssemblerCtx;
+use crate::id::{AssemblerCtx, LiftedCtx};
 use crate::isa::*;
 use crate::symbolic_execution::types::TypeBag;
 type RegisterId = crate::id::RegisterId<AssemblerCtx>;
@@ -47,7 +47,7 @@ pub struct TypedProgram {
 pub struct Block<T = ()> {
     pub parameters: Vec<RegisterId>,
     pub instructions: Vec<Instruction>,
-    pub end: EndInstruction,
+    pub end: EndInstruction<FunctionId>,
     pub type_info: T,
 }
 
@@ -62,7 +62,7 @@ pub enum Instruction {
     CallStatic(Call<AssemblerCtx, FunctionId>),
     CallExtern(Call<AssemblerCtx, ExternalFunctionId>),
     CallVirt(Call<AssemblerCtx, RegisterId>),
-    GetFnPtr(Make<AssemblerCtx, FunctionId>),
+    GetFnPtr(Make<AssemblerCtx, crate::id::FunctionId<LiftedCtx>>),
     MakeTrivial(Make<AssemblerCtx, TrivialItem>),
     MakeBytes(Make<AssemblerCtx, ConstantId>),
     MakeInteger(Make<AssemblerCtx, i64>),
@@ -179,9 +179,12 @@ impl Instruction {
 }
 
 #[derive(Clone)]
-pub enum EndInstruction {
+pub enum EndInstruction<B = BlockId>
+where
+    B: crate::id::IdCompat,
+{
     Unreachable(Unreachable),
-    Jump(Jump<BlockId, AssemblerCtx>),
-    JumpIf(JumpIf<BlockId, AssemblerCtx>),
+    Jump(Jump<B, AssemblerCtx>),
+    JumpIf(JumpIf<B, AssemblerCtx>),
     Return(Return<AssemblerCtx>),
 }

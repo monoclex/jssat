@@ -12,7 +12,7 @@
 #![feature(unsafe_cell_raw_get)]
 #![deny(clippy::disallowed_method)]
 
-use std::{io::Write, process::Command};
+use std::{io::Write, process::Command, time::Instant};
 
 use crate::frontend::display_jssatir;
 
@@ -167,7 +167,11 @@ print('Hello, World!');
     let program = lifted::lift(ir);
 
     println!("executing program");
+
+    let start = Instant::now();
     let program = symbolic_execution::execute(&program);
+    let end = Instant::now();
+    println!("execution took {:?}", end - start);
 
     println!("typing program");
     let program = codegen::type_program(program);

@@ -77,17 +77,18 @@ impl<'p> Worker for SymbWorker<'p> {
             // TODO: write "unreachable" instruction
             ReturnType::Never
         } else {
+            let last_inst = Some(InstIdx::from_inst_len(self.func.instructions.len()));
             let inst_idx = InstIdx::Epilogue;
             match &self.func.end {
                 crate::lifted::EndInstruction::Jump(i) => {
-                    self.exec_types(system, i.0 .0, &i.0 .1, inst_idx)
+                    self.exec_types(system, i.0 .0, &i.0 .1, inst_idx, last_inst)
                 }
                 crate::lifted::EndInstruction::JumpIf(i) => match self.types.get(i.condition) {
                     RegisterType::Bool(true) => {
-                        self.exec_types(system, i.if_so.0, &i.if_so.1, inst_idx)
+                        self.exec_types(system, i.if_so.0, &i.if_so.1, inst_idx, last_inst)
                     }
                     RegisterType::Bool(false) => {
-                        self.exec_types(system, i.other.0, &i.other.1, inst_idx)
+                        self.exec_types(system, i.other.0, &i.other.1, inst_idx, last_inst)
                     }
                     RegisterType::Boolean => todo!("cannot handle divergence atm"),
                     r => unimplemented!("cannot use non-boolean register as conditional {:?}", r),
@@ -220,7 +221,7 @@ impl SymbWorker<'_> {
         args: &[RegisterId<LiftedCtx>],
         inst_idx: InstIdx,
     ) {
-        let return_type = self.exec_types(system, fn_id, args, inst_idx);
+        let return_type = self.exec_types(system, fn_id, args, inst_idx, None);
 
         match (result, return_type) {
             (_, ReturnType::Never) => {
@@ -244,6 +245,7 @@ impl SymbWorker<'_> {
         fn_id: FunctionId<LiftedCtx>,
         fn_args: &[RegisterId<LiftedCtx>],
         inst_idx: InstIdx,
+        prev: Option<InstIdx>,
     ) -> ReturnType {
         let target_fn = self.program.functions.get(&fn_id).unwrap();
         debug_assert_eq!(
@@ -252,7 +254,9 @@ impl SymbWorker<'_> {
             "param count should match"
         );
 
-        let mut subset = self.types.subset(fn_args, &target_fn.parameters);
+        let prev = prev.unwrap_or(inst_idx);
+
+        let mut subset = self.types.subset(fn_args, &target_fn.parameters, prev);
 
         let target_id = self.fn_ids.id_of(fn_id, subset.child(), false);
         let results = system.spawn(target_id);
@@ -260,10 +264,10 @@ impl SymbWorker<'_> {
         target_fn
             .parameters
             .iter()
-            .for_each(|reg| subset.update_reg(&results.types, *reg, inst_idx));
+            .for_each(|reg| subset.update_reg(&results.types, *reg, inst_idx, InstIdx::Epilogue));
 
         results
             .return_type
-            .map(|v| subset.update_typ(&results.types, v, inst_idx))
+            .map(|v| subset.update_typ(&results.types, v, inst_idx, InstIdx::Epilogue))
     }
 }
