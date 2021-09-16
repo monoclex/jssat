@@ -44,11 +44,13 @@ pub fn make_system(program: &LiftedProgram) -> Engine {
 
     let fn_ids = UniqueFnId::default();
     let fn_ids_shared = UniqueFnIdShared(Arc::new(Mutex::new(fn_ids)));
+    let unique_allocation_id = Default::default();
 
     let factory = SymbFactory {
         program,
         fn_ids: fn_ids_shared.clone(),
         asm_ext_map: Arc::new(asm_ext_map),
+        unique_allocation_id,
     };
 
     let system = ComputeGraphSys::new(factory);
@@ -253,6 +255,7 @@ fn handle_panic<'p>(system: ComputeGraphSys<SymbWorker<'p>, SymbFactory<'p>>) {
 }
 
 struct SymbFactory<'program> {
+    unique_allocation_id: Arc<Counter<UniqueRecordId<SymbolicCtx>>>,
     program: &'program LiftedProgram,
     fn_ids: UniqueFnIdShared,
     asm_ext_map: Arc<ExtFnPassRetagger<LiftedCtx, AssemblerCtx>>,
@@ -277,6 +280,7 @@ impl<'p> WorkerFactory for SymbFactory<'p> {
             is_entry_fn: self.fn_ids.is_entry_fn(id),
             asm_ext_map: self.asm_ext_map.clone(),
             never_infected: false,
+            unique_allocation_id: self.unique_allocation_id.clone(),
         }
     }
 }

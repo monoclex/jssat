@@ -1,7 +1,5 @@
-//! Contains data structures that are necessary to memorize information about
-//! records - their history of transitions, taking a view on them, and narrowing
-//! that view based on facts. All terminology is briefly explained here, but
-//! explained in depth at [the corresonding blog post][blog post]
+//! [The corresonding blog post][blog post] is relevant to gain an understanding
+//! of what the code istrying to model.
 //!
 //! [blog post]: https://sirjosh3917.com/posts/jssat-typing-objects-in-ssa-form/
 
@@ -9,12 +7,11 @@ use derive_more::{Deref, DerefMut, Display};
 use lasso::{Key, Rodeo};
 use std::ops::Deref;
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::collections::FxBiHashMap;
-use crate::id::{IdCompat, LiftedCtx, SymbolicCtx};
+use crate::id::{IdCompat, LiftedCtx, SymbolicCtx, UniqueRecordId};
 use crate::isa::{InternalSlot, TrivialItem};
 use crate::UnwrapNone;
 
@@ -206,7 +203,13 @@ impl Default for LookingUpStatus {
 #[derive(Clone, Default)]
 struct RecordBag {
     counter: AllocationId,
-    records: FxHashMap<AllocationId, Union<Facts<Fact>>>,
+    records: FxHashMap<AllocationId, Record>,
+}
+
+#[derive(Clone)]
+struct Record {
+    unique_allocation_id: UniqueRecordId<SymbolicCtx>,
+    fact_paths: Union<Facts<Fact>>,
 }
 
 #[derive(Clone, Deref, DerefMut, PartialEq, Eq)]
@@ -242,17 +245,34 @@ impl Fact {
     }
 }
 
+impl Record {
+    fn new(unique_allocation_id: UniqueRecordId<SymbolicCtx>) -> Self {
+        Self {
+            unique_allocation_id,
+            fact_paths: Union(vec![Facts(vec![])]),
+        }
+    }
+}
+
 impl RecordBag {
-    pub fn new_record(&mut self) -> AllocationId {
+    pub fn new_record(
+        &mut self,
+        unique_allocation_id: UniqueRecordId<SymbolicCtx>,
+    ) -> AllocationId {
         let id = self.counter.next_and_mut();
-        self.records
-            .insert(id, Union(vec![Facts(vec![])]))
-            .expect_free();
+
+        let record = Record::new(unique_allocation_id);
+
+        self.records.insert(id, record).expect_free();
         id
     }
 
+    pub fn record_unique_id(&self, record: AllocationId) -> UniqueRecordId<SymbolicCtx> {
+        self.records.get(&record).unwrap().unique_allocation_id
+    }
+
     pub fn try_all_facts(&self, record: AllocationId) -> Option<&Union<Facts<Fact>>> {
-        self.records.get(&record)
+        self.records.get(&record).map(|r| &r.fact_paths)
     }
 
     /// F : (the field : RecordKey, a fact's key : RecordKey) -> true if should include fact, false if not
@@ -285,7 +305,7 @@ impl RecordBag {
         let record = self.records.get(&record).unwrap();
 
         let mut all_field_facts = vec![];
-        for facts in record.iter() {
+        for facts in record.fact_paths.iter() {
             let mut field_facts = vec![];
             for fact in facts.iter().rev() {
                 if should_include_fact(field, fact.key()) {
@@ -309,7 +329,7 @@ impl RecordBag {
     ) {
         let record = self.records.get_mut(&record).unwrap();
 
-        for facts in record.iter_mut() {
+        for facts in record.fact_paths.iter_mut() {
             facts.push(Fact::Remove {
                 key: field,
                 inst_idx,
@@ -326,7 +346,7 @@ impl RecordBag {
     ) {
         let record = self.records.get_mut(&record).unwrap();
 
-        for facts in record.iter_mut() {
+        for facts in record.fact_paths.iter_mut() {
             facts.push(Fact::Set {
                 key: field,
                 value,
@@ -345,14 +365,14 @@ impl RecordBag {
         F: Fn(RecordKey, RecordKey) -> bool,
     {
         let record = self.records.get(&record).unwrap();
-        debug_assert!(record.len() >= 1);
+        debug_assert!(record.fact_paths.len() >= 1);
 
         // a record:
         // - definitively has a key `Some(true)`
         // - definitively does not have a key `Some(false)`
         // - may or may not have a key `None`
 
-        let facts = record.iter();
+        let facts = record.fact_paths.iter();
 
         // for every list of facts
         let mut fact_paths_that_have_key = facts.map(|facts| {
@@ -398,7 +418,7 @@ impl RecordBag {
     pub fn record_keys(&self, id: AllocationId) -> FxHashSet<RecordKeyEq> {
         let facts = self.records.get(&id).unwrap();
 
-        let keys = (facts.iter())
+        let keys = (facts.fact_paths.iter())
             .flat_map(|facts| facts.iter())
             .map(|fact| fact.key().into_record_key_eq())
             .collect::<FxHashSet<_>>();
@@ -419,7 +439,7 @@ impl RecordBag {
         let mut new_facts = FxHashSet::default();
 
         for key in self.record_keys(id) {
-            if let Some(inst_idx) = (facts.iter())
+            if let Some(inst_idx) = (facts.fact_paths.iter())
                 .flat_map(|facts| facts.iter())
                 .map(|fact| fact.inst_idx())
                 .filter(|i| *i <= up_until)
@@ -568,7 +588,9 @@ impl<'a, R: SyncResolver> Syncer<'a, R> {
                 let dest_id = match self.resolve.map_record_id(id) {
                     Some(id) => id,
                     None => {
-                        let gen_id = self.dest.records.new_record();
+                        let unique_id = self.src.record_unique_id(id);
+
+                        let gen_id = self.dest.records.new_record(unique_id);
                         self.resolve.save_record_id(id, gen_id);
                         gen_id
                     }
@@ -843,11 +865,19 @@ impl TypeBag {
         self.registers.iter().map(|(r, _)| *r).collect()
     }
 
-    pub fn new_record(&mut self, register: RegisterId) {
-        let id = self.records.new_record();
+    pub fn new_record(
+        &mut self,
+        register: RegisterId,
+        unique_record_id: UniqueRecordId<SymbolicCtx>,
+    ) {
+        let id = self.records.new_record(unique_record_id);
         self.registers
             .insert(register, RegisterType::Record(id))
             .expect_free();
+    }
+
+    pub fn record_unique_id(&self, record: AllocationId) -> UniqueRecordId<SymbolicCtx> {
+        self.records.record_unique_id(record)
     }
 
     pub fn record_get_field(&mut self, record: RegisterId, field: WorkRecordKey) -> RegisterType {
@@ -1127,8 +1157,15 @@ impl TypeBag {
             // -> true  => maybe equal
             // -> false => definitely not equal
             (Record(a), Record(b)) => {
-                record_constraints.push((a, b));
-                true
+                // only allow records that come from the same allocation to be considered equal
+                // TODO: state the name of the phenomenom this comes from, "shape dilemma" or something
+                // TODO: add unit test covering the necessity of this test
+                if self.record_unique_id(a) != other.record_unique_id(b) {
+                    false
+                } else {
+                    record_constraints.push((a, b));
+                    true
+                }
             }
             (Union(a), Union(b)) => {
                 union_constraints.push((a, b));
@@ -1194,6 +1231,11 @@ impl TypeBag {
         record_constraints: &mut Vec<(AllocationId, AllocationId)>,
         union_constraints: &mut Vec<(UnionId, UnionId)>,
     ) -> bool {
+        // TODO: add unit test covering the necessity of this test
+        if self.record_unique_id(self_rec) != other.record_unique_id(other_rec) {
+            return false;
+        }
+
         let self_keys = self.records.only_record_keys(self_rec);
         let other_keys = other.records.only_record_keys(other_rec);
 
@@ -1456,10 +1498,12 @@ impl DisplayContext<'_> {
             // TODO: display records and unions
             RegisterType::Union(u) => write!(w, "TODO: union {}", u)?,
             RegisterType::Record(r) => {
+                let unique_id = self.types.record_unique_id(r);
+
                 if !self.records_shown.insert(r) {
-                    write!(w, "{} @ ...", r.raw_value())?;
+                    write!(w, "{}, #{} @ ...", r.raw_value(), unique_id)?;
                 } else {
-                    write!(w, "{} @ ", r.raw_value())?;
+                    write!(w, "{}, #{} @ ", r.raw_value(), unique_id)?;
 
                     if let Some(fact_list) = self.types.records.try_all_facts(r) {
                         write!(w, "{{ ")?;

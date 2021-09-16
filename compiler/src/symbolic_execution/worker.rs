@@ -41,6 +41,7 @@ pub struct SymbWorker<'program> {
     pub inst_on: CurrentInstruction<'program>,
     pub asm_ext_map: Arc<ExtFnPassRetagger<LiftedCtx, AssemblerCtx>>,
     pub never_infected: bool,
+    pub unique_allocation_id: Arc<Counter<UniqueRecordId<SymbolicCtx>>>,
 }
 
 #[derive(Clone)]
@@ -125,7 +126,9 @@ impl SymbWorker<'_> {
     ) {
         match inst {
             ir::Instruction::Comment(_) => {}
-            ir::Instruction::NewRecord(i) => self.types.new_record(i.result),
+            ir::Instruction::NewRecord(i) => self
+                .types
+                .new_record(i.result, self.unique_allocation_id.next()),
             ir::Instruction::RecordGet(i) => {
                 let field_typ = self.types.record_get_field(i.record, i.key);
                 self.types.assign_type(i.result, field_typ);

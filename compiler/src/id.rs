@@ -182,6 +182,7 @@ gen_id!(OpaqueStructId);
 gen_id!(AllocationId);
 gen_id!(ShapeId);
 gen_id!(RecordId);
+gen_id!(UniqueRecordId);
 gen_id!(UnionId);
 
 #[derive(Debug)]

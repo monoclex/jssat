@@ -61,12 +61,22 @@ pub fn display(program: &TypedProgram) -> String {
             // but that requires major amounts of rewriting so we ignore that for now :)
             if let Some(r) = inst.declared_register() {
                 let r = r.map_context();
-                iwl!(text, "        -> {}", block.type_info.display(r, inst_idx));
+                iwl!(
+                    text,
+                    "        -> %{} : {}",
+                    r,
+                    block.type_info.display(r, inst_idx)
+                );
             }
 
             for r in inst.used_registers() {
                 let r = r.map_context();
-                iwl!(text, "         , {}", block.type_info.display(r, inst_idx));
+                iwl!(
+                    text,
+                    "         , %{} : {}",
+                    r,
+                    block.type_info.display(r, inst_idx)
+                );
             }
         }
 
