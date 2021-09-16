@@ -549,7 +549,7 @@ impl DynBlockBuilder {
             shape: (),
             record,
             key: RecordKey::Prop(property),
-            value,
+            value: Some(value),
         }));
     }
 
@@ -558,8 +558,26 @@ impl DynBlockBuilder {
             shape: (),
             record,
             key: RecordKey::Slot(slot),
-            value,
+            value: Some(value),
         }));
+    }
+
+    pub fn record_del_prop(&mut self, record: RegisterId, property: RegisterId) {
+        self.instructions.push(Instruction::RecordSet(RecordSet {
+            shape: (),
+            record,
+            key: RecordKey::Prop(property),
+            value: None,
+        }))
+    }
+
+    pub fn record_del_slot(&mut self, record: RegisterId, slot: InternalSlot) {
+        self.instructions.push(Instruction::RecordSet(RecordSet {
+            shape: (),
+            record,
+            key: RecordKey::Slot(slot),
+            value: None,
+        }))
     }
 
     pub fn record_has_prop(&mut self, record: RegisterId, property: RegisterId) -> RegisterId {

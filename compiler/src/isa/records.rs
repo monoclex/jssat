@@ -216,7 +216,7 @@ pub struct RecordSet<C: Tag, S = ()> {
     pub shape: S,
     pub record: RegisterId<C>,
     pub key: RecordKey<C>,
-    pub value: RegisterId<C>,
+    pub value: Option<RegisterId<C>>,
 }
 
 impl<C: Tag, S> ISAInstruction<C> for RecordSet<C, S> {
@@ -225,7 +225,10 @@ impl<C: Tag, S> ISAInstruction<C> for RecordSet<C, S> {
     }
 
     fn used_registers(&self) -> TinyVec<[RegisterId<C>; 3]> {
-        let mut used_registers = tiny_vec![self.record, self.value];
+        let mut used_registers = tiny_vec![self.record];
+        if let Some(register) = self.value {
+            used_registers.push(register);
+        }
         if let RecordKey::Prop(register) = self.key {
             used_registers.push(register);
         }
@@ -233,7 +236,10 @@ impl<C: Tag, S> ISAInstruction<C> for RecordSet<C, S> {
     }
 
     fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
-        let mut used_registers = vec![&mut self.record, &mut self.value];
+        let mut used_registers = vec![&mut self.record];
+        if let Some(register) = &mut self.value {
+            used_registers.push(register);
+        }
         if let RecordKey::Prop(register) = &mut self.key {
             used_registers.push(register);
         }
@@ -243,8 +249,13 @@ impl<C: Tag, S> ISAInstruction<C> for RecordSet<C, S> {
     fn display(&self, w: &mut impl Write) -> std::fmt::Result {
         write!(
             w,
-            "RecordSet %{}.{} = %{}",
-            self.record, self.key, self.value
+            "RecordSet %{}.{} = {}",
+            self.record,
+            self.key,
+            match self.value {
+                Some(r) => format!("%{}", r),
+                None => format!("<remove>"),
+            }
         )
     }
 }
@@ -256,7 +267,7 @@ impl<C: Tag, S> RecordSet<C, S> {
             shape: self.shape,
             record: retagger.retag_old(self.record),
             key: self.key.retag(retagger),
-            value: retagger.retag_old(self.value),
+            value: self.value.map(|value| retagger.retag_old(value)),
         }
     }
 }

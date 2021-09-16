@@ -150,3 +150,81 @@ pub fn mutations_in_function_propagate_to_caller() {
         ReturnType::Value(RegisterType::Bool(true))
     );
 }
+
+/// Confirms that a function passed the same record shape twice generates two
+/// different functions per invocation, to prevent "shape weirdness"
+// TODO: stick the following reasoning into blog post
+///
+/// Consider the following code:
+///
+/// ```js
+/// let big = { a: 1, b: 1 };
+/// delete big.a; delete big.b;
+/// let small = {};
+///
+/// mutate(big); mutate(small);
+///
+/// function mutate(record) {
+///     record.a = 1;
+/// }
+/// ```
+///
+/// The function `mutate(record)` is passed the same record shape twice: an
+/// empty fact list. However, when it is time to generate the LLVM structures
+/// for each record, `big` needs space for two fields whereas `small` only
+/// needs space for one field. Thus, two versions of `f(x)` should be
+/// generated: one that supports `big`, and one that supports `small`. Thus,
+/// the fact list alone does not give enough information to determine what
+/// functions to generate.
+// TODO: there are two cases that say "TODO: a unit test covers this is
+//       necessary, but not specifically A or B". it'd be nice to prove that
+//       both A and B are necessary
+#[test]
+pub fn shape_weirdness_does_not_happen() {
+    let mut program = ProgramBuilder::new();
+
+    let mutate = {
+        let (mut mutate, [record]) = program.start_function();
+        let mut block = mutate.start_block_main();
+
+        let one = block.make_number_decimal(1);
+        block.record_set_slot(record, InternalSlot::Base, one);
+
+        mutate.end_block(block.ret(None));
+        program.end_function(mutate)
+    };
+
+    {
+        let mut main = program.start_function_main();
+        let mut block = main.start_block_main();
+
+        let one = block.make_number_decimal(1);
+
+        let big = block.record_new();
+        block.record_set_slot(big, InternalSlot::Base, one);
+        block.record_set_slot(big, InternalSlot::BindingObject, one);
+        block.record_del_slot(big, InternalSlot::Base);
+        block.record_del_slot(big, InternalSlot::BindingObject);
+
+        let small = block.record_new();
+
+        block.call(mutate, [big]);
+        block.call(mutate, [small]);
+
+        main.end_block(block.ret(None));
+        program.end_function(main)
+    };
+
+    let ir = program.finish();
+    let lifted = crate::lifted::lift(ir);
+
+    let engine = symbolic_execution::make_system(&lifted);
+    let SystemRun { results, .. } =
+        symbolic_execution::system_run(engine, lifted.entrypoint, |_| Vec::new());
+
+    // there should be 3 total functions invoked:
+    // - main()
+    // - mutate(big)
+    // - mutate(small)
+    assert_eq!(results.len(), 3);
+}

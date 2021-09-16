@@ -1159,7 +1159,7 @@ impl TypeBag {
             (Record(a), Record(b)) => {
                 // only allow records that come from the same allocation to be considered equal
                 // TODO: state the name of the phenomenom this comes from, "shape dilemma" or something
-                // TODO: add unit test covering the necessity of this test
+                // TODO: a unit test covers this is necessary, but not specifically A or B (this is: A)
                 if self.record_unique_id(a) != other.record_unique_id(b) {
                     false
                 } else {
@@ -1231,7 +1231,7 @@ impl TypeBag {
         record_constraints: &mut Vec<(AllocationId, AllocationId)>,
         union_constraints: &mut Vec<(UnionId, UnionId)>,
     ) -> bool {
-        // TODO: add unit test covering the necessity of this test
+        // TODO: a unit test covers this is necessary, but not specifically A or B (this is: B)
         if self.record_unique_id(self_rec) != other.record_unique_id(other_rec) {
             return false;
         }

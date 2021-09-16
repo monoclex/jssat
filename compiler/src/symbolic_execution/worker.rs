@@ -134,9 +134,10 @@ impl SymbWorker<'_> {
                 self.types.assign_type(i.result, field_typ);
             }
             ir::Instruction::RecordSet(i) => {
-                let field_typ = self.types.get(i.value);
+                let value = i.value.map(|value| self.types.get(value));
+
                 self.types
-                    .record_set_field(i.record, i.key, Some(field_typ), inst_idx);
+                    .record_set_field(i.record, i.key, value, inst_idx);
             }
             ir::Instruction::RecordHasKey(i) => {
                 match self.types.get(i.record) {
