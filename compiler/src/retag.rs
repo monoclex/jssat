@@ -139,6 +139,15 @@ impl<C: Tag, C2: Tag> RegGenRetagger<C, C2> for RegMapRetagger<C, C2> {
     }
 }
 
+impl<C: Tag, C2: Tag> RegMapRetagger<C, C2> {
+    fn new_with_count(old: RegMapRetagger<C, C2>) -> Self {
+        Self(MapRetagger::<RegisterId<C>, RegisterId<C2>> {
+            counter: old.0.counter,
+            ..Default::default()
+        })
+    }
+}
+
 // === BLOCKS ===
 
 /// A retagger specifically for registers.
@@ -434,6 +443,16 @@ impl<C: Tag, C2: Tag> FnMapRetagger<C, C2> {
 
     pub fn free(&self) -> FunctionId<C> {
         self.0.core_free()
+    }
+
+    pub fn has(&self, id: FunctionId<C>) -> Option<FunctionId<C2>> {
+        let has = self.0.map.get(&id.raw_value());
+
+        #[cfg(debug_assertions)]
+        return has.map(|(k, _)| FunctionId::raw_new_with_value(*k));
+
+        #[cfg(not(debug_assertions))]
+        return has.map(|k| FunctionId::raw_new_with_value(*k));
     }
 }
 

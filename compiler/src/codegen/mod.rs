@@ -15,88 +15,85 @@ use rustc_hash::FxHashMap;
 use tinyvec::TinyVec;
 
 use crate::frontend::ir::{Constant, ExternalFunction};
-use crate::id::{AssemblerCtx, LiftedCtx};
+use crate::id::{AssemblerCtx, BlockId, FunctionId, LiftedCtx, LowerCtx, RegisterId, Tag};
 use crate::isa::*;
 use crate::symbolic_execution::types::TypeBag;
-type RegisterId = crate::id::RegisterId<AssemblerCtx>;
-type FunctionId = crate::id::FunctionId<AssemblerCtx>;
-type BlockId = crate::id::BlockId<AssemblerCtx>;
 type ExternalFunctionId = crate::id::ExternalFunctionId<AssemblerCtx>;
 type ConstantId = crate::id::ConstantId<AssemblerCtx>;
 
 #[derive(Clone)]
-pub struct Program {
-    pub entrypoint: FunctionId,
+pub struct Program<T: Tag = LowerCtx> {
+    pub entrypoint: FunctionId<T>,
     pub external_functions: FxHashMap<ExternalFunctionId, ExternalFunction>,
     pub constants: FxHashMap<ConstantId, Constant>,
-    pub functions: FxHashMap<FunctionId, Function>,
+    pub functions: FxHashMap<FunctionId<T>, Function<T>>,
 }
 
 #[derive(Clone)]
-pub struct Function {
-    pub entry: BlockId,
-    pub blocks: FxHashMap<BlockId, Block>,
+pub struct Function<T: Tag> {
+    pub entry: BlockId<T>,
+    pub blocks: FxHashMap<BlockId<T>, Block<T>>,
 }
 
 #[derive(Clone)]
-pub struct TypedProgram {
-    pub entrypoint: FunctionId,
+pub struct TypedProgram<T: Tag = AssemblerCtx> {
+    pub entrypoint: FunctionId<T>,
     pub external_functions: FxHashMap<ExternalFunctionId, ExternalFunction>,
     pub constants: FxHashMap<ConstantId, Constant>,
-    pub functions: FxHashMap<FunctionId, Block<TypeBag>>,
+    pub functions: FxHashMap<FunctionId<T>, Block<T>>,
 }
 
 #[derive(Clone)]
-pub struct Block<T = ()> {
-    pub parameters: Vec<RegisterId>,
-    pub instructions: Vec<Instruction>,
-    pub end: EndInstruction<FunctionId>,
-    pub type_info: T,
+pub struct Block<T: Tag> {
+    pub parameters: Vec<RegisterId<T>>,
+    pub instructions: Vec<Instruction<T>>,
+    pub end: EndInstruction<T, FunctionId<T>>,
+    pub type_info: TypeBag,
 }
 
 #[derive(Clone)]
-pub enum Instruction {
+pub enum Instruction<T: Tag> {
     Noop(Noop),
     Comment(Comment),
-    NewRecord(NewRecord<AssemblerCtx>),
-    RecordGet(RecordGet<AssemblerCtx>),
-    RecordSet(RecordSet<AssemblerCtx>),
-    RecordHasKey(RecordHasKey<AssemblerCtx>),
-    CallStatic(Call<AssemblerCtx, FunctionId>),
-    CallExtern(Call<AssemblerCtx, ExternalFunctionId>),
-    CallVirt(Call<AssemblerCtx, RegisterId>),
-    GetFnPtr(Make<AssemblerCtx, crate::id::FunctionId<LiftedCtx>>),
-    MakeTrivial(Make<AssemblerCtx, TrivialItem>),
-    MakeBytes(Make<AssemblerCtx, ConstantId>),
-    MakeInteger(Make<AssemblerCtx, i64>),
-    MakeBoolean(Make<AssemblerCtx, bool>),
-    BinOp(BinOp<AssemblerCtx>),
-    Negate(Negate<AssemblerCtx>),
+    NewRecord(NewRecord<T>),
+    RecordGet(RecordGet<T>),
+    RecordSet(RecordSet<T>),
+    RecordHasKey(RecordHasKey<T>),
+    CallStatic(Call<T, FunctionId<T>>),
+    CallExtern(Call<T, ExternalFunctionId>),
+    CallVirt(Call<T, RegisterId<T>>),
+    GetFnPtr(Make<T, crate::id::FunctionId<LiftedCtx>>),
+    MakeTrivial(Make<T, TrivialItem>),
+    MakeBytes(Make<T, ConstantId>),
+    MakeInteger(Make<T, i64>),
+    MakeBoolean(Make<T, bool>),
+    BinOp(BinOp<T>),
+    Negate(Negate<T>),
 }
 
-impl Instruction {
+impl<T: Tag> Instruction<T> {
     pub fn is_pure(&self) -> bool {
         match self {
-            Instruction::Noop(_) => <Noop as ISAInstruction<AssemblerCtx>>::is_pure(),
-            Instruction::Comment(_) => <Comment as ISAInstruction<AssemblerCtx>>::is_pure(),
-            Instruction::NewRecord(_) => NewRecord::<AssemblerCtx>::is_pure(),
-            Instruction::RecordGet(_) => RecordGet::<AssemblerCtx>::is_pure(),
-            Instruction::RecordSet(_) => RecordSet::<AssemblerCtx>::is_pure(),
-            Instruction::RecordHasKey(_) => RecordHasKey::<AssemblerCtx>::is_pure(),
-            Instruction::CallStatic(_) => Call::<AssemblerCtx, FunctionId>::is_pure(),
-            Instruction::CallExtern(_) => Call::<AssemblerCtx, ExternalFunctionId>::is_pure(),
-            Instruction::CallVirt(_) => Call::<AssemblerCtx, RegisterId>::is_pure(),
-            Instruction::GetFnPtr(_) => Make::<AssemblerCtx, FunctionId>::is_pure(),
-            Instruction::MakeTrivial(_) => Make::<AssemblerCtx, TrivialItem>::is_pure(),
-            Instruction::MakeBytes(_) => Make::<AssemblerCtx, ConstantId>::is_pure(),
-            Instruction::MakeInteger(_) => Make::<AssemblerCtx, i64>::is_pure(),
-            Instruction::MakeBoolean(_) => Make::<AssemblerCtx, bool>::is_pure(),
-            Instruction::BinOp(_) => BinOp::<AssemblerCtx>::is_pure(),
-            Instruction::Negate(_) => Negate::<AssemblerCtx>::is_pure(),
+            Instruction::Noop(_) => <Noop as ISAInstruction<T>>::is_pure(),
+            Instruction::Comment(_) => <Comment as ISAInstruction<T>>::is_pure(),
+            Instruction::NewRecord(_) => NewRecord::<T>::is_pure(),
+            Instruction::RecordGet(_) => RecordGet::<T>::is_pure(),
+            Instruction::RecordSet(_) => RecordSet::<T>::is_pure(),
+            Instruction::RecordHasKey(_) => RecordHasKey::<T>::is_pure(),
+            Instruction::CallStatic(_) => Call::<T, FunctionId<T>>::is_pure(),
+            Instruction::CallExtern(_) => Call::<T, FunctionId<T>>::is_pure(),
+            Instruction::CallVirt(_) => Call::<T, FunctionId<T>>::is_pure(),
+            Instruction::GetFnPtr(_) => Make::<T, FunctionId<T>>::is_pure(),
+            Instruction::MakeTrivial(_) => Make::<T, FunctionId<T>>::is_pure(),
+            Instruction::MakeBytes(_) => Make::<T, FunctionId<T>>::is_pure(),
+            Instruction::MakeInteger(_) => Make::<T, FunctionId<T>>::is_pure(),
+            Instruction::MakeBoolean(_) => Make::<T, FunctionId<T>>::is_pure(),
+            Instruction::BinOp(_) => BinOp::<T>::is_pure(),
+            Instruction::Negate(_) => Negate::<T>::is_pure(),
         }
     }
 
-    fn declared_register(&self) -> Option<RegisterId> {
+    fn declared_register(&self) -> Option<RegisterId<T>> {
         match self {
             Instruction::Noop(i) => i.declared_register(),
             Instruction::Comment(i) => i.declared_register(),
@@ -117,7 +114,7 @@ impl Instruction {
         }
     }
 
-    fn used_registers(&self) -> TinyVec<[RegisterId; 3]> {
+    fn used_registers(&self) -> TinyVec<[RegisterId<T>; 3]> {
         match self {
             Instruction::Noop(i) => i.used_registers(),
             Instruction::Comment(i) => i.used_registers(),
@@ -138,7 +135,7 @@ impl Instruction {
         }
     }
 
-    fn used_registers_mut(&mut self) -> Vec<&mut RegisterId> {
+    fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<T>> {
         match self {
             Instruction::Noop(i) => i.used_registers_mut(),
             Instruction::Comment(i) => i.used_registers_mut(),
@@ -161,8 +158,8 @@ impl Instruction {
 
     fn display(&self, w: &mut impl Write) -> std::fmt::Result {
         match self {
-            Instruction::Noop(i) => <Noop as ISAInstruction<AssemblerCtx>>::display(i, w),
-            Instruction::Comment(i) => <Comment as ISAInstruction<AssemblerCtx>>::display(i, w),
+            Instruction::Noop(i) => <Noop as ISAInstruction<T>>::display(i, w),
+            Instruction::Comment(i) => <Comment as ISAInstruction<T>>::display(i, w),
             Instruction::NewRecord(i) => i.display(w),
             Instruction::RecordGet(i) => i.display(w),
             Instruction::RecordSet(i) => i.display(w),
@@ -182,12 +179,12 @@ impl Instruction {
 }
 
 #[derive(Clone)]
-pub enum EndInstruction<B = BlockId>
+pub enum EndInstruction<T: Tag, B = BlockId<T>>
 where
     B: crate::id::IdCompat,
 {
     Unreachable(Unreachable),
-    Jump(Jump<B, AssemblerCtx>),
-    JumpIf(JumpIf<B, AssemblerCtx>),
-    Return(Return<AssemblerCtx>),
+    Jump(Jump<B, T>),
+    JumpIf(JumpIf<B, T>),
+    Return(Return<T>),
 }

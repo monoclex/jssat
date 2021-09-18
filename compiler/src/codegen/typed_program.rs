@@ -103,7 +103,7 @@ impl<'a> FnTyperFactory<'a> {
     pub fn process(
         &mut self,
         id: FunctionId<SymbolicCtx>,
-    ) -> (FunctionId<AssemblerCtx>, Block<TypeBag>) {
+    ) -> (FunctionId<AssemblerCtx>, Block<AssemblerCtx>) {
         let function_id = self.fn_id_mapper.retag_new(id);
         let results = self.all_results.get(&id).unwrap();
         let (lifted_fn_id, _) = self.fn_ids.types_of(id);
@@ -140,7 +140,7 @@ struct FnTyper<'resource, 'factory> {
 }
 
 impl<'r> FnTyper<'r, '_> {
-    pub fn process(&mut self) -> Block<TypeBag> {
+    pub fn process(&mut self) -> Block<AssemblerCtx> {
         let parameters = (self.lifted_fn.parameters.iter())
             .map(|r| self.reg_retagger.retag_new(*r))
             .collect();
@@ -165,7 +165,7 @@ impl<'r> FnTyper<'r, '_> {
         &mut self,
         instruction: &crate::frontend::ir::Instruction<LiftedCtx, LiftedCtx>,
         inst_idx: InstIdx,
-    ) -> Instruction {
+    ) -> Instruction<AssemblerCtx> {
         use crate::frontend::ir;
 
         match instruction {
@@ -256,7 +256,7 @@ impl<'r> FnTyper<'r, '_> {
     fn process_end(
         &mut self,
         end_inst: &crate::lifted::EndInstruction,
-    ) -> EndInstruction<FunctionId<AssemblerCtx>> {
+    ) -> EndInstruction<AssemblerCtx, FunctionId<AssemblerCtx>> {
         match end_inst {
             crate::lifted::EndInstruction::Jump(i) => {
                 EndInstruction::Jump(Jump(self.translate_blockjump(&i.0)))

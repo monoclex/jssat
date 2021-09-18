@@ -164,6 +164,10 @@ gen_id_ctx!(
     LiftedCtx
 );
 gen_id_ctx!(
+    /// Context used by [`crate::codegen`]
+    LowerCtx
+);
+gen_id_ctx!(
     /// Context used by [`crate::symbolic_execution`]
     SymbolicCtx
 );
