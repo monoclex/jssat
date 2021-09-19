@@ -5,7 +5,7 @@ use super::ISAInstruction;
 use crate::{
     id::*,
     isa::Registers,
-    retag::{BlkRetagger, BlkToFn, RegRetagger},
+    retag::{BlkRetagger, BlkToFn, FnRetagger, RegRetagger},
 };
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
@@ -28,6 +28,17 @@ impl<B: Tag, C: Tag> BlockJump<BlockId<B>, C> {
         blk_to_fn: &impl BlkToFn<B, F>,
     ) -> BlockJump<FunctionId<F>, C2> {
         BlockJump(blk_to_fn.retag(self.0), retagger.retag_olds(self.1))
+    }
+}
+
+impl<F: Tag, R: Tag> BlockJump<FunctionId<F>, R> {
+    #[track_caller]
+    pub fn retag<F2: Tag, R2: Tag>(
+        self,
+        retagger: &impl RegRetagger<R, R2>,
+        fn_retagger: &impl FnRetagger<F, F2>,
+    ) -> BlockJump<FunctionId<F2>, R2> {
+        BlockJump(fn_retagger.retag_old(self.0), retagger.retag_olds(self.1))
     }
 }
 
@@ -175,6 +186,15 @@ impl<B: Tag, C: Tag> Jump<BlockId<B>, C> {
 }
 
 impl<F: Tag, R: Tag> Jump<FunctionId<F>, R> {
+    #[track_caller]
+    pub fn retag<F2: Tag, R2: Tag>(
+        self,
+        retagger: &impl RegRetagger<R, R2>,
+        fn_retagger: &impl FnRetagger<F, F2>,
+    ) -> Jump<FunctionId<F2>, R2> {
+        Jump(self.0.retag(retagger, fn_retagger))
+    }
+
     pub fn paths(&self) -> Vec<&BlockJump<FunctionId<F>, R>> {
         vec![&self.0]
     }
@@ -295,6 +315,19 @@ impl<B: Tag, C: Tag> JumpIf<BlockId<B>, C> {
 }
 
 impl<F: Tag, R: Tag> JumpIf<FunctionId<F>, R> {
+    #[track_caller]
+    pub fn retag<F2: Tag, R2: Tag>(
+        self,
+        retagger: &impl RegRetagger<R, R2>,
+        fn_retagger: &impl FnRetagger<F, F2>,
+    ) -> JumpIf<FunctionId<F2>, R2> {
+        JumpIf {
+            condition: retagger.retag_old(self.condition),
+            if_so: self.if_so.retag(retagger, fn_retagger),
+            other: self.other.retag(retagger, fn_retagger),
+        }
+    }
+
     pub fn paths(&self) -> Vec<&BlockJump<FunctionId<F>, R>> {
         vec![&self.if_so, &self.other]
     }

@@ -140,7 +140,7 @@ impl<C: Tag, C2: Tag> RegGenRetagger<C, C2> for RegMapRetagger<C, C2> {
 }
 
 impl<C: Tag, C2: Tag> RegMapRetagger<C, C2> {
-    fn new_with_count(old: RegMapRetagger<C, C2>) -> Self {
+    pub fn new_with_count(old: RegMapRetagger<C, C2>) -> Self {
         Self(MapRetagger::<RegisterId<C>, RegisterId<C2>> {
             counter: old.0.counter,
             ..Default::default()
@@ -292,6 +292,24 @@ impl<C: Tag, C2: Tag> ExtFnRetagger<C, C2> for ExtFnPassRetagger<C, C2> {
     #[track_caller]
     fn retag_old(&self, id: ExternalFunctionId<C>) -> ExternalFunctionId<C2> {
         self.0.core_retag_old(id)
+    }
+}
+
+impl<C: Tag, C2: Tag> ExtFnPassRetagger<C, C2> {
+    #[cfg(not(debug_assertions))]
+    pub fn ignore_checks(&mut self) {}
+
+    #[cfg(not(debug_assertions))]
+    pub fn unignore_checks(&mut self) {}
+
+    #[cfg(debug_assertions)]
+    pub fn ignore_checks(&mut self) {
+        self.0.ignore_check = true;
+    }
+
+    #[cfg(debug_assertions)]
+    pub fn unignore_checks(&mut self) {
+        self.0.ignore_check = false;
     }
 }
 

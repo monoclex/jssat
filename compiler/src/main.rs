@@ -176,10 +176,12 @@ print('Hello, World!');
     println!("optimizing system run");
     let program = time(move || opt::opt(program));
 
-    println!("{}", codegen::display(&program));
+    println!("{}", codegen::display_typed(&program));
 
     println!("lowering run");
     let program = time(move || codegen::lower(program));
+
+    println!("{}", codegen::display_program(&program));
 
     println!("compiling");
     let build = time(move || backend::compile(program));

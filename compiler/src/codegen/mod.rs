@@ -7,7 +7,10 @@ mod typed_program;
 pub use typed_program::type_program;
 
 mod display_typed;
-pub use display_typed::display;
+pub use display_typed::display_typed;
+
+mod display_program;
+pub use display_program::display_program;
 
 use std::fmt::Write;
 
@@ -15,7 +18,9 @@ use rustc_hash::FxHashMap;
 use tinyvec::TinyVec;
 
 use crate::frontend::ir::{Constant, ExternalFunction};
-use crate::id::{AssemblerCtx, BlockId, FunctionId, LiftedCtx, LowerCtx, RegisterId, Tag};
+use crate::id::{
+    AssemblerCtx, BlockId, FunctionId, IdCompat, LiftedCtx, LowerCtx, RegisterId, Tag,
+};
 use crate::isa::*;
 use crate::symbolic_execution::types::TypeBag;
 type ExternalFunctionId = crate::id::ExternalFunctionId<AssemblerCtx>;
@@ -32,7 +37,7 @@ pub struct Program<T: Tag = LowerCtx> {
 #[derive(Clone)]
 pub struct Function<T: Tag> {
     pub entry: BlockId<T>,
-    pub blocks: FxHashMap<BlockId<T>, Block<T>>,
+    pub blocks: FxHashMap<BlockId<T>, Block<T, BlockId<T>>>,
 }
 
 #[derive(Clone)]
@@ -44,10 +49,10 @@ pub struct TypedProgram<T: Tag = AssemblerCtx> {
 }
 
 #[derive(Clone)]
-pub struct Block<T: Tag> {
+pub struct Block<T: Tag, B: IdCompat = FunctionId<T>> {
     pub parameters: Vec<RegisterId<T>>,
     pub instructions: Vec<Instruction<T>>,
-    pub end: EndInstruction<T, FunctionId<T>>,
+    pub end: EndInstruction<T, B>,
     pub type_info: TypeBag,
 }
 
@@ -62,6 +67,28 @@ pub enum Instruction<T: Tag> {
     CallStatic(Call<T, FunctionId<T>>),
     CallExtern(Call<T, ExternalFunctionId>),
     CallVirt(Call<T, RegisterId<T>>),
+    /// `GetFnPtr` has to have its argument be in a `LiftedCtx` as we cannot
+    /// convert the function id into a statically known argument. Consider the
+    /// following code:
+    ///
+    /// ```js
+    /// function id(x) { return x; }
+    ///
+    /// let fnPtr = id;
+    /// fnPtr(0);
+    /// fnPtr("a");
+    /// ```
+    ///
+    /// In the above code, `fnPtr` is a pointer to *one* function, but ends up
+    /// calling *two* variants of the `id` function:
+    ///
+    /// - `id : Int -> Int`
+    /// - `id : String -> String`
+    ///
+    /// Thus, it is better to think of function pointers as symbolic values.
+    ///
+    /// In the future, these may be compiled down to integers and `match`ed at
+    /// the call site to call the correct function.
     GetFnPtr(Make<T, crate::id::FunctionId<LiftedCtx>>),
     MakeTrivial(Make<T, TrivialItem>),
     MakeBytes(Make<T, ConstantId>),

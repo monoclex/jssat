@@ -23,7 +23,7 @@ macro_rules! iwl {
     };
 }
 
-pub fn display(program: &TypedProgram) -> String {
+pub fn display_typed(program: &TypedProgram) -> String {
     let mut text = String::new();
 
     for (id, ext_fn) in program.external_functions.iter() {
