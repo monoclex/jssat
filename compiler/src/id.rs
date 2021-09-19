@@ -135,9 +135,10 @@ macro_rules! gen_id_ctx {
 }
 
 gen_id_ctx!(
-    /// Represents an ID that doesn't have an inherent context. Contexts are used
-    /// on IDs to differentiate them from different passes, as some passes may
-    /// generate their own IDs, and differentiating the two by the type is useful.
+    /// Represents an ID that doesn't have an inherent context. Contexts are
+    /// used on IDs to differentiate them from different passes, as some
+    /// passes may generate their own IDs, and differentiating the two by
+    /// the type is useful.
     NoContext
 );
 

@@ -28,6 +28,7 @@ pub mod my_tests;
 pub mod opt;
 pub mod retag;
 pub mod symbolic_execution;
+pub mod types;
 
 /// can't have nice things :'( https://github.com/rust-lang/rust/issues/62633
 pub trait UnwrapNone {
@@ -146,7 +147,8 @@ fn main() {
     //     .next()
     //     .expect("expected file name");
 
-    // let content = std::fs::read_to_string(file_name).expect("expected to read file");
+    // let content = std::fs::read_to_string(file_name).expect("expected to read
+    // file");
     let content = r#"
 /*
 function x() {

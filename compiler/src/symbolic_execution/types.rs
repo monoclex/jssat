@@ -275,7 +275,8 @@ impl RecordBag {
         self.records.get(&record).map(|r| &r.fact_paths)
     }
 
-    /// F : (the field : RecordKey, a fact's key : RecordKey) -> true if should include fact, false if not
+    /// F : (the field : RecordKey, a fact's key : RecordKey) -> true if should
+    /// include fact, false if not
     ///
     /// the ordering of F's params is specified so that functions that want to
     /// check for subtying relationships can
@@ -453,18 +454,12 @@ impl RecordBag {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-struct ChildRecordInfo {
-    id: AllocationId,
-    initial_facts: usize,
-}
-
 /// we need a number to determine when a fact was added so that optimization
 /// passes acting on the list of facts can know at the instruction it's looking
 /// at if a fact is true or false
 ///
-/// when calling functions, each record in the typebag has an initial fact set up
-/// so that's represented by `prologue`, and during execution if types change
+/// when calling functions, each record in the typebag has an initial fact set
+/// up so that's represented by `prologue`, and during execution if types change
 /// *after* an instruction that's represented with `inst`
 #[derive(Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord, Debug, Display)]
 pub enum InstIdx {
@@ -508,7 +503,8 @@ trait SyncResolver {
 
     fn sync_stats(&self, id: AllocationId) -> Option<&SyncStats>;
 
-    /// if a `None` was returned this will be called with `id` and the generated id
+    /// if a `None` was returned this will be called with `id` and the generated
+    /// id
     fn save_record_id(&mut self, src_id: AllocationId, gen_id: AllocationId);
 
     fn save_sync_stats(&mut self, id: AllocationId, stats: SyncStats);
@@ -597,7 +593,8 @@ impl<'a, R: SyncResolver> Syncer<'a, R> {
                 };
 
                 // we want to sync up the record from the src to the dest
-                // a record is a list of facts, so we want to propagate these facts into the child
+                // a record is a list of facts, so we want to propagate these facts into the
+                // child
                 //
                 // algo steps:
                 // 1. get list of keys
@@ -639,8 +636,9 @@ impl<'a, R: SyncResolver> Syncer<'a, R> {
                     }
 
                     // because we are just checking for equality via typ_eq_other,
-                    // we may not have the same ID for constants, even thoug they are equal to eachother in value
-                    // so we will force the record to be updated even if they're equal if they're both bytes
+                    // we may not have the same ID for constants, even thoug they are equal to
+                    // eachother in value so we will force the record to be
+                    // updated even if they're equal if they're both bytes
                     if !update_record && matches!(src_value_type, RegisterType::Byts(_)) {
                         update_record = true;
                     }
@@ -783,9 +781,9 @@ impl<'a> Subset<'a> {
         self.sync_from_child(type_bag, target_reg, inst_idx, up_until)
     }
 
-    /// Given a single type in a, Deref `type_bag` which is expected to be similar to
-    /// this subset's `child`, this will perform all necessary work to bring
-    /// that type into the scope of this subset.
+    /// Given a single type in a, Deref `type_bag` which is expected to be
+    /// similar to this subset's `child`, this will perform all necessary
+    /// work to bring that type into the scope of this subset.
     pub fn update_typ(
         &mut self,
         type_bag: &TypeBag,
@@ -920,9 +918,9 @@ impl TypeBag {
         // - [] -- empty union, meaning no facts => Any
         // - [set K => V] -- simple, expected case => V
         // - [set K_1 => V_1, set K_2 => V_2] -- divergent case => V_1 | V_2
-        // - [remove K] -- does not exist => perform an error
-        //   ^ the removal of a key in a record in JSSAT is defined as an error,
-        //     while languages above JSSAT IR may have their own semantics
+        // - [remove K] -- does not exist => perform an error ^ the removal of a key in
+        //   a record in JSSAT is defined as an error, while languages above JSSAT IR
+        //   may have their own semantics
 
         if facts.len() == 0 {
             return RegisterType::Any;
@@ -1009,8 +1007,8 @@ impl TypeBag {
     }
 
     // TODO: this function shouldn't exist,
-    // there is a bug somewhere that causes the assertion in `unintern_const` to trigger
-    // but at the time of writing i'm not here to fix that
+    // there is a bug somewhere that causes the assertion in `unintern_const` to
+    // trigger but at the time of writing i'm not here to fix that
     pub fn mayb_unintern_const(&self, id: ConstantId) -> Option<&[u8]> {
         if id.into_usize() >= self.constants.len() {
             return None;
@@ -1158,8 +1156,9 @@ impl TypeBag {
             // -> false => definitely not equal
             (Record(a), Record(b)) => {
                 // only allow records that come from the same allocation to be considered equal
-                // TODO: state the name of the phenomenom this comes from, "shape dilemma" or something
-                // TODO: a unit test covers this is necessary, but not specifically A or B (this is: A)
+                // TODO: state the name of the phenomenom this comes from, "shape dilemma" or
+                // something TODO: a unit test covers this is necessary, but not
+                // specifically A or B (this is: A)
                 if self.record_unique_id(a) != other.record_unique_id(b) {
                     false
                 } else {
@@ -1190,11 +1189,11 @@ impl TypeBag {
 
         while !record_constraints.is_empty() || !union_constraints.is_empty() {
             while let Some(constraint) = record_constraints.pop() {
-                // because we don't use `solved_records`, it doesn't matter at which point within
-                // this loop we add the records to `solved_records`
+                // because we don't use `solved_records`, it doesn't matter at which point
+                // within this loop we add the records to `solved_records`
                 //
-                // thus, we do it at the beginning to prevent duplicate work in-case we are working
-                // on an already solved constraint
+                // thus, we do it at the beginning to prevent duplicate work in-case we are
+                // working on an already solved constraint
                 if !solved_records.insert(constraint) {
                     continue;
                 }
@@ -1231,7 +1230,8 @@ impl TypeBag {
         record_constraints: &mut Vec<(AllocationId, AllocationId)>,
         union_constraints: &mut Vec<(UnionId, UnionId)>,
     ) -> bool {
-        // TODO: a unit test covers this is necessary, but not specifically A or B (this is: B)
+        // TODO: a unit test covers this is necessary, but not specifically A or B (this
+        // is: B)
         if self.record_unique_id(self_rec) != other.record_unique_id(other_rec) {
             return false;
         }

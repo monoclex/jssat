@@ -33,6 +33,8 @@ derive_more = "0.99.16"
 ordered-float = "2.7.0"
 lasso = { version = "0.6.0", features = ["ahasher", "multi-threaded", "inline-more"] }
 thiserror = "1.0.26"
+lazy_static = "1.4.0"
+enum-kinds = "0.5.1"
 
 [dependencies.inkwell]
 git = "https://github.com/TheDan64/inkwell"
