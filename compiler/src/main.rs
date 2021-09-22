@@ -10,6 +10,7 @@
 #![feature(unboxed_closures)]
 #![feature(fn_traits)]
 #![feature(unsafe_cell_raw_get)]
+#![feature(allocator_api)]
 #![deny(clippy::disallowed_method)]
 
 use std::{io::Write, process::Command, time::Instant};

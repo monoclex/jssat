@@ -1,15 +1,15 @@
 //! Implements equality for associated types.
 
-use std::{collections::VecDeque, hash::Hash};
+use std::hash::Hash;
 
 use rustc_hash::FxHashSet;
 
 use crate::{
-    id::{IdCompat, RecordId, Tag, UnionId},
+    id::{RecordId, Tag, UnionId},
     types::resolve_spur,
 };
 
-use super::{AssociatedType, Type, TypeCtx};
+use super::{Type, TypeCtx};
 
 /// Determines if two types are definitely equal.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -32,30 +32,42 @@ impl From<bool> for MaybeEqual {
     }
 }
 
-impl<T: Tag> Type<T> {
-    /// Tries to determine if two types are probably equal.
-    ///
-    /// This is implemented because it is possible to determine if two types are
-    /// definitively not equal. However, for other types, such as
-    /// [`Type::Record`]s and [`Type::Union`]s, more work needs to be done to
-    /// determine their equality. However, it is also obvious to see that
-    /// [`Type::Any`] is definitely not [`Type::Bytes`].
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use crate::id::{NoContext, RecordId};
-    /// # use MaybeEqual::*;
-    /// let any = Type::<NoContext>::Any;
-    /// let record1 = Type::<NoContext>::Record(RecordId::new_with_value(1));
-    /// let record2 = Type::<NoContext>::Record(RecordId::new_with_value(2));
-    ///
-    /// assert_eq!(any.maybe_equals(record1), No);
-    /// assert_eq!(record1.maybe_equals(record2), Maybe);
-    /// assert_eq!(any.maybe_equals(any), Yes);
-    /// ```
-    pub fn maybe_equals(&self, other: &Type<T>) -> MaybeEqual {
-        maybe_equals(self, other, |_, _| (), |_, _| ())
+// impl<T: Tag> Type<T> {
+//     /// Tries to determine if two types are probably equal.
+//     ///
+//     /// This is implemented because it is possible to determine if two types
+//     /// are definitively not equal. However, for other types, such as
+//     /// [`Type::Record`]s and [`Type::Union`]s, more work needs to be done to
+//     /// determine their equality. However, it is also obvious to see that
+//     /// [`Type::Any`] is definitely not [`Type::Bytes`].
+//     ///
+//     /// # Examples
+//     ///
+//     /// ```
+//     /// # use crate::id::{NoContext, RecordId};
+//     /// # use MaybeEqual::*;
+//     /// let any = Type::<NoContext>::Any;
+//     /// let record1 = Type::<NoContext>::Record(RecordId::new_with_value(1));
+//     /// let record2 = Type::<NoContext>::Record(RecordId::new_with_value(2));
+//     ///
+//     /// assert_eq!(any.maybe_equals(record1), No);
+//     /// assert_eq!(record1.maybe_equals(record2), Maybe);
+//     /// assert_eq!(any.maybe_equals(any), Yes);
+//     /// ```
+//     pub fn maybe_equals(&self, other: &Type<T>) -> MaybeEqual {
+//         maybe_equals(self, other, |_, _| (), |_, _| ())
+//     }
+// }
+
+impl<'ctx, T: Tag> PartialEq for Type<'ctx, T> {
+    fn eq(&self, other: &Self) -> bool {
+        // let mut resolver = EqualityResolver::new(self.1, other.1);
+
+        // if resolver.are_not_equal(self, other) {
+        //     return false;
+        // }
+
+        todo!()
     }
 }
 
@@ -82,7 +94,7 @@ impl<'ctx, T: Tag> EqualityResolver<'ctx, T> {
     ///
     /// If all types are not not equal, then it can be said that all types are
     /// equal.
-    pub fn are_not_equal(&mut self, a: &Type<T>, b: &Type<T>) -> bool {
+    pub fn are_not_equal(&mut self, a: &Type<'ctx, T>, b: &Type<'ctx, T>) -> bool {
         let record_constraints = &mut self.record_constraints;
         let union_constraints = &mut self.union_constraints;
 
@@ -97,7 +109,26 @@ impl<'ctx, T: Tag> EqualityResolver<'ctx, T> {
     }
 }
 
-/// Implementation of `maybe_equals` that is extremely generic.
+/*
+i remember reading about ghostcell and it had the idea of using borrow checking to likemake sure "indices" came and were used from the same collection, could that at all be applied here?
+
+in my case, i have the following (simplified) structure```rs
+struct TypeCtx {
+    types: HashMap<usize, Type>,
+    records: HashMap<usize, Record>,
+}
+
+enum Type {
+    Int,
+    Record(usize),
+}
+
+struct AssocType(&Type, &TypeCtx);
+struct AssocRecord(&Record, &TypeCtx);
+```and i would like to construct the following code
+*/
+
+/// Implementation of `Type::maybe_equals` that is extremely generic.
 fn maybe_equals<T: Tag, U: Tag, FR, FU>(
     a: &Type<T>,
     b: &Type<U>,
@@ -113,11 +144,11 @@ where
     match (a, b) {
         // records and unions need more comparisons
         (Record(r1), Record(r2)) => {
-            records(r1, r2);
+            // records(r1, r2);
             MaybeEqual::Maybe
         }
         (Union(u1), Union(u2)) => {
-            unions(u1, u2);
+            // unions(u1, u2);
             MaybeEqual::Maybe
         }
         (Any, Any) | (Bytes, Bytes) | (Number, Number) | (Boolean, Boolean) => MaybeEqual::Yes,
@@ -126,7 +157,7 @@ where
         (Float(a), Float(b)) => (a == b).into(),
         (Bool(a), Bool(b)) => (a == b).into(),
         (FnPtr(a), FnPtr(b)) => (a == b).into(),
-        (Byts(a), Byts(b)) => (resolve_spur(a) == resolve_spur(b)).into(),
+        (Byts(a), Byts(b)) => todo!(), // (resolve_spur(a) == resolve_spur(b)).into(),
         _ => MaybeEqual::No,
     }
 }

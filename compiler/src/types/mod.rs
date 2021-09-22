@@ -7,12 +7,14 @@
 //!
 //! [blog-post]: https://sirjosh3917.com/posts/jssat-typing-objects-in-ssa-form/
 
+use std::{cell::RefCell, hash::Hash, pin::Pin};
+
+use bumpalo::{boxed::Box, Bump};
 use ordered_float::OrderedFloat;
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::convert::TryFrom;
+use rustc_hash::FxHashMap;
 
 use crate::{
-    id::{AllocationId, FunctionId, LiftedCtx, RecordId, RegisterId, SymbolicCtx, Tag, UnionId},
+    id::{FunctionId, LiftedCtx, RecordId, RegisterId, Tag, UnionId},
     isa::TrivialItem,
 };
 
@@ -26,8 +28,11 @@ use lazy_static::lazy_static;
 mod type_relation;
 pub use type_relation::TypeRelation;
 
+mod rec_ctx;
+
 mod assoc_eq;
 mod type_ctx;
+pub use type_ctx::TypeCtx;
 
 lazy_static! {
     static ref CONSTANTS: lasso::ThreadedRodeo = lasso::ThreadedRodeo::default();
@@ -52,9 +57,9 @@ fn resolve_spur(spur: &Spur) -> &[u8] {
 ///
 /// Determining if a [`Type`] is a subtype or supertype is doable via the
 /// [`Type::is_substitutable_by`] method.
-#[derive(Clone, Debug, Hash, EnumKind)]
+#[derive(Clone, Copy, EnumKind)]
 #[enum_kind(TypeKind)]
-pub enum Type<T: Tag> {
+pub enum Type<'ctx, T: Tag> {
     /// [`Type::Any`] represents any possible value in JSSAT, as a catch-all.
     ///
     /// Since [`Type::Any`] represents all possible values, the least amount of
@@ -88,13 +93,6 @@ pub enum Type<T: Tag> {
     /// used to represent `null` and `undefined`, and is also used to represent
     /// any other sentinals.
     Trivial(TrivialItem),
-    /// [`Type::Byts`] represents a series of bytes of exactly the specified
-    /// value. A variable of this type can only hold one possible value, which
-    /// is the series of bytes specified.
-    ///
-    /// The [`Spur`] is used to lookup the value within the data structure that
-    /// holds constants, [`CONSTANTS`].
-    Byts(Spur),
     /// [`Type::Int`] represents an integer of exactly the specified value. A
     /// variable of this type can only hold one possible value, which is the
     /// integer specified.
@@ -128,13 +126,20 @@ pub enum Type<T: Tag> {
     /// function pointer in all cases. This is because two virtual calls to the
     /// same function pointer may supply different argument types.
     FnPtr(FunctionId<LiftedCtx>),
+    /// [`Type::Byts`] represents a series of bytes of exactly the specified
+    /// value. A variable of this type can only hold one possible value, which
+    /// is the series of bytes specified.
+    ///
+    /// The [`Spur`] is used to lookup the value within the data structure that
+    /// holds constants, [`CONSTANTS`].
+    Byts(&'ctx Pin<Box<'ctx, [u8]>>),
     /// [`Type::Record`] represents a JSSAT record, which is a key-value mapping
     /// of JSSAT types to JSSAT types.
     ///
     /// The value contained within a [`Type::Record`] is considered the handle
     /// to a record, which is used in the appropriate data structures to look up
     /// information about the record.
-    Record(RecordId<T>),
+    Record(&'ctx Pin<Box<'ctx, RefCell<Record<'ctx, T>>>>),
     /// [`Type::Union`] represents a possible range of different types. For
     /// example, the TypeScript type `"asdf" | 1` would be cleanly represented
     /// with a union. Unions are used as a single type to join two completely
@@ -142,23 +147,36 @@ pub enum Type<T: Tag> {
     Union(UnionId<T>),
 }
 
-/// Datastructure used to keep track of the types of registers.
-///
-/// By associating types with a [`TypeCtx`], it also provides more
-/// functionality, such as:
-///
-/// - Equality comparisons between types
-/// - Transferring types between [`TypeCtx`]s
-/// - Comparing if [`TypeCtx`]s are equal (used to prevent re-executing a
-///   function during abstract interpretation)
-#[derive(Clone)]
-pub struct TypeCtx<T: Tag> {
-    registers: FxHashMap<RegisterId<T>, Type<T>>,
+impl<'c, T: Tag> Hash for Type<'c, T> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        core::mem::discriminant(self).hash(state);
+        match self {
+            // these types are "simple"
+            // in that they are not references, but simply pure values
+            Type::Any | Type::Bytes | Type::Number | Type::Boolean => {}
+            Type::Trivial(ref inner) => inner.hash(state),
+            Type::Int(ref inner) => inner.hash(state),
+            Type::Float(ref inner) => inner.hash(state),
+            Type::Bool(ref inner) => inner.hash(state),
+            Type::FnPtr(ref inner) => inner.hash(state),
+            // these types are "complicated"
+            // that is because they are *references* to data stored for `'ctx`
+            // rather than perform a deep hash, we simply hash the pointer
+            // this is because the pointer is stable, but moreover, if we were
+            // to perform a deep hash, cyclic object records could be a problem
+            // (moreover, hash is not implemented for records)
+            Type::Byts(inner) => {
+                // TODO: unit tests to make sure the address is getting hashed or something?
+                let address = Pin::get_ref(Pin::as_ref(inner)) as *const [u8];
+                address.hash(state);
+            }
+            Type::Record(inner) => {
+                let address = Pin::get_ref(Pin::as_ref(inner)) as *const RefCell<Record<'c, T>>;
+                address.hash(state);
+            }
+            Type::Union(ref inner) => inner.hash(state),
+        }
+    }
 }
 
-/// Represents a type associated with a [`TypeCtx`].
-///
-/// When a type is associated with a [`TypeCtx`], it provides more capabilities
-/// to the type, such as displaying the type or equality comparisons.
-#[derive(Clone, Deref)]
-pub struct AssociatedType<'ctx, T: Tag>(#[deref] &'ctx Type<T>, &'ctx TypeCtx<T>);
+pub use rec_ctx::Record;

@@ -66,7 +66,7 @@ impl TypeRelation {
     }
 }
 
-impl<T1: Tag> Type<T1> {
+impl<'ctx, T1: Tag> Type<'ctx, T1> {
     /// Determines if two types are of the same kind, meaning that they are of
     /// the same variant.
     ///

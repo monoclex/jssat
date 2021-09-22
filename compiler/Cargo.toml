@@ -35,6 +35,8 @@ lasso = { version = "0.6.0", features = ["ahasher", "multi-threaded", "inline-mo
 thiserror = "1.0.26"
 lazy_static = "1.4.0"
 enum-kinds = "0.5.1"
+ouroboros = "0.10.1"
+bumpalo = { version = "3.7.1", features = ["allocator_api", "boxed", "collections"] }
 
 [dependencies.inkwell]
 git = "https://github.com/TheDan64/inkwell"

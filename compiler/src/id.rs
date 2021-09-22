@@ -110,7 +110,7 @@ pub trait IdCompat: PartialEq + Eq + Hash + Sized + Default + Debug + Copy + Clo
     fn raw_new_with_value(value: usize) -> Self;
 }
 
-pub trait Tag: PartialEq + Eq + Hash + Sized + Copy + Clone + Debug {}
+pub trait Tag: 'static + PartialEq + Eq + Hash + Sized + Copy + Clone + Debug {}
 
 pub fn convert<A, B>(a: A) -> B
 where
