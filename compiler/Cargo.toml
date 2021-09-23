@@ -5,7 +5,7 @@ authors = ["SirJosh3917 <SirJosh3917@users.noreply.github.com>"]
 edition = "2018"
 
 [features]
-default = ["link-swc"]
+# default = ["link-swc"]
 # default = ["link-swc", "link-llvm"]
 
 # Linking LLVM can take a minute or more. This feature is made optional so that

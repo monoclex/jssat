@@ -11,19 +11,14 @@ use std::{cell::RefCell, hash::Hash, pin::Pin};
 
 use bumpalo::{boxed::Box, Bump};
 use ordered_float::OrderedFloat;
-use rustc_hash::FxHashMap;
 
 use crate::{
-    id::{FunctionId, LiftedCtx, RecordId, RegisterId, Tag, UnionId},
+    id::{FunctionId, LiftedCtx, Tag, UnionId},
     isa::TrivialItem,
 };
 
-use derive_more::Deref;
+use derive_more::{Deref, DerefMut};
 use enum_kinds::EnumKind;
-
-// use enum_kinds::enum_kind;
-use lasso::Spur;
-use lazy_static::lazy_static;
 
 mod type_relation;
 pub use type_relation::TypeRelation;
@@ -33,15 +28,6 @@ mod rec_ctx;
 mod assoc_eq;
 mod type_ctx;
 pub use type_ctx::TypeCtx;
-
-lazy_static! {
-    static ref CONSTANTS: lasso::ThreadedRodeo = lasso::ThreadedRodeo::default();
-}
-
-fn resolve_spur(spur: &Spur) -> &[u8] {
-    let result = CONSTANTS.resolve(spur);
-    result.as_bytes()
-}
 
 /// The JSSAT [`Type`] used to represent the type of a value.
 ///
@@ -130,16 +116,21 @@ pub enum Type<'ctx, T: Tag> {
     /// value. A variable of this type can only hold one possible value, which
     /// is the series of bytes specified.
     ///
-    /// The [`Spur`] is used to lookup the value within the data structure that
-    /// holds constants, [`CONSTANTS`].
-    Byts(&'ctx Pin<Box<'ctx, [u8]>>),
+    /// This type is difficult to construct manually. To construct one, use a
+    /// [`TypeCtx`], call the `borrow` method to borrow it immutably, then call
+    /// `make_bytes`.
+    Byts(CtxBox<'ctx, [u8]>),
     /// [`Type::Record`] represents a JSSAT record, which is a key-value mapping
     /// of JSSAT types to JSSAT types.
     ///
     /// The value contained within a [`Type::Record`] is considered the handle
     /// to a record, which is used in the appropriate data structures to look up
     /// information about the record.
-    Record(&'ctx Pin<Box<'ctx, RefCell<Record<'ctx, T>>>>),
+    ///
+    /// This type is difficult to construct manually. To construct one, use a
+    /// [`TypeCtx`], call the `borrow` method to borrow it immutably, then call
+    /// `make_record`.
+    Record(CtxBox<'ctx, RefCell<Record<'ctx, T>>>),
     /// [`Type::Union`] represents a possible range of different types. For
     /// example, the TypeScript type `"asdf" | 1` would be cleanly represented
     /// with a union. Unions are used as a single type to join two completely
@@ -147,35 +138,66 @@ pub enum Type<'ctx, T: Tag> {
     Union(UnionId<T>),
 }
 
-impl<'c, T: Tag> Hash for Type<'c, T> {
+/// A heap allocated `T`, associated with a context `'ctx`, with a stable
+/// address, found within the `'ctx`, which implements [`Copy`] and [`Hash`] for
+/// all `T`s.
+///
+/// # Explanation
+///
+/// Below are the components that comprise of a [`CtxBox`]
+///
+/// ```text
+///   1    2        3
+/// /---\ /-\ /----------\
+/// &'ctx Pin<Box<'ctx, T>>
+/// ```
+///
+/// ## 1 &mdash; Reference that lives in `&'ctx`
+///
+/// This enables [`CtxBox`] to be used as [`Copy`]. Since the `T` must be
+/// already valid for `'ctx`, it is not difficult to require a `&'ctx`. This is
+/// easily possible as the [`bumpalo::Bump`] arena will allow allocation into it
+/// for arbitrary types, such as a [`Pin`].
+///
+/// ## 2 &mdash; Data pinning
+///
+/// By pinning the data, we are being guaranteed that the underlying address is
+/// stable. Although it is not strictly correct to implement [`Hash`], it is
+/// being done here as the address is being considered the "id" of something,
+/// that there should only be one unique version of this type.
+///
+/// ## 3 &mdash; [`Box`]ed data
+///
+/// It is debatable whether or not [`Box`] is necessary, but it allows for easy
+/// usage of the [`Box::pin_in`] API. In addition, the destructors of `T` will
+/// run properly, even though this is not strictly necessary.
+#[repr(transparent)]
+#[derive(Deref, DerefMut)]
+pub struct CtxBox<'ctx, T: ?Sized>(#[deref] &'ctx Pin<Box<'ctx, T>>);
+
+impl<'ctx, T> CtxBox<'ctx, T> {
+    pub fn new(arena: &'ctx Bump, data: T) -> Self {
+        CtxBox(arena.alloc(Box::pin_in(data, arena)))
+    }
+}
+
+impl<'ctx, T: ?Sized + Unpin> CtxBox<'ctx, T> {
+    pub fn new_unsized(arena: &'ctx Bump, data: Box<'ctx, T>) -> Self {
+        CtxBox(arena.alloc(Pin::new(data)))
+    }
+}
+
+impl<'ctx, T: ?Sized> Copy for CtxBox<'ctx, T> {}
+impl<'ctx, T: ?Sized> Clone for CtxBox<'ctx, T> {
+    fn clone(&self) -> Self {
+        Self(self.0)
+    }
+}
+
+impl<'ctx, T: ?Sized> Hash for CtxBox<'ctx, T> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        core::mem::discriminant(self).hash(state);
-        match self {
-            // these types are "simple"
-            // in that they are not references, but simply pure values
-            Type::Any | Type::Bytes | Type::Number | Type::Boolean => {}
-            Type::Trivial(ref inner) => inner.hash(state),
-            Type::Int(ref inner) => inner.hash(state),
-            Type::Float(ref inner) => inner.hash(state),
-            Type::Bool(ref inner) => inner.hash(state),
-            Type::FnPtr(ref inner) => inner.hash(state),
-            // these types are "complicated"
-            // that is because they are *references* to data stored for `'ctx`
-            // rather than perform a deep hash, we simply hash the pointer
-            // this is because the pointer is stable, but moreover, if we were
-            // to perform a deep hash, cyclic object records could be a problem
-            // (moreover, hash is not implemented for records)
-            Type::Byts(inner) => {
-                // TODO: unit tests to make sure the address is getting hashed or something?
-                let address = Pin::get_ref(Pin::as_ref(inner)) as *const [u8];
-                address.hash(state);
-            }
-            Type::Record(inner) => {
-                let address = Pin::get_ref(Pin::as_ref(inner)) as *const RefCell<Record<'c, T>>;
-                address.hash(state);
-            }
-            Type::Union(ref inner) => inner.hash(state),
-        }
+        let ptr = self.0.as_ref().get_ref() as *const T;
+        ptr.hash(state)
     }
 }
 

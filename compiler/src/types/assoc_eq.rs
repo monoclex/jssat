@@ -4,10 +4,7 @@ use std::hash::Hash;
 
 use rustc_hash::FxHashSet;
 
-use crate::{
-    id::{RecordId, Tag, UnionId},
-    types::resolve_spur,
-};
+use crate::id::{RecordId, Tag, UnionId};
 
 use super::{Type, TypeCtx};
 
