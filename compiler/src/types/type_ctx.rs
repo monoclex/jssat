@@ -4,8 +4,11 @@ use bumpalo::Bump;
 use ouroboros::self_referencing;
 use rustc_hash::FxHashMap;
 
-use super::{CtxBox, Record, Type};
-use crate::id::{RegisterId, Tag};
+use super::{CtxBox, Record, RecordHandle, Type};
+use crate::{
+    id::{Counter, RegisterId, Tag, UniqueRecordId},
+    types::BytsHandle,
+};
 
 /// A datastructure used to keep track of registers and records.
 ///
@@ -125,7 +128,14 @@ impl<T: Tag> TypeCtx<T> {
     /// let type_ctx = TypeCtx::new();
     /// ```
     pub fn new() -> Self {
-        Self(TypeCtxImpl::new(Bump::new(), |_| Default::default()))
+        let ctx_impl = TypeCtxImplBuilder {
+            unique_allocation_id_counter: Default::default(),
+            arena: Default::default(),
+            registers_builder: |_| Default::default(),
+        }
+        .build();
+
+        Self(ctx_impl)
     }
 }
 
@@ -137,6 +147,7 @@ impl<T: Tag> Default for TypeCtx<T> {
 
 #[self_referencing]
 pub struct TypeCtxImpl<T: Tag> {
+    unique_allocation_id_counter: Counter<UniqueRecordId<T>>,
     arena: Bump,
     #[borrows(arena)]
     #[not_covariant]
@@ -171,8 +182,9 @@ impl<T: Tag> TypeCtx<T> {
     pub fn borrow<R>(&self, run: impl FnOnce(TypeCtxImmut<T>) -> R) -> R {
         self.0.with(|it| {
             run(TypeCtxImmut {
-                arena: it.arena,
                 registers: it.registers,
+                arena: it.arena,
+                unique_allocation_id_counter: &it.unique_allocation_id_counter,
             })
         })
     }
@@ -205,8 +217,9 @@ impl<T: Tag> TypeCtx<T> {
     pub fn borrow_mut<R>(&mut self, run: impl FnOnce(TypeCtxMut<T>) -> R) -> R {
         self.0.with_mut(|it| {
             run(TypeCtxMut {
-                arena: it.arena,
                 registers: it.registers,
+                arena: it.arena,
+                unique_allocation_id_counter: &it.unique_allocation_id_counter,
             })
         })
     }
@@ -216,15 +229,17 @@ impl<T: Tag> TypeCtx<T> {
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct TypeCtxImmut<'borrow, 'arena, T: Tag> {
-    arena: &'arena Bump,
     registers: &'borrow FxHashMap<RegisterId<T>, Type<'arena, T>>,
+    arena: &'arena Bump,
+    unique_allocation_id_counter: &'borrow Counter<UniqueRecordId<T>>,
 }
 
 // SAFETY: the layout of this must be the same as [`TypeCtxImmut`]
 #[repr(C)]
 pub struct TypeCtxMut<'borrow, 'arena, T: Tag> {
-    arena: &'arena Bump,
     registers: &'borrow mut FxHashMap<RegisterId<T>, Type<'arena, T>>,
+    arena: &'arena Bump,
+    unique_allocation_id_counter: &'borrow Counter<UniqueRecordId<T>>,
 }
 
 impl<'borrow, 'arena, T: Tag> Deref for TypeCtxMut<'borrow, 'arena, T> {
@@ -279,6 +294,11 @@ impl<'borrow, 'arena, T: Tag> TypeCtxImmut<'borrow, 'arena, T> {
         self.registers.get(key)
     }
 
+    /// Constructs a [`Record`] in this [`TypeCtx`]
+    pub fn make_record(&self) -> Record<'arena, T> {
+        Record::new(self.unique_allocation_id_counter.next())
+    }
+
     /// Constructs an instance of [`Type::Byts`] for this [`TypeCtx`]
     ///
     /// # Examples
@@ -288,20 +308,20 @@ impl<'borrow, 'arena, T: Tag> TypeCtxImmut<'borrow, 'arena, T> {
     /// let mut ctx = TypeCtx::<NoContext>::new();
     ///
     /// let is_byts = ctx.borrow(|ctx| {
-    ///     let byts: Type<_> = ctx.make_bytes("asdf".as_bytes());
+    ///     let byts: Type<_> = ctx.make_type_byts("asdf".as_bytes());
     ///     matches!(byts, Type::Byts(_))
     /// });
     ///
     /// assert!(is_byts)
     /// ```
-    pub fn make_bytes(&self, payload: &[u8]) -> Type<'arena, T> {
+    pub fn make_type_byts(&self, payload: &[u8]) -> Type<'arena, T> {
         use bumpalo::collections::Vec;
 
         let mut space_for_payload_in_bumpalo = Vec::with_capacity_in(payload.len(), self.arena);
         space_for_payload_in_bumpalo.extend_from_slice(payload);
 
         let payload = space_for_payload_in_bumpalo.into_boxed_slice();
-        Type::Byts(CtxBox::new_unsized(self.arena, payload))
+        Type::Byts(BytsHandle(CtxBox::new_unsized(self.arena, payload)))
     }
 
     /// Constructs an instance of [`Type::Record`] for this [`TypeCtx`]
@@ -313,13 +333,20 @@ impl<'borrow, 'arena, T: Tag> TypeCtxImmut<'borrow, 'arena, T> {
     /// let mut ctx = TypeCtx::<NoContext>::new();
     ///
     /// let is_record = ctx.borrow(|ctx| {
-    ///     let record: Type<_> = ctx.make_record(Record::new());
+    ///     let record: Type<_> = ctx.make_type_record(ctx.make_record());
     ///     matches!(byts, Type::Record(_))
     /// });
     ///
     /// assert!(is_record)
     /// ```
-    pub fn make_record(&self, record: Record<'arena, T>) -> Type<'arena, T> {
-        Type::Record(CtxBox::new(self.arena, RefCell::new(record)))
+    pub fn make_type_record(&self, record: Record<'arena, T>) -> Type<'arena, T> {
+        Type::Record(RecordHandle(CtxBox::new(self.arena, RefCell::new(record))))
     }
+}
+
+/// [https://github.com/mTvare6/hello-world.rs/blob/f06a4f596061f2e84beb6cdb472cfb0b8f738c85/src/main.rs#L321-L324]
+#[test]
+#[allow(clippy::eq_op)]
+fn solarsystem_level_enterprise_test() {
+    assert_eq!(1, 1);
 }

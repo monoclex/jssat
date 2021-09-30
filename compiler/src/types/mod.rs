@@ -7,7 +7,8 @@
 //!
 //! [blog-post]: https://sirjosh3917.com/posts/jssat-typing-objects-in-ssa-form/
 
-use std::{cell::RefCell, hash::Hash, pin::Pin};
+use core::slice::SlicePattern;
+use std::{cell::RefCell, fmt::Debug, hash::Hash, pin::Pin};
 
 use bumpalo::{boxed::Box, Bump};
 use ordered_float::OrderedFloat;
@@ -43,7 +44,7 @@ pub use type_ctx::TypeCtx;
 ///
 /// Determining if a [`Type`] is a subtype or supertype is doable via the
 /// [`Type::is_substitutable_by`] method.
-#[derive(Clone, Copy, EnumKind)]
+#[derive(Clone, Copy, Debug, EnumKind, Hash)]
 #[enum_kind(TypeKind)]
 pub enum Type<'ctx, T: Tag> {
     /// [`Type::Any`] represents any possible value in JSSAT, as a catch-all.
@@ -60,6 +61,20 @@ pub enum Type<'ctx, T: Tag> {
     /// [`Type::Any`]s must be downcasted to another type before using them,
     /// otherwise the abstract interpreter will produce an error.
     Any,
+    /// [`Type::Nothing`] does not represent anything at all. It is, by
+    /// definition, purely nothing.
+    //
+    // (why does rust doc not allow me to put an empty triple comment up above)
+    // TODO: i'm tired, does these docs make sense? should they be in the abstract
+    // interpreter module? the world may never know!
+    ///
+    /// Attempts to use [`Type::Nothing`] will result in errors. It exists to
+    /// simplify checking if a record has a value present at a key or not. A
+    /// single instruction can be emitted to ensure that the value is not
+    /// nothing, and it will often be more performant as there is no preliminary
+    /// "does it exists" followed by a "get the value" check, which could
+    /// potentially involve two hashes and lookups for a single field.
+    Nothing,
     /// [`Type::Bytes`] represents any series of bytes, and is often used to
     /// model strings efficiently. The [`Type::Byts`] type represents an exact
     /// value of a string.
@@ -119,7 +134,7 @@ pub enum Type<'ctx, T: Tag> {
     /// This type is difficult to construct manually. To construct one, use a
     /// [`TypeCtx`], call the `borrow` method to borrow it immutably, then call
     /// `make_bytes`.
-    Byts(CtxBox<'ctx, [u8]>),
+    Byts(BytsHandle<'ctx>),
     /// [`Type::Record`] represents a JSSAT record, which is a key-value mapping
     /// of JSSAT types to JSSAT types.
     ///
@@ -130,12 +145,46 @@ pub enum Type<'ctx, T: Tag> {
     /// This type is difficult to construct manually. To construct one, use a
     /// [`TypeCtx`], call the `borrow` method to borrow it immutably, then call
     /// `make_record`.
-    Record(CtxBox<'ctx, RefCell<Record<'ctx, T>>>),
+    Record(RecordHandle<'ctx, T>),
     /// [`Type::Union`] represents a possible range of different types. For
     /// example, the TypeScript type `"asdf" | 1` would be cleanly represented
     /// with a union. Unions are used as a single type to join two completely
     /// different types.
     Union(UnionId<T>),
+}
+
+#[repr(transparent)]
+#[derive(Clone, Copy, Hash, Deref, DerefMut, PartialEq, Eq)]
+pub struct BytsHandle<'ctx>(#[deref] CtxBox<'ctx, [u8]>);
+
+impl<'ctx> Debug for BytsHandle<'ctx> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("Byts")
+            .field(&{
+                let bytes = self.as_slice();
+
+                // TODO: trim constant size
+                match std::str::from_utf8(bytes) {
+                    Ok(str) => format!("{:?}", str),
+                    Err(_) => format!("{:02X?}", bytes),
+                }
+            })
+            .finish()
+    }
+}
+
+/// The handle to a record. Conceptually, this type can be thought of as a
+/// `RecordHandle(&mut Record)`, but the [`CtxBox`] is used to achieve interior
+/// mutability.
+#[repr(transparent)]
+#[derive(Clone, Copy, Hash, Deref, DerefMut, PartialEq, Eq)]
+pub struct RecordHandle<'ctx, T: Tag>(#[deref] CtxBox<'ctx, RefCell<Record<'ctx, T>>>);
+
+impl<'ctx, T: Tag> Debug for RecordHandle<'ctx, T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let id = self.borrow().unique_id();
+        f.debug_struct("Record").field("id", &id).finish()
+    }
 }
 
 /// A heap allocated `T`, associated with a context `'ctx`, with a stable
@@ -198,6 +247,15 @@ impl<'ctx, T: ?Sized> Hash for CtxBox<'ctx, T> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         let ptr = self.0.as_ref().get_ref() as *const T;
         ptr.hash(state)
+    }
+}
+
+impl<'ctx, T: ?Sized> Eq for CtxBox<'ctx, T> {}
+impl<'ctx, T: ?Sized> PartialEq for CtxBox<'ctx, T> {
+    fn eq(&self, other: &Self) -> bool {
+        let ptr = self.0.as_ref().get_ref() as *const T;
+        let ptr2 = other.0.as_ref().get_ref() as *const T;
+        std::ptr::eq(ptr, ptr2)
     }
 }
 
