@@ -1,7 +1,11 @@
+// TODO: mention the blog-post
+// [blog-post]: https://sirjosh3917.com/posts/jssat-typing-objects-in-ssa-form/
+
 use std::convert::TryInto;
 
 use derive_more::{Deref, Display};
 use rustc_hash::FxHashMap;
+use tinyvec::{Array, ArrayVec, TinyVec};
 
 use super::{Type, TypeCtx};
 use crate::{
@@ -9,10 +13,23 @@ use crate::{
     isa::InternalSlot,
 };
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Record<'ctx, T: Tag> {
     unique_id: UniqueRecordId<T>,
-    facts: Vec<Type<'ctx, T>>,
+    facts: TinyVec<[Facts<'ctx, T>; 1]>,
+}
+
+#[derive(Clone)]
+pub struct Facts<'ctx, T: Tag> {
+    facts: Vec<Fact<'ctx, T>>,
+}
+
+impl<'ctx, T: Tag> Default for Facts<'ctx, T> {
+    fn default() -> Self {
+        Self {
+            facts: Default::default(),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Hash)]
@@ -37,12 +54,14 @@ pub enum InstIdx {
     Epilogue,
 }
 
+#[derive(Clone, Copy, Hash)]
 pub struct Fact<'ctx, T: Tag> {
     time: InstIdx,
     key: RecordKey<'ctx, T>,
     data: FactData<'ctx, T>,
 }
 
+#[derive(Clone, Copy, Hash)]
 pub enum FactData<'ctx, T: Tag> {
     Set(Type<'ctx, T>),
     Remove,
@@ -52,12 +71,20 @@ impl<'ctx, T: Tag> Record<'ctx, T> {
     pub fn new(unique_id: UniqueRecordId<T>) -> Self {
         Self {
             unique_id,
-            facts: Vec::new(),
+            facts: TinyVec::Inline(ArrayVec::from([Facts::default()])),
         }
     }
 
     pub fn unique_id(&self) -> UniqueRecordId<T> {
         self.unique_id
+    }
+
+    pub fn facts(&self) -> impl Iterator<Item = &Facts<'ctx, T>> {
+        self.facts.iter()
+    }
+
+    pub fn facts_mut(&mut self) -> impl Iterator<Item = &mut Facts<'ctx, T>> {
+        self.facts.iter_mut()
     }
 
     pub fn key_value_pairs(&self) -> Vec<(String, &Type<'ctx, T>)> {

@@ -4,7 +4,7 @@
 //! and automatically add types to it. The type system it uses is written in
 //! these modules, and the details of the type system are reasoned about in
 //! depth at the corresponding [blog post][blog-post].
-//!
+// TODO: only reference the blog post for records? idk
 //! [blog-post]: https://sirjosh3917.com/posts/jssat-typing-objects-in-ssa-form/
 
 use core::slice::SlicePattern;

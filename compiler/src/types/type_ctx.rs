@@ -184,7 +184,7 @@ impl<T: Tag> TypeCtx<T> {
             run(TypeCtxImmut {
                 registers: it.registers,
                 arena: it.arena,
-                unique_allocation_id_counter: &it.unique_allocation_id_counter,
+                unique_allocation_id_counter: it.unique_allocation_id_counter,
             })
         })
     }
@@ -219,7 +219,7 @@ impl<T: Tag> TypeCtx<T> {
             run(TypeCtxMut {
                 registers: it.registers,
                 arena: it.arena,
-                unique_allocation_id_counter: &it.unique_allocation_id_counter,
+                unique_allocation_id_counter: it.unique_allocation_id_counter,
             })
         })
     }
