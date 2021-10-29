@@ -14,10 +14,10 @@ use crate::{
     UnwrapNone,
 };
 
-type ExternalFunctionId = crate::id::ExternalFunctionId<LiftedCtx>;
-type FunctionId = crate::id::FunctionId<LiftedCtx>;
-type ConstantId = crate::id::ConstantId<LiftedCtx>;
-type RegisterId = crate::id::RegisterId<LiftedCtx>;
+pub type ExternalFunctionId = crate::id::ExternalFunctionId<LiftedCtx>;
+pub type FunctionId = crate::id::FunctionId<LiftedCtx>;
+pub type ConstantId = crate::id::ConstantId<LiftedCtx>;
+pub type RegisterId = crate::id::RegisterId<LiftedCtx>;
 
 #[derive(Debug, Clone)]
 pub struct LiftedProgram {
@@ -309,9 +309,10 @@ fn lift_used_but_not_declared(function: &mut Function) {
 }
 
 /// This function will look for child blocks which have more registers than are
-/// passed to it. By using the invariant specified in [`lift_used_but_not_declared`],
-/// registers needed that are not declared will be lifted up into the parameters
-/// of the current block to satisfy the children.
+/// passed to it. By using the invariant specified in
+/// [`lift_used_but_not_declared`], registers needed that are not declared will
+/// be lifted up into the parameters of the current block to satisfy the
+/// children.
 ///
 /// If any children were patched, `true` is returned.
 ///

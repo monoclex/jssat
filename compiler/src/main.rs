@@ -13,6 +13,7 @@
 #![feature(allocator_api)]
 #![deny(clippy::disallowed_method)]
 #![feature(slice_pattern)]
+#![feature(associated_type_bounds)]
 
 use std::{io::Write, process::Command, time::Instant};
 
@@ -24,6 +25,7 @@ pub mod collections;
 pub mod frontend;
 pub mod id;
 pub mod interner;
+pub mod interpreter;
 pub mod isa;
 pub mod lifted;
 pub mod my_tests;

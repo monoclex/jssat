@@ -6,3 +6,6 @@ pub use set::Set;
 
 type FxHasher = std::hash::BuildHasherDefault<rustc_hash::FxHasher>;
 pub type FxBiHashMap<K, V> = bimap::BiHashMap<K, V, FxHasher, FxHasher>;
+
+mod strict_zip;
+pub use strict_zip::StrictZip;
