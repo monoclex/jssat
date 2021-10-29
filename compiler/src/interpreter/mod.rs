@@ -7,11 +7,7 @@
 //! Performance is not necessarily a goal, although in the future that may be
 //! reconsidered.
 
-use std::{
-    borrow::{Borrow, BorrowMut},
-    ops::DerefMut,
-    panic::Location,
-};
+use std::panic::Location;
 
 use derive_more::{Deref, DerefMut};
 use gc::{custom_trace, Finalize, Gc, GcCell, Trace};
@@ -86,7 +82,7 @@ impl<'c> Interpreter<'c> {
         Interpreter { code }
     }
 
-    pub fn execute_fn_id(&self, id: FunctionId, args: Vec<Value>) -> InstResult<Value> {
+    pub fn execute_fn_id(&self, id: FunctionId, args: Vec<Value>) -> InstResult<Option<Value>> {
         let function = (self.code.functions)
             .get(&id)
             .expect("expected valid function id");
@@ -107,10 +103,36 @@ impl<'c> Interpreter<'c> {
             inst_exec.exec(inst)?;
         }
 
-        match function.end {
-            EndInstruction::Jump(_) => todo!(),
-            EndInstruction::JumpIf(_) => todo!(),
-            EndInstruction::Return(_) => todo!(),
+        match &function.end {
+            EndInstruction::Jump(i) => {
+                let args = inst_exec.load_args(&i.0 .1)?;
+                self.execute_fn_id(i.0 .0, args)
+            }
+            EndInstruction::JumpIf(i) => {
+                let condition = inst_exec.get(i.condition)?;
+
+                let condition = match condition {
+                    Value::Boolean(cond) => *cond,
+                    _ => {
+                        return Err(InstErr::ConditionalNotBoolean(
+                            condition.clone(),
+                            Location::caller(),
+                        ))
+                    }
+                };
+
+                let jump = if condition { &i.if_so } else { &i.other };
+
+                let args = inst_exec.load_args(&jump.1)?;
+                self.execute_fn_id(jump.0, args)
+            }
+            EndInstruction::Return(i) => match i.0 {
+                Some(register) => {
+                    let value = inst_exec.get(register)?;
+                    Ok(Some(value.clone()))
+                }
+                None => Ok(None),
+            },
         }
     }
 }
@@ -141,6 +163,10 @@ pub enum InstErr {
     UnaryOpFail(Value, &'static str, PanicLocation),
     #[error("Unable to call virtual function, as register is not a fnptr: {:?}", .0)]
     NonVirt(Value, PanicLocation),
+    #[error("Expected function to return a value, but function returned void.")]
+    ExpectedNonVoid(PanicLocation),
+    #[error("Expected conditional value to be a boolean, but got: {:?}", .0)]
+    ConditionalNotBoolean(Value, PanicLocation),
 
     // TODO: support external function calls
     // they can be implemented by having some kind of rust function be paired
@@ -202,9 +228,9 @@ impl<'c> InstExec<'c> {
                 self.registers.insert(i.result, Value::FnPtr(i.item));
             }
             CallStatic(i) => {
-                self.call_fn(&i.args, i.calling, i.result);
+                self.call_fn(&i.args, i.calling, i.result)?;
             }
-            CallExtern(i) => {
+            CallExtern(_) => {
                 return Err(ExternalFnCall);
             }
             CallVirt(i) => {
@@ -215,7 +241,7 @@ impl<'c> InstExec<'c> {
                     _ => return Err(NonVirt(value.clone(), Location::caller())),
                 };
 
-                self.call_fn(&i.args, fn_id, i.result);
+                self.call_fn(&i.args, fn_id, i.result)?;
             }
             MakeTrivial(i) => {
                 self.registers.insert(i.result, Value::Trivial(i.item));
@@ -362,21 +388,25 @@ impl<'c> InstExec<'c> {
     }
 
     #[track_caller]
+    fn load_args(&self, args: &[RegisterId]) -> InstResult<Vec<Value>> {
+        args.iter()
+            .map(|register| self.get(*register))
+            .fold(Ok(vec![]), |acc, value| {
+                let mut elems = acc?;
+                let value = value?.clone();
+                elems.push(value);
+                Ok(elems)
+            })
+    }
+
+    #[track_caller]
     fn call_fn(
         &mut self,
         args: &[RegisterId],
         fn_id: FunctionId,
         store_result: Option<RegisterId>,
     ) -> InstResult<()> {
-        let args = args.iter().map(|register| self.get(*register)).fold(
-            Ok(vec![]),
-            |mut acc, value| {
-                let mut elems = acc?;
-                let value = value?.clone();
-                elems.push(value);
-                Ok(elems)
-            },
-        )?;
+        let args = self.load_args(args)?;
 
         // TODO: maybe carry around the calling interpreter?
         // explicitly not using `Interpreter::new` to show that we are
@@ -392,8 +422,12 @@ impl<'c> InstExec<'c> {
         let interpreter = Interpreter { code: self.program };
         let result = interpreter.execute_fn_id(fn_id, args)?; // <- A*
 
-        if let Some(register_result) = store_result {
-            self.registers.insert(register_result, result);
+        match (store_result, result) {
+            (Some(register), Some(value)) => {
+                self.registers.insert(register, value);
+            }
+            (Some(_), None) => return Err(ExpectedNonVoid(Location::caller())),
+            (None, _) => {}
         }
 
         Ok(())
