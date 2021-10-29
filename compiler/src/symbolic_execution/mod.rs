@@ -3,6 +3,7 @@ use std::sync::Mutex;
 
 use rustc_hash::FxHashMap;
 
+use crate::collections::StrictZip;
 use crate::id::*;
 use crate::isa;
 use crate::lifted::LiftedProgram;
@@ -81,7 +82,7 @@ pub fn system_run(
     let program_fn = engine.program.functions.get(&fn_id).unwrap();
 
     debug_assert_eq!(args.len(), program_fn.parameters.len());
-    for (fn_reg, arg_typ) in program_fn.parameters.iter().zip(args) {
+    for (fn_reg, arg_typ) in program_fn.parameters.iter().strict_zip(args) {
         types.assign_type(*fn_reg, arg_typ);
     }
 

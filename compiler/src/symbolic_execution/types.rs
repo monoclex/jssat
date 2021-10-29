@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::collections::FxBiHashMap;
+use crate::collections::{FxBiHashMap, StrictZip};
 use crate::id::{IdCompat, LiftedCtx, SymbolicCtx, UniqueRecordId};
 use crate::isa::{InternalSlot, TrivialItem};
 use crate::UnwrapNone;
@@ -1101,7 +1101,7 @@ impl TypeBag {
             return subset;
         }
 
-        for (src_reg, child_reg) in src_args.iter().zip(target_args.iter()) {
+        for (src_reg, child_reg) in src_args.iter().strict_zip(target_args.iter()) {
             subset.sync_to_child(*src_reg, *child_reg, InstIdx::Prologue, up_until);
         }
 
