@@ -81,6 +81,11 @@ impl<'p, const P: usize> Emitter<'p, P> {
 /// Tests that `perform_if_else_w_value` works i guess?
 #[test]
 fn doesnt_panic() {
+    // i don't have internet right now
+    // the idea is to run all symbolic execution things sequentially so that the
+    // panic hooks don't mess with other tests
+    todo!("TODO: annotate test with `#[serial]` from `serial_test`");
+
     let mut builder = ProgramBuilder::new();
     let descriptors = Descriptors::new(&mut builder);
     let ordinary = create_ordinary_internal_methods(&mut builder, descriptors);
@@ -131,10 +136,15 @@ fn doesnt_panic() {
     crate::symbolic_execution::execute(lifted);
 }
 
-/// Tests that, after execution of a function, type information regarding records
-/// is propagated.
+/// Tests that, after execution of a function, type information regarding
+/// records is propagated.
 #[test]
 fn deosnt_panic() {
+    // i don't have internet right now
+    // the idea is to run all symbolic execution things sequentially so that the
+    // panic hooks don't mess with other tests
+    todo!("TODO: annotate test with `#[serial]` from `serial_test`");
+
     let mut builder = ProgramBuilder::new();
 
     let second_fn = {
@@ -365,7 +375,9 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
         //#    been created.
         // TODO: implement this
 
-        //# 4. Perform AddRestrictedFunctionProperties(intrinsics.[[%Function.prototype%]], realmRec).
+        //# 4. Perform
+        //# AddRestrictedFunctionProperties(intrinsics.[[%Function.prototype%]],
+        //# realmRec).
         // insert a value into the record to not trip up the symbolic execution engine
         // this will stay un until we properly populate intrinsics
         let undefined = self.make_undefined();
@@ -445,7 +457,8 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
         //# 1. Let internalSlotsList be « [[Prototype]], [[Extensible]] ».
         let mut internalSlotsList = vec![InternalSlot::Prototype, InternalSlot::Extensible];
 
-        //# 2. If additionalInternalSlotsList is present, append each of its elements to internalSlotsList.
+        //# 2. If additionalInternalSlotsList is present, append each of its elements to
+        //# internalSlotsList.
         internalSlotsList.extend(additionalInternalSlotsList);
 
         //# 3. Let O be ! MakeBasicObject(internalSlotsList).
@@ -463,11 +476,13 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
         self.comment("MakeBasicObject");
 
         //# 1. Assert: internalSlotsList is a List of internal slot names.
-        //# 2. Let obj be a newly created object with an internal slot for each name in internalSlotsList.
+        //# 2. Let obj be a newly created object with an internal slot for each name in
+        //# internalSlotsList.
         let obj = self.record_new();
         // we don't need to set the fields here, because the caller will do so
 
-        //# 3. Set obj's essential internal methods to the default ordinary object definitions specified in 10.1.
+        //# 3. Set obj's essential internal methods to the default ordinary object
+        //# definitions specified in 10.1.
         let ordinary = self.ordinary;
         let fnptr = self.make_fnptr(ordinary.OrdinaryDefineOwnProperty.id);
         self.record_set_slot(obj, InternalSlot::DefineOwnProperty, fnptr);
@@ -498,7 +513,8 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
         //#    essential internal methods, then internalSlotsList contains
         //#    [[Extensible]].
 
-        //# 6. If internalSlotsList contains [[Extensible]], set obj.[[Extensible]] to true.
+        //# 6. If internalSlotsList contains [[Extensible]], set obj.[[Extensible]] to
+        //# true.
         if internalSlotsList.contains(&InternalSlot::Extensible) {
             let r#true = self.make_bool(true);
             self.record_set_slot(obj, InternalSlot::Extensible, r#true);
@@ -521,7 +537,8 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
         let null = self.make_null();
         let objRec = self.NewObjectEnvironment(G, r#false, null);
 
-        //# 2. Let dclRec be a new declarative Environment Record containing no bindings.
+        //# 2. Let dclRec be a new declarative Environment Record containing no
+        //# bindings.
         let dclRec = self.env_factory.make_decl_env_rec(&mut self.block);
 
         //# 3. Let env be a new global Environment Record.
@@ -638,8 +655,9 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
 
     /// <https://tc39.es/ecma262/#sec-parse-script>
     ///
-    /// The way this method handles scripts, is by pretending like it parsed the script.
-    /// Really, we just emit the corresponding code as we comb over the script ourselves.
+    /// The way this method handles scripts, is by pretending like it parsed the
+    /// script. Really, we just emit the corresponding code as we comb over
+    /// the script ourselves.
     pub fn ParseScript(
         &mut self,
         _sourceText: (),
@@ -654,7 +672,8 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
 
         //# 3. If body is a List of errors, return body.
 
-        //# 4. Return Script Record { [[Realm]]: realm, [[ECMAScriptCode]]: body, [[HostDefined]]: hostDefined }.
+        //# 4. Return Script Record { [[Realm]]: realm, [[ECMAScriptCode]]: body,
+        //# [[HostDefined]]: hostDefined }.
         let script_record = self.record_new();
         self.record_set_slot(script_record, InternalSlot::Realm, realm);
         let undefined = self.make_undefined();
@@ -713,7 +732,8 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
         //# 9. Suspend the currently running execution context.
         // TODO: ?
 
-        //# 10. Push scriptContext onto the execution context stack; scriptContext is now the running execution context.
+        //# 10. Push scriptContext onto the execution context stack; scriptContext is
+        //# now the running execution context.
         // TODO: this is a hack, should be using proepr execution context stack things
         self.running_execution_context_lexical_environment = globalEnv;
 
@@ -722,8 +742,8 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
 
         //# 12. Let result be GlobalDeclarationInstantiation(scriptBody, globalEnv).
         // TODO: at this time, we don't have a good way to mutably change local vars
-        // will have to figure out some sort of workaround. thus, in the meantime, this is broken.
-        // /shrug
+        // will have to figure out some sort of workaround. thus, in the meantime, this
+        // is broken. /shrug
         let result = self.GlobalDeclarationInstantiation(scriptBody, globalEnv);
 
         //# 13. If result.[[Type]] is normal, then
@@ -749,8 +769,8 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
 
         //# 15. Suspend scriptContext and remove it from the execution context stack.
         //# 16. Assert: The execution context stack is not empty.
-        //# 17. Resume the context that is now on the top of the execution context stack as the running execution context.
-        //# 18. Return Completion(result).
+        //# 17. Resume the context that is now on the top of the execution context stack
+        //# as the running execution context. 18. Return Completion(result).
 
         self.NormalCompletion(result)
     }
@@ -1052,16 +1072,18 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
     ) -> RegisterId {
         // TODO: implement lmao
 
-        //# FunctionDeclaration : function BindingIdentifier ( FormalParameters ) { FunctionBody }
-        //# 1. Let name be StringValue of BindingIdentifier.
+        //# FunctionDeclaration : function BindingIdentifier ( FormalParameters ) {
+        //# FunctionBody } 1. Let name be StringValue of BindingIdentifier.
         //# 2. Let sourceText be the source text matched by FunctionDeclaration.
-        //# 3. Let F be OrdinaryFunctionCreate(%Function.prototype%, sourceText, FormalParameters, FunctionBody, non-lexical-this, scope, privateScope).
+        //# 3. Let F be OrdinaryFunctionCreate(%Function.prototype%, sourceText,
+        //# FormalParameters, FunctionBody, non-lexical-this, scope, privateScope).
         //# 4. Perform SetFunctionName(F, name).
         //# 5. Perform MakeConstructor(F).
         //# 6. Return F.
         //# FunctionDeclaration : function ( FormalParameters ) { FunctionBody }
         //# 1. Let sourceText be the source text matched by FunctionDeclaration.
-        //# 2. Let F be OrdinaryFunctionCreate(%Function.prototype%, sourceText, FormalParameters, FunctionBody, non-lexical-this, scope, privateScope).
+        //# 2. Let F be OrdinaryFunctionCreate(%Function.prototype%, sourceText,
+        //# FormalParameters, FunctionBody, non-lexical-this, scope, privateScope).
         //# 3. Perform SetFunctionName(F, "default").
         //# 4. Perform MakeConstructor(F).
         //# 5. Return F.
@@ -1192,7 +1214,8 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
 
         // TODO: do this properly
         // TODO: we do this out here because it's before we give up `self`
-        // this is not spec compliant and i am just wanting to get this damn thing working
+        // this is not spec compliant and i am just wanting to get this damn thing
+        // working
         assert_eq!(arguments.len(), 1);
         let ExprOrSpread { expr, .. } = &arguments[0];
         let expr = self.evaluate_expr(&**expr);
@@ -1229,9 +1252,10 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
         let call = b.record_get_slot(func, InternalSlot::Call);
         let result = b.call_virt_with_result(call, [thisValue, arg]);
 
-        //# 8. Assert: If tailPosition is true, the above call will not return here, but instead evaluation will continue as if the following return has already occurred.
-        //# 9. Assert: If result is not an abrupt completion, then Type(result) is an ECMAScript language type.
-        //# 10. Return result.
+        //# 8. Assert: If tailPosition is true, the above call will not return here, but
+        //# instead evaluation will continue as if the following return has already
+        //# occurred. 9. Assert: If result is not an abrupt completion, then
+        //# Type(result) is an ECMAScript language type. 10. Return result.
 
         let mut bld_fn = b.function;
         let mut block = b.block;
@@ -1502,7 +1526,8 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
                 .end_block(on_abrupt_completion.ret(Some(argument)))
         };
 
-        //# 2. Else if argument is a Completion Record, set argument to argument.[[Value]].
+        //# 2. Else if argument is a Completion Record, set argument to
+        //# argument.[[Value]].
 
         let (mut on_normal_completion, []) = self.bld_fn.start_block();
         let argument_inner_value =
@@ -1512,9 +1537,11 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
 
         // `self.block`: control flow we're on
         // `on_abrupt_completion`: the path we need to go to if `is_abrupt_completion`
-        // `on_normal_completion`: the new path we need to be on if `!is_abrupt_completion`
+        // `on_normal_completion`: the new path we need to be on if
+        // `!is_abrupt_completion`
         //
-        // 1. replace `self.block` with `on_normal_completion` so that we are on the new path
+        // 1. replace `self.block` with `on_normal_completion` so that we are on the new
+        // path
         let mut on_normal_completion = on_normal_completion.into_dynamic();
         std::mem::swap(&mut self.block, &mut on_normal_completion);
         let old_self_block = on_normal_completion;
@@ -1540,7 +1567,8 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
     pub fn ThrowCompletion(&mut self, argument: RegisterId) -> RegisterId {
         self.comment("ThrowCompletion");
 
-        //# 1. Return Completion { [[Type]]: throw, [[Value]]: argument, [[Target]]: empty }.
+        //# 1. Return Completion { [[Type]]: throw, [[Value]]: argument, [[Target]]:
+        //# empty }.
         let completion_record = self.record_new();
         let normal = self.block.make_string(self.bld.constant_str("throw"));
         self.record_set_slot(completion_record, InternalSlot::Type, normal);
@@ -1571,7 +1599,8 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
         let self_block = if_true;
         let if_true = &mut self.block;
 
-        // 2. self_block is our old path, fork it to "if_true else return_to" and kill it
+        // 2. self_block is our old path, fork it to "if_true else return_to" and kill
+        // it
         self.bld_fn.end_block(self_block.jmpif_dynargs(
             condition,
             if_true.id,
@@ -1582,7 +1611,8 @@ impl<'b, const PARAMS: usize> JsWriter<'b, PARAMS> {
 
         // 3. now execute `in_if`
         //
-        //    self.block will be `if_true`, so all modification will be performed in our if
+        //    self.block will be `if_true`, so all modification will be performed in our
+        // if
         in_if(self);
 
         // 4. kill `self.block`, which is `if_true`,
@@ -1671,7 +1701,8 @@ impl DynBlockBuilder {
     ) -> RegisterId {
         self.comment("NormalCompletion");
 
-        //# 1. Return Completion { [[Type]]: normal, [[Value]]: argument, [[Target]]: empty }.
+        //# 1. Return Completion { [[Type]]: normal, [[Value]]: argument, [[Target]]:
+        //# empty }.
         let completion_record = self.record_new();
         let normal = self.make_string(bld.constant_str("normal"));
         self.record_set_slot(completion_record, InternalSlot::Type, normal);
@@ -1980,9 +2011,11 @@ impl BoundNames<'_> {
 }
 
 enum VarDeclaratorKind {
-    /// If d is neither a VariableDeclaration nor a ForBinding nor a BindingIdentifier, then
+    /// If d is neither a VariableDeclaration nor a ForBinding nor a
+    /// BindingIdentifier, then
     DeclaredFunctionName(FnDecl),
-    /// a. If d is a VariableDeclaration, a ForBinding, or a BindingIdentifier, then
+    /// a. If d is a VariableDeclaration, a ForBinding, or a BindingIdentifier,
+    /// then
     DeclaredVariableName(VarDeclarator),
 }
 
@@ -2081,7 +2114,8 @@ impl VarScopedDeclarations<'_> {
     {
         //# VariableDeclarationList : VariableDeclarationList , VariableDeclaration
         //# 1. Let declarations1 be VarScopedDeclarations of VariableDeclarationList.
-        //# 2. Return the list-concatenation of declarations1 and « VariableDeclaration ».
+        //# 2. Return the list-concatenation of declarations1 and « VariableDeclaration
+        //# ».
         for d in v.decls.iter() {
             self.0.push(f(d.clone()));
         }
@@ -2105,7 +2139,8 @@ impl TopLevelVarScopedDeclarations<'_> {
 
     fn Statement(&mut self, stmt: &Stmt) {
         //# StatementListItem : Statement
-        //# 1. If Statement is Statement : LabelledStatement , return TopLevelVarScopedDeclarations of Statement.
+        //# 1. If Statement is Statement : LabelledStatement , return
+        //# TopLevelVarScopedDeclarations of Statement.
         //# 2. Return VarScopedDeclarations of Statement.
         match stmt {
             // this is a hack to get the data in a way that VarScopedDecls understands
@@ -2149,8 +2184,9 @@ impl LexicalScopedDecl {
     fn bound_names(&self) -> (bool, Vec<String>) {
         todo!()
         // match self {
-        //     LexicalScopedDecl::Function(f) => (false, BoundNames::compute_fn(f)),
-        //     LexicalScopedDecl::Class(f) => (false, BoundNames::compute_cls(f)),
+        //     LexicalScopedDecl::Function(f) => (false,
+        // BoundNames::compute_fn(f)),     LexicalScopedDecl::Class(f)
+        // => (false, BoundNames::compute_cls(f)),
         //     LexicalScopedDecl::Variable(v) => {
         //         let mut bound_names = Vec::new();
         //         for v in v.decls.iter() {

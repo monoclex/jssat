@@ -1,10 +1,5 @@
 use super::builder::{DynBlockBuilder, FnSignature, FunctionBuilder, ProgramBuilder, RegisterId};
-use crate::{
-    frontend::ir::Function,
-    interpreter::{Interpreter, Value},
-};
 use derive_more::{Deref, DerefMut};
-use rustc_hash::FxHashMap;
 
 // pub use super::builder::*;
 
@@ -28,6 +23,20 @@ pub enum ControlFlow {
     Return(Option<RegisterId>),
 }
 
+impl ControlFlow {
+    fn is_fallthrough(&self) -> bool {
+        matches!(self, ControlFlow::Fallthrough)
+    }
+
+    fn is_carry(&self) -> bool {
+        matches!(self, ControlFlow::Carry(_))
+    }
+
+    fn is_return(&self) -> bool {
+        matches!(self, ControlFlow::Return(_))
+    }
+}
+
 impl<'b, const P: usize> Emitter<'b, P> {
     pub fn new(
         program_builder: &'b mut ProgramBuilder,
@@ -40,6 +49,21 @@ impl<'b, const P: usize> Emitter<'b, P> {
             function_builder,
             block_builder,
         }
+    }
+
+    pub fn load_constant(&mut self, payload: Vec<u8>) -> RegisterId {
+        let constant = self.program_builder.constant(payload);
+        self.make_string(constant)
+    }
+
+    pub fn load_str(&mut self, message: &str) -> RegisterId {
+        let constant = self.program_builder.constant_str(message);
+        self.make_string(constant)
+    }
+
+    pub fn load_str_utf16(&mut self, message: &str) -> RegisterId {
+        let constant = self.program_builder.constant_str_utf16(message);
+        self.make_string(constant)
     }
 
     pub fn finish(mut self, return_value: Option<RegisterId>) -> FnSignature<P> {
@@ -84,16 +108,17 @@ impl<'bo, 'bu, const P: usize> EmitterIf<'bo, 'bu, P> {
         let (true_clause, []) = emitter.function_builder.start_block();
         let mut true_clause = true_clause.into_dynamic();
 
-        let (false_clause, []) = emitter.function_builder.start_block();
-        let mut false_clause = false_clause.into_dynamic();
-
         // as a consequence of creating the true block here and wanting it logically
-        // first in debug prints, we have to call the `then` condition now
+        // first in debug prints, we have to generate the code for the `then` condition
 
         // TODO: the swaps are incorrect, but i'm waiting for unit tests to prove so
-        std::mem::swap(&mut emitter.block_builder, &mut false_clause);
+        // TODO: move this above `true_clause` once ^ is proved
+        std::mem::swap(&mut emitter.block_builder, &mut true_clause);
         let control_flow = then(emitter);
-        std::mem::swap(&mut emitter.block_builder, &mut false_clause);
+        std::mem::swap(&mut emitter.block_builder, &mut true_clause);
+
+        let (false_clause, []) = emitter.function_builder.start_block();
+        let false_clause = false_clause.into_dynamic();
 
         Self {
             emitter,
@@ -113,6 +138,7 @@ impl<'bo, 'bu, const P: usize> EmitterIf<'bo, 'bu, P> {
         EmitterIfElse {
             emitter_if: Some(self),
             else_then,
+            suppress_drop: false,
         }
     }
 
@@ -189,13 +215,24 @@ where
 {
     emitter_if: Option<EmitterIf<'borrow, 'builder, P>>,
     else_then: E,
+    suppress_drop: bool,
 }
 
-impl<'bo, 'bu, E, const P: usize> Drop for EmitterIfElse<'bo, 'bu, E, P>
+impl<'bo, 'bu, E, const P: usize> EmitterIfElse<'bo, 'bu, E, P>
 where
     E: FnMut(&mut Emitter<'bu, P>) -> ControlFlow,
 {
-    fn drop(&mut self) {
+    /// Generates the if and else code. This never needs to be called if you
+    /// only want to generate the if and else code - that is done automatically
+    /// on drop. This method is useful when you utilize [`ControlFlow::Carry`],
+    /// in which after the if statement executes, the value is carried to the
+    /// outside of the if statement.
+    pub fn end(mut self) -> Option<RegisterId> {
+        self.suppress_drop = true;
+        self.generate()
+    }
+
+    fn generate(&mut self) -> Option<RegisterId> {
         let mut emitter_if = self.emitter_if.take().expect("dont call drop twice");
 
         // we are going to use the `false_clause` to write the code that should happen
@@ -215,6 +252,12 @@ where
         // now write the else branch code
         let control_flow = (self.else_then)(emitter);
 
+        let carry_param = if control_flow.is_carry() || emitter_if.control_flow.is_carry() {
+            Some(end_clause.add_parameter())
+        } else {
+            None
+        };
+
         // then terminate the else branch
         std::mem::swap(&mut emitter.block_builder, &mut end_clause);
         let _end_clause = &mut emitter.block_builder;
@@ -229,143 +272,206 @@ where
 
         // ensure we're set on the end clause now
         debug_assert_eq!(emitter.block_builder.id, end_clause_id);
+        carry_param
     }
 }
 
-#[test]
-pub fn emitter_emits_if_statements() {
-    let mut builder = ProgramBuilder::new();
-    builder.create_blank_entrypoint();
-    let id = {
-        let (check, [cond]) = builder.start_function();
-        let mut e = Emitter::new(&mut builder, check);
+impl<'bo, 'bu, E, const P: usize> Drop for EmitterIfElse<'bo, 'bu, E, P>
+where
+    E: FnMut(&mut Emitter<'bu, P>) -> ControlFlow,
+{
+    fn drop(&mut self) {
+        if self.suppress_drop {
+            return;
+        }
 
-        e.if_then(
-            |_| cond,
-            |e| {
-                let in_if = e.program_builder.constant_str("in_if");
-                ControlFlow::Return(Some(e.make_string(in_if)))
-            },
-        );
-
-        let done = e.program_builder.constant_str("done");
-        let done = e.make_string(done);
-        e.finish(Some(done))
-    };
-
-    let ir = builder.finish();
-    let lifted = crate::lifted::lift(ir);
-    let ext_fns = Default::default();
-    let interpreter = Interpreter::new(&lifted, &ext_fns);
-
-    let result = interpreter
-        .execute_fn_id(id.id.map_context(), vec![Value::Boolean(true)])
-        .unwrap();
-    let value = result.unwrap();
-    let bytes = value.try_into_bytes().unwrap();
-    assert_eq!(bytes, "in_if".as_bytes());
-
-    let result = interpreter
-        .execute_fn_id(id.id.map_context(), vec![Value::Boolean(false)])
-        .unwrap();
-    let value = result.unwrap();
-    let bytes = value.try_into_bytes().unwrap();
-    assert_eq!(bytes, "done".as_bytes());
+        self.generate();
+    }
 }
 
-#[test]
-pub fn emitter_emits_if_else_statements() {
-    let mut builder = ProgramBuilder::new();
-    builder.create_blank_entrypoint();
-    let id = {
-        let (check, [cond]) = builder.start_function();
-        let mut e = Emitter::new(&mut builder, check);
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::interpreter::{InstErr, InstResult};
+    use crate::interpreter::{Interpreter, Value};
+    use Value::*;
 
-        let in_if = e.program_builder.constant_str("in_if");
-        let in_if = e.make_string(in_if);
-        let in_else = e.program_builder.constant_str("in_else");
-        let in_else = e.make_string(in_else);
-        let done = e.program_builder.constant_str("done");
-        let done = e.make_string(done);
+    trait GetInner {
+        fn get(self) -> Value;
+    }
 
-        e.if_then(|_| cond, |_| ControlFlow::Return(Some(in_if)))
-            .else_then(|_| ControlFlow::Return(Some(in_else)));
+    impl GetInner for InstResult<Option<Value>> {
+        fn get(self) -> Value {
+            self.expect("expected to execute function without errors")
+                .expect("expected function to return value")
+        }
+    }
 
-        e.finish(Some(done))
-    };
+    fn create_interpreter<const P: usize>(
+        program: fn(&mut Emitter<P>, [RegisterId; P]) -> Option<RegisterId>,
+    ) -> impl Fn([Value; P]) -> InstResult<Option<Value>> {
+        let mut builder = ProgramBuilder::new();
+        builder.create_blank_entrypoint();
 
-    let ir = builder.finish();
-    let lifted = crate::lifted::lift(ir);
-    let ext_fns = Default::default();
-    let interpreter = Interpreter::new(&lifted, &ext_fns);
+        let fn_signature = {
+            let (func, params) = builder.start_function::<P>();
+            let mut emitter = Emitter::new(&mut builder, func);
 
-    let result = interpreter
-        .execute_fn_id(id.id.map_context(), vec![Value::Boolean(true)])
-        .unwrap();
-    let value = result.unwrap();
-    let bytes = value.try_into_bytes().unwrap();
-    assert_eq!(bytes, "in_if".as_bytes());
+            let ret_val = program(&mut emitter, params);
+            emitter.finish(ret_val)
+        };
 
-    let result = interpreter
-        .execute_fn_id(id.id.map_context(), vec![Value::Boolean(false)])
-        .unwrap();
-    let value = result.unwrap();
-    let bytes = value.try_into_bytes().unwrap();
-    assert_eq!(bytes, "in_else".as_bytes());
-}
+        let ir = builder.finish();
+        let lifted = Box::leak(Box::new(crate::lifted::lift(ir)));
 
-#[test]
-pub fn emitter_emits_then_code_correctly() {
-    let mut builder = ProgramBuilder::new();
-    builder.create_blank_entrypoint();
-    let id = {
-        let (check, [cond]) = builder.start_function();
-        let mut e = Emitter::new(&mut builder, check);
+        let ext_fns = Box::leak(Box::new(Default::default()));
+        let interpreter = Interpreter::new(lifted, ext_fns);
 
-        let in_if = e.program_builder.constant_str("in_if");
-        let in_if = e.make_string(in_if);
-        let in_else = e.program_builder.constant_str("in_else");
-        let in_else = e.make_string(in_else);
+        // TODO: have lifted phase give information about ir -> fn id mappings
+        move |args| interpreter.execute_fn_id(fn_signature.id.map_context(), args.to_vec())
+    }
 
-        e.if_then(
-            |e| {
-                e.comment("so");
+    #[track_caller]
+    fn value_is_bytes(str: &str, value: Value) {
+        let bytes = value.try_into_bytes().unwrap();
+        assert_eq!(bytes, str.as_bytes());
+    }
 
+    #[test]
+    pub fn if_then() {
+        let run = create_interpreter(|e, [cond]| {
+            e.if_then(|_| cond, |e| ControlFlow::Return(Some(e.load_str("in_if"))));
+            Some(e.load_str("done"))
+        });
+
+        value_is_bytes("in_if", run([Boolean(true)]).get());
+        value_is_bytes("done", run([Boolean(false)]).get());
+    }
+
+    #[test]
+    pub fn if_then_else() {
+        let run = create_interpreter(|e, [cond]| {
+            e.if_then(|_| cond, |e| ControlFlow::Return(Some(e.load_str("in_if"))))
+                .else_then(|e| ControlFlow::Return(Some(e.load_str("in_else"))));
+
+            Some(e.load_str("done"))
+        });
+
+        value_is_bytes("in_if", run([Boolean(true)]).get());
+        value_is_bytes("in_else", run([Boolean(false)]).get());
+    }
+
+    #[test]
+    pub fn if_then_inner_if_then_outer() {
+        let run = create_interpreter(|e, [cond1, cond2]| {
+            e.if_then(
+                |_| cond1,
+                |e| {
+                    e.if_then(|_| cond2, |e| ControlFlow::Return(Some(e.load_str("if2"))));
+
+                    ControlFlow::Return(Some(e.load_str("if1")))
+                },
+            );
+
+            Some(e.load_str("end"))
+        });
+
+        value_is_bytes("end", run([Boolean(false), Boolean(false)]).get());
+        value_is_bytes("end", run([Boolean(false), Boolean(true)]).get());
+        value_is_bytes("if1", run([Boolean(true), Boolean(false)]).get());
+        value_is_bytes("if2", run([Boolean(true), Boolean(true)]).get());
+    }
+
+    #[test]
+    pub fn if_then_inner_if_then_else_outer_else() {
+        let run = create_interpreter(|e, [cond1, cond2]| {
+            e.if_then(
+                |_| cond1,
+                |e| {
+                    e.if_then(|_| cond2, |e| ControlFlow::Return(Some(e.load_str("ifif"))))
+                        .else_then(|e| ControlFlow::Return(Some(e.load_str("ifelse"))));
+
+                    ControlFlow::Return(Some(e.load_str("impossible_1")))
+                },
+            )
+            .else_then(|e| {
                 e.if_then(
-                    |_| cond,
-                    |e| {
-                        e.comment("hi");
-                        ControlFlow::Fallthrough
-                    },
-                );
+                    |_| cond2,
+                    |e| ControlFlow::Return(Some(e.load_str("elseif"))),
+                )
+                .else_then(|e| ControlFlow::Return(Some(e.load_str("elseelse"))));
 
-                e.comment("bye");
-                e.negate(cond)
-            },
-            |_| ControlFlow::Return(Some(in_if)),
-        )
-        .else_then(|_| ControlFlow::Return(Some(in_else)));
+                ControlFlow::Return(Some(e.load_str("impossible_2")))
+            });
 
-        e.finish(None)
-    };
+            Some(e.load_str("end"))
+        });
 
-    let ir = builder.finish();
-    println!("{}", crate::frontend::display_jssatir::display(&ir));
-    let lifted = crate::lifted::lift(ir);
-    let ext_fns = Default::default();
-    let interpreter = Interpreter::new(&lifted, &ext_fns);
+        value_is_bytes("elseelse", run([Boolean(false), Boolean(false)]).get());
+        value_is_bytes("elseif", run([Boolean(false), Boolean(true)]).get());
+        value_is_bytes("ifelse", run([Boolean(true), Boolean(false)]).get());
+        value_is_bytes("ifif", run([Boolean(true), Boolean(true)]).get());
+    }
 
-    let result = interpreter
-        .execute_fn_id(id.id.map_context(), vec![Value::Boolean(true)])
-        .unwrap();
-    let value = result.unwrap();
-    let bytes = value.try_into_bytes().unwrap();
-    assert_eq!(bytes, "in_else".as_bytes());
+    #[test]
+    pub fn if_then_else_end() {
+        let run = create_interpreter(|e, [cond1]| {
+            e.if_then(|_| cond1, |e| ControlFlow::Carry(e.load_str("if")))
+                .else_then(|e| ControlFlow::Carry(e.load_str("else")))
+                .end()
+        });
 
-    let result = interpreter
-        .execute_fn_id(id.id.map_context(), vec![Value::Boolean(false)])
-        .unwrap();
-    let value = result.unwrap();
-    let bytes = value.try_into_bytes().unwrap();
-    assert_eq!(bytes, "in_if".as_bytes());
+        value_is_bytes("if", run([Boolean(true)]).get());
+        value_is_bytes("else", run([Boolean(false)]).get());
+    }
+
+    #[test]
+    pub fn if_then_else_end_cannot_fallthrough_if_then() {
+        let run = create_interpreter(|e, [cond1]| {
+            e.if_then(|_| cond1, |_| ControlFlow::Fallthrough)
+                .else_then(|e| ControlFlow::Carry(e.load_str("else")))
+                .end()
+        });
+
+        value_is_bytes("else", run([Boolean(false)]).get());
+        assert!(matches!(
+            run([Boolean(true)]),
+            Err(InstErr::NotEnoughArgs(1, 0, _)),
+        ));
+    }
+
+    #[test]
+    pub fn if_then_else_end_cannot_fallthrough_else() {
+        let run = create_interpreter(|e, [cond1]| {
+            e.if_then(|_| cond1, |e| ControlFlow::Carry(e.load_str("if")))
+                .else_then(|_| ControlFlow::Fallthrough)
+                .end()
+        });
+
+        value_is_bytes("if", run([Boolean(true)]).get());
+        assert!(matches!(
+            run([Boolean(false)]),
+            Err(InstErr::NotEnoughArgs(1, 0, _)),
+        ));
+    }
+
+    #[test]
+    pub fn if_then_incondition_if_then_else_end() {
+        let run = create_interpreter(|e, [cond]| {
+            e.if_then(
+                |e| {
+                    e.if_then(|_| cond, |e| ControlFlow::Carry(e.make_bool(true)))
+                        .else_then(|e| ControlFlow::Carry(e.make_bool(false)))
+                        .end()
+                        .expect("carry should work")
+                },
+                |e| ControlFlow::Carry(e.load_str("if")),
+            )
+            .else_then(|e| ControlFlow::Carry(e.load_str("else")))
+            .end()
+        });
+
+        value_is_bytes("if", run([Boolean(true)]).get());
+        value_is_bytes("else", run([Boolean(false)]).get());
+    }
 }

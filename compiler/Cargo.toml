@@ -38,6 +38,7 @@ enum-kinds = "0.5.1"
 ouroboros = "0.10.1"
 bumpalo = { version = "3.7.1", features = ["allocator_api", "boxed", "collections"] }
 gc = { version = "0.4.1", features = ["derive"] }
+# serial_test = "0.5.1"
 
 [dependencies.inkwell]
 git = "https://github.com/TheDan64/inkwell"

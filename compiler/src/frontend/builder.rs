@@ -442,6 +442,14 @@ impl DynBlockBuilder {
         }
     }
 
+    /// Used in the emitter API. Basically a hacky workaround, shouldn't need to
+    /// exist but /shrug
+    pub(crate) fn add_parameter(&mut self) -> RegisterId {
+        let id = self.gen_register_id.next();
+        self.parameters.push(id);
+        id
+    }
+
     /// this will be the unreachable instruction when added, but for the time
     /// being, it causes a panic if the symbolic execution engine reaches it
     #[track_caller]
