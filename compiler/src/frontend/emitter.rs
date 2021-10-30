@@ -92,6 +92,7 @@ pub struct EmitterIf<'borrow, 'builder, const P: usize> {
     condition: RegisterId,
     control_flow: ControlFlow,
     true_clause: Option<DynBlockBuilder>,
+    true_clause_id: crate::id::BlockId<crate::id::IrCtx>,
     false_clause: Option<DynBlockBuilder>,
     fallthrough_clause: Option<crate::id::BlockId<crate::id::IrCtx>>,
     suppress_drop: bool,
@@ -107,14 +108,15 @@ impl<'bo, 'bu, const P: usize> EmitterIf<'bo, 'bu, P> {
         // code runs before our drop code)
         let (true_clause, []) = emitter.function_builder.start_block();
         let mut true_clause = true_clause.into_dynamic();
+        let true_clause_id = true_clause.id;
 
         // as a consequence of creating the true block here and wanting it logically
         // first in debug prints, we have to generate the code for the `then` condition
-
-        // TODO: the swaps are incorrect, but i'm waiting for unit tests to prove so
-        // TODO: move this above `true_clause` once ^ is proved
         std::mem::swap(&mut emitter.block_builder, &mut true_clause);
         let control_flow = then(emitter);
+
+        // at this point, we could potentially not be dealing with the original true
+        // clause.
         std::mem::swap(&mut emitter.block_builder, &mut true_clause);
 
         let (false_clause, []) = emitter.function_builder.start_block();
@@ -125,6 +127,7 @@ impl<'bo, 'bu, const P: usize> EmitterIf<'bo, 'bu, P> {
             condition,
             control_flow,
             true_clause: Some(true_clause),
+            true_clause_id,
             false_clause: Some(false_clause),
             fallthrough_clause: None,
             suppress_drop: false,
@@ -150,8 +153,10 @@ impl<'bo, 'bu, const P: usize> EmitterIf<'bo, 'bu, P> {
         //
         // we will create a *new* block to hold the contents of the true clause
         // (we have created this in the `new` method for reasons listed there)
+        //
+        // NOTE: `true_clause` may not be the ACTUAL true clause (see `new`).
         let mut true_clause = self.true_clause.take().expect("dont call drop twice");
-        let true_clause_id = true_clause.id;
+        let true_clause_id = self.true_clause_id;
 
         // and consider the existing path to be the false clause (as that's
         // where we wish to continue execution
@@ -244,13 +249,23 @@ where
         let end_clause_id = end_clause.id;
         emitter_if.fallthrough_clause = Some(end_clause_id);
 
+        let path = emitter_if.emitter.block_builder.id;
+        let true_clause_id = emitter_if.true_clause.as_ref().map(|f| f.id).unwrap();
+        let false_clause_id = emitter_if.false_clause.as_ref().map(|f| f.id).unwrap();
+
         emitter_if.generate();
         emitter_if.suppress_drop = true;
 
         let emitter = &mut emitter_if.emitter;
 
         // now write the else branch code
+        debug_assert_eq!(emitter.block_builder.id, false_clause_id);
         let control_flow = (self.else_then)(emitter);
+
+        // now after we've ran the `else_then`, it could've modified the current path of
+        // execution with if statement stuff. thus, we consider the current path the
+        // false clause id
+        let false_clause_id = emitter.block_builder.id;
 
         let carry_param = if control_flow.is_carry() || emitter_if.control_flow.is_carry() {
             Some(end_clause.add_parameter())
@@ -262,6 +277,12 @@ where
         std::mem::swap(&mut emitter.block_builder, &mut end_clause);
         let _end_clause = &mut emitter.block_builder;
         let false_clause = end_clause;
+
+        println!("path: {:?}", path);
+        println!("true_clause_id: {:?}", true_clause_id);
+        println!("false_clause_id: {:?}", false_clause_id);
+        println!("end_clause_id: {:?}", end_clause_id);
+        debug_assert_eq!(false_clause_id, false_clause.id);
 
         let finalized = match control_flow {
             ControlFlow::Fallthrough => false_clause.jmp_dynargs(end_clause_id, vec![]),
@@ -325,7 +346,7 @@ mod tests {
         let ir = builder.finish();
         println!("{}", crate::frontend::display_jssatir::display(&ir));
         let lifted = Box::leak(Box::new(crate::lifted::lift(ir)));
-        println!("{:#?}", lifted);
+        // println!("{:#?}", lifted);
 
         let ext_fns = Box::leak(Box::new(Default::default()));
         let interpreter = Interpreter::new(lifted, ext_fns);
