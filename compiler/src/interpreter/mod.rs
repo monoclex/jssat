@@ -20,11 +20,19 @@ use crate::{
     frontend::ir::Instruction,
     id::LiftedCtx,
     isa::{InternalSlot, TrivialItem},
-    lifted::{ConstantId, EndInstruction, FunctionId, LiftedProgram, RegisterId},
+    lifted::{
+        ConstantId, EndInstruction, ExternalFunctionId, FunctionId, LiftedProgram, RegisterId,
+    },
 };
 
 pub struct Interpreter<'code> {
     code: &'code LiftedProgram,
+    external_fns: FxHashMap<ExternalFunctionId, ExtFnImpl>,
+}
+
+/// Implement an external function call from within pure rust code for JSSAT
+pub struct ExtFnImpl {
+    function: fn(Vec<Value>) -> InstResult<Option<Value>>,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -77,9 +85,20 @@ unsafe impl Trace for Record {
     }
 }
 
+pub fn ensure_arg_count(expected: usize, got: usize) -> InstResult<()> {
+    if expected != got {
+        return Err(NotEnoughArgs(expected, got, Location::caller()));
+    }
+
+    Ok(())
+}
+
 impl<'c> Interpreter<'c> {
-    pub fn new(code: &'c LiftedProgram) -> Self {
-        Interpreter { code }
+    pub fn new(code: &'c LiftedProgram, ext_fns: FxHashMap<ExternalFunctionId, ExtFnImpl>) -> Self {
+        Interpreter {
+            code,
+            external_fns: ext_fns,
+        }
     }
 
     pub fn execute_fn_id(&self, id: FunctionId, args: Vec<Value>) -> InstResult<Option<Value>> {
@@ -87,7 +106,7 @@ impl<'c> Interpreter<'c> {
             .get(&id)
             .expect("expected valid function id");
 
-        assert_eq!(function.parameters.len(), args.len());
+        ensure_arg_count(function.parameters.len(), args.len())?;
 
         let mut registers = FxHashMap::default();
         for (register, value) in function.parameters.iter().strict_zip(args) {
@@ -96,7 +115,7 @@ impl<'c> Interpreter<'c> {
 
         let mut inst_exec = InstExec {
             registers,
-            program: self.code,
+            interpreter: self,
         };
 
         for inst in function.instructions.iter() {
@@ -137,9 +156,9 @@ impl<'c> Interpreter<'c> {
     }
 }
 
-struct InstExec<'code> {
+struct InstExec<'interpreter> {
     registers: FxHashMap<RegisterId, Value>,
-    program: &'code LiftedProgram,
+    interpreter: &'interpreter Interpreter<'interpreter>,
 }
 
 pub type InstResult<T> = Result<T, InstErr>;
@@ -167,6 +186,10 @@ pub enum InstErr {
     ExpectedNonVoid(PanicLocation),
     #[error("Expected conditional value to be a boolean, but got: {:?}", .0)]
     ConditionalNotBoolean(Value, PanicLocation),
+    #[error("An invalid amount of arguments were supplied: expected {}, got {}", .0, .1)]
+    NotEnoughArgs(usize, usize, PanicLocation),
+    #[error("External function does not exist: {}", .0)]
+    ExtFnDNE(ExternalFunctionId, PanicLocation),
 
     // TODO: support external function calls
     // they can be implemented by having some kind of rust function be paired
@@ -230,8 +253,11 @@ impl<'c> InstExec<'c> {
             CallStatic(i) => {
                 self.call_fn(&i.args, i.calling, i.result)?;
             }
-            CallExtern(_) => {
-                return Err(ExternalFnCall);
+            CallExtern(i) => {
+                let ext_fn = self.get_ext_fn(i.calling)?;
+                let args = self.load_args(&i.args)?;
+                let result = (ext_fn.function)(args)?;
+                self.store_fn_result(result, i.result)?;
             }
             CallVirt(i) => {
                 let value = self.get(i.calling)?;
@@ -380,8 +406,15 @@ impl<'c> InstExec<'c> {
     }
 
     #[track_caller]
+    fn get_ext_fn(&self, ext_fn_id: ExternalFunctionId) -> InstResult<&ExtFnImpl> {
+        (self.interpreter.external_fns)
+            .get(&ext_fn_id)
+            .ok_or_else(|| ExtFnDNE(ext_fn_id, Location::caller()))
+    }
+
+    #[track_caller]
     fn lookup_constant(&self, constant: ConstantId) -> InstResult<Vec<u8>> {
-        (self.program.constants)
+        (self.interpreter.code.constants)
             .get(&constant)
             .map(|c| c.payload.clone())
             .ok_or_else(|| ConstantDNE(constant, Location::caller()))
@@ -404,7 +437,7 @@ impl<'c> InstExec<'c> {
         &mut self,
         args: &[RegisterId],
         fn_id: FunctionId,
-        store_result: Option<RegisterId>,
+        register: Option<RegisterId>,
     ) -> InstResult<()> {
         let args = self.load_args(args)?;
 
@@ -419,10 +452,19 @@ impl<'c> InstExec<'c> {
         //
         // A*: at this point we'd want more detailed error information
         // about the stack trace
-        let interpreter = Interpreter { code: self.program };
+        let interpreter = self.interpreter;
         let result = interpreter.execute_fn_id(fn_id, args)?; // <- A*
 
-        match (store_result, result) {
+        self.store_fn_result(result, register)
+    }
+
+    #[track_caller]
+    fn store_fn_result(
+        &mut self,
+        result: Option<Value>,
+        register: Option<RegisterId>,
+    ) -> InstResult<()> {
+        match (register, result) {
             (Some(register), Some(value)) => {
                 self.registers.insert(register, value);
             }
