@@ -69,10 +69,13 @@ impl<C: Tag> ISAInstruction<C> for Return<C> {
     }
 
     fn used_registers(&self) -> TinyVec<[RegisterId<C>; 3]> {
-        match self.0 {
-            Some(r) => TinyVec::from([r, Default::default(), Default::default()]),
-            None => TinyVec::new(),
+        let mut used_registers = TinyVec::new();
+
+        if let Some(r) = self.0 {
+            used_registers.push(r)
         }
+
+        used_registers
     }
 
     fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
@@ -224,15 +227,17 @@ impl<B: Tag, C: Tag> ISAInstruction<C> for JumpIf<BlockId<B>, C> {
 
     fn used_registers(&self) -> TinyVec<[RegisterId<C>; 3]> {
         let mut used_registers = TinyVec::new();
+        used_registers.push(self.condition);
         used_registers.extend_from_slice(&self.if_so.1);
         used_registers.extend_from_slice(&self.other.1);
         used_registers
     }
 
     fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
-        (self.if_so.1.iter_mut())
-            .chain(self.other.1.iter_mut())
-            .collect()
+        let mut used_registers = vec![&mut self.condition];
+        used_registers.extend(self.if_so.1.iter_mut());
+        used_registers.extend(self.other.1.iter_mut());
+        used_registers
     }
 
     fn display(&self, w: &mut impl Write) -> std::fmt::Result {
@@ -258,15 +263,17 @@ impl<F: Tag, C: Tag> ISAInstruction<C> for JumpIf<FunctionId<F>, C> {
 
     fn used_registers(&self) -> TinyVec<[RegisterId<C>; 3]> {
         let mut used_registers = TinyVec::new();
+        used_registers.push(self.condition);
         used_registers.extend_from_slice(&self.if_so.1);
         used_registers.extend_from_slice(&self.other.1);
         used_registers
     }
 
     fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
-        (self.if_so.1.iter_mut())
-            .chain(self.other.1.iter_mut())
-            .collect()
+        let mut used_registers = vec![&mut self.condition];
+        used_registers.extend(self.if_so.1.iter_mut());
+        used_registers.extend(self.other.1.iter_mut());
+        used_registers
     }
 
     fn display(&self, w: &mut impl Write) -> std::fmt::Result {

@@ -301,6 +301,7 @@ mod tests {
     }
 
     impl GetInner for InstResult<Option<Value>> {
+        #[track_caller]
         fn get(self) -> Value {
             self.expect("expected to execute function without errors")
                 .expect("expected function to return value")
@@ -322,7 +323,9 @@ mod tests {
         };
 
         let ir = builder.finish();
+        println!("{}", crate::frontend::display_jssatir::display(&ir));
         let lifted = Box::leak(Box::new(crate::lifted::lift(ir)));
+        println!("{:#?}", lifted);
 
         let ext_fns = Box::leak(Box::new(Default::default()));
         let interpreter = Interpreter::new(lifted, ext_fns);
@@ -404,7 +407,7 @@ mod tests {
                 ControlFlow::Return(Some(e.load_str("impossible_2")))
             });
 
-            Some(e.load_str("end"))
+            Some(e.load_str("impossible_3"))
         });
 
         value_is_bytes("elseelse", run([Boolean(false), Boolean(false)]).get());
@@ -426,33 +429,35 @@ mod tests {
     }
 
     #[test]
+    #[should_panic]
     pub fn if_then_else_end_cannot_fallthrough_if_then() {
-        let run = create_interpreter(|e, [cond1]| {
+        let _run = create_interpreter(|e, [cond1]| {
             e.if_then(|_| cond1, |_| ControlFlow::Fallthrough)
                 .else_then(|e| ControlFlow::Carry(e.load_str("else")))
                 .end()
         });
 
-        value_is_bytes("else", run([Boolean(false)]).get());
-        assert!(matches!(
-            run([Boolean(true)]),
-            Err(InstErr::NotEnoughArgs(1, 0, _)),
-        ));
+        // value_is_bytes("else", run([Boolean(false)]).get());
+        // assert!(matches!(
+        //     run([Boolean(true)]),
+        //     Err(InstErr::NotEnoughArgs(1, 0, _)),
+        // ));
     }
 
     #[test]
+    #[should_panic]
     pub fn if_then_else_end_cannot_fallthrough_else() {
-        let run = create_interpreter(|e, [cond1]| {
+        let _run = create_interpreter(|e, [cond1]| {
             e.if_then(|_| cond1, |e| ControlFlow::Carry(e.load_str("if")))
                 .else_then(|_| ControlFlow::Fallthrough)
                 .end()
         });
 
-        value_is_bytes("if", run([Boolean(true)]).get());
-        assert!(matches!(
-            run([Boolean(false)]),
-            Err(InstErr::NotEnoughArgs(1, 0, _)),
-        ));
+        // value_is_bytes("if", run([Boolean(true)]).get());
+        // assert!(matches!(
+        //     run([Boolean(false)]),
+        //     Err(InstErr::NotEnoughArgs(1, 0, _)),
+        // ));
     }
 
     #[test]

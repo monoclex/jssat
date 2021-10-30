@@ -50,7 +50,8 @@ pub fn can_lift_registers_in_near_blocks() {
 
 /// There may be a bug in `conv_only_bb` where if a block is far enough away,
 /// the constraints for what registers to pass to it don't get passed along.
-/// Thus, there ends up being a parameter to the main block/register that is unknown.
+/// Thus, there ends up being a parameter to the main block/register that is
+/// unknown.
 #[test]
 pub fn can_lift_registers_in_far_blocks() {
     let mut program = ProgramBuilder::new();
@@ -112,6 +113,11 @@ pub fn can_lift_registers_in_far_blocks() {
 /// Confirm that mutations from within a function propagate to the caller
 #[test]
 pub fn mutations_in_function_propagate_to_caller() {
+    // i don't have internet right now
+    // the idea is to run all symbolic execution things sequentially so that the
+    // panic hooks don't mess with other tests
+    todo!("TODO: annotate test with `#[serial]` from `serial_test`");
+
     let mut program = ProgramBuilder::new();
 
     let mutate = {
@@ -181,6 +187,11 @@ pub fn mutations_in_function_propagate_to_caller() {
 //       both A and B are necessary
 #[test]
 pub fn shape_weirdness_does_not_happen() {
+    // i don't have internet right now
+    // the idea is to run all symbolic execution things sequentially so that the
+    // panic hooks don't mess with other tests
+    todo!("TODO: annotate test with `#[serial]` from `serial_test`");
+
     let mut program = ProgramBuilder::new();
 
     let mutate = {

@@ -63,9 +63,9 @@ pub enum Value {
 macro_rules! value_unwrap {
     ($name: ident, $kind: ident, $type: ty) => {
         #[track_caller]
-        pub fn $name(&self) -> InstResult<&$type> {
+        pub fn $name(&self) -> InstResult<$type> {
             match self {
-                Self::$kind(value) => Ok(value),
+                Self::$kind(value) => Ok(*value),
                 _ => Err(InvalidType(Location::caller())),
             }
         }
@@ -74,10 +74,21 @@ macro_rules! value_unwrap {
 
 impl Value {
     value_unwrap!(try_into_trivial, Trivial, TrivialItem);
-    value_unwrap!(try_into_bytes, Bytes, Vec<u8>);
+    // TODO(refactor): would it be possible to make `value_unwrap!` macro detect
+    //     if a type is trivially copyable, and if so, copy the value for us
+    //     within the macro? that would allow us to re-use the macro
+    // value_unwrap!(try_into_bytes, Bytes, Vec<u8>);
     value_unwrap!(try_into_number, Number, i64);
     value_unwrap!(try_into_boolean, Boolean, bool);
     value_unwrap!(try_into_fnptr, FnPtr, FunctionId);
+
+    #[track_caller]
+    pub fn try_into_bytes(&self) -> InstResult<&Vec<u8>> {
+        match self {
+            Self::Bytes(value) => Ok(value),
+            _ => Err(InvalidType(Location::caller())),
+        }
+    }
 
     #[track_caller]
     pub fn try_into_record(&self) -> InstResult<gc::GcCellRef<Record>> {

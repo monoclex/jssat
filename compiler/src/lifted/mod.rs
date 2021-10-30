@@ -388,3 +388,83 @@ fn patch_child_flow(
 
     fn_params_modified
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        frontend::builder::ProgramBuilder,
+        interpreter::{Interpreter, Value::*},
+    };
+
+    use super::*;
+
+    /// This is a test to fix the bug where [`crate::isa::JumpIf`] does not
+    /// include the `condition` register as a used register. In addition, the
+    /// [`crate::isa::Return`] instruction was adding the default value of
+    /// [`RegisterId`] as a used register. This specific setup of code
+    /// triggers the bug.
+    #[test]
+    fn jump_if_condition_considered_used() {
+        let mut program = ProgramBuilder::new();
+        program.create_blank_entrypoint();
+
+        // main(%1, %2):
+        //   if %1:
+        //     jump check();
+        //   else:
+        //     jump check();
+        //
+        // check():
+        //   if %2:
+        //     jump if_true();
+        //   else:
+        //     jump if_false();
+        //
+        // if_true():
+        //   return true
+        //
+        // if_false():
+        //   return false
+
+        let (mut f, [cond1, cond2]) = program.start_function();
+
+        let main = f.start_block_main();
+        let (check, []) = f.start_block();
+        let (mut if_true, []) = f.start_block();
+        let (mut if_false, []) = f.start_block();
+
+        let reg_true = if_true.make_bool(true);
+        let reg_false = if_false.make_bool(false);
+
+        f.end_block(main.jmpif(cond1, check.signature(), [], check.signature(), []));
+        f.end_block(check.jmpif(cond2, if_true.signature(), [], if_false.signature(), []));
+        f.end_block(if_true.ret(Some(reg_true)));
+        f.end_block(if_false.ret(Some(reg_false)));
+
+        let f = program.end_function(f);
+
+        let ir = program.finish();
+        let lifted = lift(ir);
+
+        let ext_fns = Default::default();
+        let interpreter = Interpreter::new(&lifted, &ext_fns);
+
+        let true_branch = interpreter
+            .execute_fn_id(f.id.map_context(), vec![Boolean(true), Boolean(true)])
+            .expect("expected to execute function")
+            .expect("expected function to return value")
+            .try_into_boolean()
+            .expect("expected boolean");
+
+        assert!(true_branch);
+
+        let false_branch = interpreter
+            .execute_fn_id(f.id.map_context(), vec![Boolean(true), Boolean(false)])
+            .expect("expected to execute function")
+            .expect("expected function to return value")
+            .try_into_boolean()
+            .expect("expected boolean");
+
+        assert!(!false_branch);
+    }
+}
