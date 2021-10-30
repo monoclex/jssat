@@ -1,6 +1,6 @@
 #![allow(non_snake_case)]
 
-use crate::frontend::builder::RegisterId;
+use crate::frontend::builder::{FnSignature, ProgramBuilder, RegisterId};
 use crate::frontend::emitter::*;
 use crate::isa::{InternalSlot, ValueType};
 
@@ -12,9 +12,6 @@ pub trait EmitterExt<'builder, const P: usize> {
     fn is_completion(&mut self, argument: RegisterId) -> RegisterId;
     fn is_normal_completion(&mut self, argument: RegisterId) -> RegisterId;
     fn is_abrupt_completion(&mut self, argument: RegisterId) -> RegisterId;
-
-    fn NormalCompletion(&mut self, argument: RegisterId) -> RegisterId;
-    fn ThrowCompletion(&mut self, argument: RegisterId) -> RegisterId;
 }
 
 impl<'bu, const P: usize> EmitterExt<'bu, P> for Emitter<'bu, P> {
@@ -68,7 +65,7 @@ impl<'bu, const P: usize> EmitterExt<'bu, P> for Emitter<'bu, P> {
                     |e| e.is_completion(argument),
                     |e| ControlFlow::Carry(e.record_get_slot(argument, InternalSlot::Value)),
                 )
-                .else_then(|e| ControlFlow::Carry(argument))
+                .else_then(|_| ControlFlow::Carry(argument))
                 .end()
                 .unwrap(),
             )
@@ -133,40 +130,43 @@ impl<'bu, const P: usize> EmitterExt<'bu, P> for Emitter<'bu, P> {
         .end()
         .unwrap()
     }
+}
 
-    fn NormalCompletion(&mut self, argument: RegisterId) -> RegisterId {
-        self.comment("6.2.3.2 NormalCompletion");
+method_syntax::method_syntax! {
+    fn NormalCompletion(argument) {
+        let mut e: Emitter<1> = e;
+        e.comment("6.2.3.2 NormalCompletion");
 
-        // 1. Return Completion { [[Type]]: normal, [[Value]]: argument, [[Target]]:
-        //    empty }
-        let completion = self.record_new();
+        // 1. Return Completion { [[Type]]: normal, [[Value]]: argument, [[Target]]: empty }
+        let completion = e.record_new();
 
-        let normal = self.make_normal();
-        self.record_set_slot(completion, InternalSlot::Type, normal);
+        let normal = e.make_normal();
+        e.record_set_slot(completion, InternalSlot::Type, normal);
 
-        self.record_set_slot(completion, InternalSlot::Value, argument);
+        e.record_set_slot(completion, InternalSlot::Value, argument);
 
-        let empty = self.make_empty();
-        self.record_set_slot(completion, InternalSlot::Target, empty);
+        let empty = e.make_empty();
+        e.record_set_slot(completion, InternalSlot::Target, empty);
 
-        completion
+        e.finish(Some(completion))
     }
 
-    fn ThrowCompletion(&mut self, argument: RegisterId) -> RegisterId {
-        self.comment("6.2.3.3 ThrowCompletion");
+    fn ThrowCompletion(argument) {
+        let mut e: Emitter<1> = e;
+        e.comment("6.2.3.3 ThrowCompletion");
 
         // 1. Return Completion { [[Type]]: throw, [[Value]]: argument, [[Target]]:
         //    empty }.
-        let completion = self.record_new();
+        let completion = e.record_new();
 
-        let throw = self.make_throw();
-        self.record_set_slot(completion, InternalSlot::Type, throw);
+        let throw = e.make_throw();
+        e.record_set_slot(completion, InternalSlot::Type, throw);
 
-        self.record_set_slot(completion, InternalSlot::Value, argument);
+        e.record_set_slot(completion, InternalSlot::Value, argument);
 
-        let empty = self.make_empty();
-        self.record_set_slot(completion, InternalSlot::Target, empty);
+        let empty = e.make_empty();
+        e.record_set_slot(completion, InternalSlot::Target, empty);
 
-        completion
+        e.finish(Some(completion))
     }
 }

@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "compiler",
+    "method_syntax",
     "runtime",
 ]
 

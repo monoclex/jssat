@@ -210,6 +210,8 @@ impl SymbWorker<'_> {
             ir::Instruction::Generalize(_) => {
                 todo!("generalization algorithm");
             }
+            ir::Instruction::Assert(_) => todo!(),
+            ir::Instruction::IsType(_) => todo!(),
         };
     }
 
