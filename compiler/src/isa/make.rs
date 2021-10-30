@@ -48,6 +48,8 @@ pub enum TrivialItem {
     Throw,
     /// Reference Record "unresolvable"
     Unresolvable,
+    /// Completion record "normal"
+    Normal,
 }
 
 impl<T: Tag> Make<T, TrivialItem> {

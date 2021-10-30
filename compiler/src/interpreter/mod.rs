@@ -17,6 +17,7 @@ use gc::{custom_trace, BorrowError, BorrowMutError, Finalize, Gc, GcCell, Trace}
 use rustc_hash::FxHashMap;
 use thiserror::Error;
 
+use crate::isa::ValueType;
 use crate::{collections::StrictZip, isa::BinaryOperator};
 
 use crate::{
@@ -258,6 +259,8 @@ pub enum InstErr {
     InvalidType(PanicLocation),
     #[error("An error occurred borrowing the record")]
     BorrowError(#[from] BorrowErrorWrapper),
+    #[error("An assertion failed: {}", .0)]
+    AssertionFailed(&'static str, PanicLocation),
 
     // TODO: support external function calls
     // they can be implemented by having some kind of rust function be paired
@@ -419,6 +422,30 @@ impl<'c> InstExec<'c> {
             }
             Generalize(_) => {
                 todo!("generalize not used yet")
+            }
+            Assert(i) => {
+                let value = self.get(i.condition)?;
+                let assertion = value.try_into_boolean()?;
+
+                if !assertion {
+                    return Err(AssertionFailed(i.message, Location::caller()));
+                }
+            }
+            IsType(i) => {
+                let value = self.get(i.value)?;
+                let target_kind = i.kind;
+
+                let is_type = match (value, target_kind) {
+                    (Value::Trivial(_), ValueType::Trivial)
+                    | (Value::Bytes(_), ValueType::Bytes)
+                    | (Value::Number(_), ValueType::Number)
+                    | (Value::Boolean(_), ValueType::Boolean)
+                    | (Value::FnPtr(_), ValueType::FnPtr)
+                    | (Value::Record(_), ValueType::Record) => Value::Boolean(true),
+                    _ => Value::Boolean(false),
+                };
+
+                self.registers.insert(i.result, is_type);
             }
         }
 

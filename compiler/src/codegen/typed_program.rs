@@ -188,7 +188,8 @@ impl<'r> FnTyper<'r, '_> {
             }),
             ir::Instruction::CallStatic(i) => {
                 // TODO: abstract out SymbWorker::exec_types and use their same logic
-                // TODO: this logic is also present in mapping a BlockJump, need to consolidaate the logic
+                // TODO: this logic is also present in mapping a BlockJump, need to consolidaate
+                // the logic
                 let prev = inst_idx.back().unwrap();
                 let target_id =
                     self.lookup_symbolic_fn_id_from_invocation(i.calling, &i.args, prev);
@@ -221,8 +222,9 @@ impl<'r> FnTyper<'r, '_> {
                 let target_id = self.lookup_symbolic_fn_id_from_invocation(fn_id, &i.args, prev);
 
                 // TODO: once callvirt supports calling unions,
-                // replace this instruction with a different one maybe? maybe some kind of callvirt instruction?
-                // one that would handle the idea of "here are the unions of functions we may call bla bla bla"
+                // replace this instruction with a different one maybe? maybe some kind of
+                // callvirt instruction? one that would handle the idea of "here
+                // are the unions of functions we may call bla bla bla"
                 Instruction::CallStatic(Call {
                     result: i.result.map(|r| self.reg_retagger.retag_new(r)),
                     calling: self.fn_id_mapper.retag_old(target_id),
@@ -250,6 +252,8 @@ impl<'r> FnTyper<'r, '_> {
             ir::Instruction::BinOp(i) => Instruction::BinOp(i.retag(&mut self.reg_retagger)),
             ir::Instruction::Negate(i) => Instruction::Negate(i.retag(&mut self.reg_retagger)),
             ir::Instruction::Generalize(_) => todo!(),
+            ir::Instruction::Assert(_) => todo!(),
+            ir::Instruction::IsType(_) => todo!(),
         }
     }
 

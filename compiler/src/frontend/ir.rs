@@ -11,8 +11,8 @@ type ConstantId = crate::id::ConstantId<IrCtx>;
 use crate::id::RegisterId;
 
 use crate::isa::{
-    BinOp, BlockJump, Call, Comment, Generalize, ISAInstruction, Jump, JumpIf, Make, Negate,
-    NewRecord, RecordGet, RecordHasKey, RecordSet, Return, TrivialItem,
+    Assert, BinOp, BlockJump, Call, Comment, Generalize, ISAInstruction, IsType, Jump, JumpIf,
+    Make, Negate, NewRecord, RecordGet, RecordHasKey, RecordSet, Return, TrivialItem,
 };
 use crate::retag::{BlkRetagger, CnstRetagger, ExtFnRetagger, FnRetagger, RegRetagger};
 type PlainRegisterId = RegisterId<IrCtx>;
@@ -71,8 +71,8 @@ pub struct Function {
     // require that the entry block has 0 parameters
     pub entry_block: BlockId,
     pub blocks: FxHashMap<BlockId, FunctionBlock>,
-    // pub control_flow: ControlFlowGraph,
-    // pub register_flow: ValueFlowGraph,
+    /* pub control_flow: ControlFlowGraph,
+     * pub register_flow: ValueFlowGraph, */
 }
 
 #[derive(Debug, Clone)]
@@ -126,6 +126,8 @@ pub enum Instruction<C: Tag = crate::id::IrCtx, F: Tag = crate::id::IrCtx> {
     BinOp(BinOp<C>),
     Negate(Negate<C>),
     Generalize(Generalize<C>),
+    Assert(Assert<C>),
+    IsType(IsType<C>),
 }
 
 pub struct DisplayInst<'instruction, C: Tag, F: Tag>(&'instruction Instruction<C, F>);
@@ -175,6 +177,8 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::MakeBoolean(inst) => Instruction::MakeBoolean(inst.retag(retagger)),
             Instruction::Negate(inst) => Instruction::Negate(inst.retag(retagger)),
             Instruction::Generalize(inst) => Instruction::Generalize(inst.retag(retagger)),
+            Instruction::Assert(inst) => Instruction::Assert(inst.retag(retagger)),
+            Instruction::IsType(inst) => Instruction::IsType(inst.retag(retagger)),
         }
     }
 }
@@ -218,6 +222,8 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::MakeBoolean(inst) => inst.declared_register(),
             Instruction::Negate(inst) => inst.declared_register(),
             Instruction::Generalize(inst) => inst.declared_register(),
+            Instruction::Assert(inst) => inst.declared_register(),
+            Instruction::IsType(inst) => inst.declared_register(),
         }
     }
 
@@ -239,6 +245,8 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::MakeBoolean(inst) => inst.used_registers(),
             Instruction::Negate(inst) => inst.used_registers(),
             Instruction::Generalize(inst) => inst.used_registers(),
+            Instruction::Assert(inst) => inst.used_registers(),
+            Instruction::IsType(inst) => inst.used_registers(),
         }
     }
 
@@ -260,6 +268,8 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::MakeBoolean(inst) => inst.used_registers_mut(),
             Instruction::Negate(inst) => inst.used_registers_mut(),
             Instruction::Generalize(inst) => inst.used_registers_mut(),
+            Instruction::Assert(inst) => inst.used_registers_mut(),
+            Instruction::IsType(inst) => inst.used_registers_mut(),
         }
     }
 
@@ -285,6 +295,8 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::MakeBoolean(inst) => inst.display(w),
             Instruction::Negate(inst) => inst.display(w),
             Instruction::Generalize(inst) => inst.display(w),
+            Instruction::Assert(inst) => inst.display(w),
+            Instruction::IsType(inst) => inst.display(w),
         }
     }
 }

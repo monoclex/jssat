@@ -87,6 +87,12 @@ pub use narrow::Narrow;
 mod generalize;
 pub use generalize::Generalize;
 
+mod assert;
+pub use assert::Assert;
+
+mod is_type;
+pub use is_type::{IsType, ValueType};
+
 pub struct Registers<'a, R: Tag>(pub &'a Vec<RegisterId<R>>);
 
 impl<R: Tag> Display for Registers<'_, R> {

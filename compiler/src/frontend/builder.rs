@@ -8,8 +8,9 @@ use crate::id::{Counter, IdCompat};
 use crate::UnwrapNone;
 
 use crate::isa::{
-    BinOp, BinaryOperator, BlockJump, Call, Comment, Generalize, InternalSlot, Jump, JumpIf, Make,
-    Negate, NewRecord, RecordGet, RecordHasKey, RecordKey, RecordSet, Return, TrivialItem,
+    Assert, BinOp, BinaryOperator, BlockJump, Call, Comment, Generalize, InternalSlot, IsType,
+    Jump, JumpIf, Make, Negate, NewRecord, RecordGet, RecordHasKey, RecordKey, RecordSet, Return,
+    TrivialItem, ValueType,
 };
 
 pub type BlockId = crate::id::BlockId<crate::id::IrCtx>;
@@ -467,6 +468,21 @@ impl DynBlockBuilder {
         }));
     }
 
+    pub fn assert(&mut self, condition: RegisterId, message: &'static str) {
+        self.instructions
+            .push(Instruction::Assert(Assert { condition, message }))
+    }
+
+    pub fn is_type(&mut self, value: RegisterId, kind: ValueType) -> RegisterId {
+        let result = self.gen_register_id.next();
+        self.instructions.push(Instruction::IsType(IsType {
+            result,
+            value,
+            kind,
+        }));
+        result
+    }
+
     pub fn get_runtime(&mut self) -> RegisterId {
         let result = self.gen_register_id.next();
 
@@ -519,6 +535,33 @@ impl DynBlockBuilder {
         self.instructions.push(Instruction::MakeTrivial(Make {
             result,
             item: TrivialItem::Undefined,
+        }));
+        result
+    }
+
+    pub fn make_throw(&mut self) -> RegisterId {
+        let result = self.gen_register_id.next();
+        self.instructions.push(Instruction::MakeTrivial(Make {
+            result,
+            item: TrivialItem::Throw,
+        }));
+        result
+    }
+
+    pub fn make_empty(&mut self) -> RegisterId {
+        let result = self.gen_register_id.next();
+        self.instructions.push(Instruction::MakeTrivial(Make {
+            result,
+            item: TrivialItem::Empty,
+        }));
+        result
+    }
+
+    pub fn make_normal(&mut self) -> RegisterId {
+        let result = self.gen_register_id.next();
+        self.instructions.push(Instruction::MakeTrivial(Make {
+            result,
+            item: TrivialItem::Normal,
         }));
         result
     }

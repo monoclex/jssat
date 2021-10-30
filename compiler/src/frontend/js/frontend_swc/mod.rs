@@ -27,6 +27,7 @@ use crate::frontend::{builder::*, ir::*};
 use crate::isa::InternalSlot;
 
 pub mod abstract_operations;
+pub mod better;
 pub mod descriptors;
 pub mod environment_record;
 pub mod ordinary_object_behaviors;
