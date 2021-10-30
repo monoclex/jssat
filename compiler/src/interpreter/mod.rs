@@ -7,10 +7,13 @@
 //! Performance is not necessarily a goal, although in the future that may be
 //! reconsidered.
 
+mod build;
+pub use build::*;
+
 use std::panic::Location;
 
 use derive_more::{Deref, DerefMut};
-use gc::{custom_trace, Finalize, Gc, GcCell, Trace};
+use gc::{custom_trace, BorrowError, BorrowMutError, Finalize, Gc, GcCell, Trace};
 use rustc_hash::FxHashMap;
 use thiserror::Error;
 
@@ -25,9 +28,9 @@ use crate::{
     },
 };
 
-pub struct Interpreter<'code> {
-    code: &'code LiftedProgram,
-    external_fns: FxHashMap<ExternalFunctionId, ExtFnImpl>,
+pub struct Interpreter<'parent> {
+    code: &'parent LiftedProgram,
+    external_fns: &'parent FxHashMap<ExternalFunctionId, ExtFnImpl>,
 }
 
 /// Implement an external function call from within pure rust code for JSSAT
@@ -55,6 +58,52 @@ pub enum Value {
     Boolean(bool),
     FnPtr(#[unsafe_ignore_trace] FunctionId),
     Record(Gc<GcCell<Record>>),
+}
+
+macro_rules! value_unwrap {
+    ($name: ident, $kind: ident, $type: ty) => {
+        #[track_caller]
+        pub fn $name(&self) -> InstResult<&$type> {
+            match self {
+                Self::$kind(value) => Ok(value),
+                _ => Err(InvalidType(Location::caller())),
+            }
+        }
+    };
+}
+
+impl Value {
+    value_unwrap!(try_into_trivial, Trivial, TrivialItem);
+    value_unwrap!(try_into_bytes, Bytes, Vec<u8>);
+    value_unwrap!(try_into_number, Number, i64);
+    value_unwrap!(try_into_boolean, Boolean, bool);
+    value_unwrap!(try_into_fnptr, FnPtr, FunctionId);
+
+    #[track_caller]
+    pub fn try_into_record(&self) -> InstResult<gc::GcCellRef<Record>> {
+        match self {
+            // writing `Ok(record.borrow())` causes rustc to overflow
+            // while trying to evaluate Add for OrderedFloat (...??? wtf????)
+            //
+            // implicitly solved by wrapping for error (we should anyways)
+            Self::Record(record) => {
+                let borrow = record.try_borrow().map_err(BorrowErrorWrapper::Immut)?;
+                Ok(borrow)
+            }
+            _ => Err(InvalidType(Location::caller())),
+        }
+    }
+
+    #[track_caller]
+    pub fn try_into_record_mut(&self) -> InstResult<gc::GcCellRefMut<Record>> {
+        match self {
+            Self::Record(record) => {
+                let borrow = record.try_borrow_mut().map_err(BorrowErrorWrapper::Mut)?;
+                Ok(borrow)
+            }
+            _ => Err(InvalidType(Location::caller())),
+        }
+    }
 }
 
 #[derive(Deref, DerefMut, Debug, Finalize, Default)]
@@ -93,8 +142,11 @@ pub fn ensure_arg_count(expected: usize, got: usize) -> InstResult<()> {
     Ok(())
 }
 
-impl<'c> Interpreter<'c> {
-    pub fn new(code: &'c LiftedProgram, ext_fns: FxHashMap<ExternalFunctionId, ExtFnImpl>) -> Self {
+impl<'p> Interpreter<'p> {
+    pub fn new(
+        code: &'p LiftedProgram,
+        ext_fns: &'p FxHashMap<ExternalFunctionId, ExtFnImpl>,
+    ) -> Self {
         Interpreter {
             code,
             external_fns: ext_fns,
@@ -190,6 +242,11 @@ pub enum InstErr {
     NotEnoughArgs(usize, usize, PanicLocation),
     #[error("External function does not exist: {}", .0)]
     ExtFnDNE(ExternalFunctionId, PanicLocation),
+    // TODO: supply more information here?
+    #[error("Invalid type of argument")]
+    InvalidType(PanicLocation),
+    #[error("An error occurred borrowing the record")]
+    BorrowError(#[from] BorrowErrorWrapper),
 
     // TODO: support external function calls
     // they can be implemented by having some kind of rust function be paired
@@ -198,6 +255,14 @@ pub enum InstErr {
     // parameters it wants and then can do something with interpreter state idk
     #[error("Unable to perform external function calls at this time")]
     ExternalFnCall,
+}
+
+#[derive(Error, Debug)]
+pub enum BorrowErrorWrapper {
+    #[error("Immutable borrow error")]
+    Immut(BorrowError),
+    #[error("Mutable borrow error")]
+    Mut(BorrowMutError),
 }
 
 use InstErr::*;
@@ -381,32 +446,21 @@ impl<'c> InstExec<'c> {
     }
 
     #[track_caller]
-    fn get_mut(&mut self, register: RegisterId) -> InstResult<&mut Value> {
-        self.registers
-            .get_mut(&register)
-            .ok_or_else(|| RegisterDNE(register, Location::caller()))
-    }
-
-    #[track_caller]
     fn get_record(&self, register: RegisterId) -> InstResult<gc::GcCellRef<Record>> {
-        match self.get(register)? {
-            // writing `Ok(record.borrow())` causes rustc to overflow
-            // while trying to evaluate Add for OrderedFloat (...??? wtf????)
-            Value::Record(record) => Ok(record.try_borrow().unwrap()),
-            _ => todo!(),
-        }
+        let value = self.get(register)?;
+        value.try_into_record()
     }
 
     #[track_caller]
     fn get_record_mut(&mut self, register: RegisterId) -> InstResult<gc::GcCellRefMut<Record>> {
-        match self.get_mut(register)? {
-            Value::Record(record) => Ok(record.try_borrow_mut().unwrap()),
-            _ => todo!(),
-        }
+        let value = self.get(register)?;
+        value.try_into_record_mut()
     }
 
     #[track_caller]
     fn get_ext_fn(&self, ext_fn_id: ExternalFunctionId) -> InstResult<&ExtFnImpl> {
+        // TODO: should we also check that the external function exists in
+        // `self.interpreter.program.external_functions`?
         (self.interpreter.external_fns)
             .get(&ext_fn_id)
             .ok_or_else(|| ExtFnDNE(ext_fn_id, Location::caller()))
