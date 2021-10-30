@@ -18,7 +18,8 @@ pub type ConstantId = crate::id::ConstantId<crate::id::IrCtx>;
 pub type RegisterId = crate::id::RegisterId<crate::id::IrCtx>;
 pub type ExternalFunctionId = crate::id::ExternalFunctionId<crate::id::IrCtx>;
 
-// TODO: these should be doctests probably, but those don't run in a binary crate
+// TODO: these should be doctests probably, but those don't run in a binary
+// crate
 #[test]
 #[should_panic]
 pub fn panics_on_drop_with_function_start_without_function_end() {
@@ -49,6 +50,18 @@ impl ProgramBuilder {
             functions: FxHashMap::default(),
             gen_function_id: Counter::new(),
         }
+    }
+
+    // TODO: is such a method really necessary? do we have to enforce that all
+    // programs in jssat have an endpoint at all?
+    /// Automatically creates a blank entrypoint function. This is useful if you
+    /// don't need an entrypoint, and are running arbitrary functions with the
+    /// interpreter.
+    pub fn create_blank_entrypoint(&mut self) -> FnSignature<0> {
+        let mut f = self.start_function_main();
+        let b = f.start_block_main();
+        f.end_block(b.ret(None));
+        self.end_function(f)
     }
 
     pub fn finish(self) -> IR {
@@ -138,7 +151,8 @@ impl ProgramBuilder {
         let id = self.gen_function_id.next();
 
         // TODO: is there a better way to do this?
-        // PARAMETERS = 3, parameters = [RegisterId::new_with_value_const(0), ...(1), ...(2)]
+        // PARAMETERS = 3, parameters = [RegisterId::new_with_value_const(0), ...(1),
+        // ...(2)]
         let mut parameters = [RegisterId::new_const(); PARAMETERS];
         for (idx, parameter) in parameters.iter_mut().enumerate() {
             *parameter = RegisterId::new_with_value_const(idx);
@@ -178,9 +192,10 @@ pub struct FunctionBuilder<const PARAMETERS: usize> {
     /// having declared a builder with `start_function`, then this field will
     /// remain `false`. If, when being dropped, this field is `false`, a panic
     /// will be issued to tell the user to make the appropriate call to
-    /// `end_function`. Ideally, this would be done at compile time with ownership
-    /// principles, but any design (that I can come up with) that uses mutability
-    /// would prevent the builder from being used in a multithreaded environment.
+    /// `end_function`. Ideally, this would be done at compile time with
+    /// ownership principles, but any design (that I can come up with) that
+    /// uses mutability would prevent the builder from being used in a
+    /// multithreaded environment.
     pub(crate) is_ok_to_drop: bool,
 }
 
@@ -254,7 +269,8 @@ impl<const P: usize> FunctionBuilder<P> {
         let id = self.gen_block_id.next();
 
         // TODO: is there a better way to do this?
-        // PARAMETERS = 3, parameters = [RegisterId::new_with_value_const(0), ...(1), ...(2)]
+        // PARAMETERS = 3, parameters = [RegisterId::new_with_value_const(0), ...(1),
+        // ...(2)]
         let mut parameters = [RegisterId::new_const(); PARAMETERS];
         for parameter in parameters.iter_mut() {
             *parameter = self.gen_register_id.next();

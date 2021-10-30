@@ -102,7 +102,7 @@ fn manual_test_if_then() {
     e.comment("end");
     e.finish(|b| b.ret(None));
     let ir = program.finish();
-    panic!("{}", crate::frontend::display_jssatir::display(&ir));
+    // panic!("{}", crate::frontend::display_jssatir::display(&ir));
 }
 
 #[test]
@@ -119,7 +119,7 @@ fn manual_test_if_then_else() {
     e.comment("end");
     e.finish(|b| b.ret(None));
     let ir = program.finish();
-    panic!("{}", crate::frontend::display_jssatir::display(&ir));
+    // panic!("{}", crate::frontend::display_jssatir::display(&ir));
 }
 
 #[test]
@@ -146,7 +146,7 @@ fn manual_test_if_then_x_else_y() {
     e.comment("end");
     e.finish(|b| b.ret(None));
     let ir = program.finish();
-    panic!("{}", crate::frontend::display_jssatir::display(&ir));
+    // panic!("{}", crate::frontend::display_jssatir::display(&ir));
 }
 
 #[test]
@@ -169,7 +169,7 @@ fn manual_test_if_then_end() {
     e.comment("done");
     e.finish(|b| b.ret(None));
     let ir = program.finish();
-    panic!("{}", crate::frontend::display_jssatir::display(&ir));
+    // panic!("{}", crate::frontend::display_jssatir::display(&ir));
 }
 
 #[allow(non_snake_case)]
@@ -190,7 +190,8 @@ impl<const PARAMS: usize> EmitterExt for Emitter<'_, PARAMS> {
         //# 1. If argument is an abrupt completion, return argument.
         self.if_then_end(is_abrupt_completion, |_| |b| b.ret(Some(argument)));
 
-        //# 2. Else if argument is a Completion Record, set argument to argument.[[Value]].
+        //# 2. Else if argument is a Completion Record, set argument to
+        //# argument.[[Value]].
         self.record_get_slot(argument, InternalSlot::Value)
     }
 
@@ -375,7 +376,8 @@ impl<const PARAMS: usize> EmitterExt for Emitter<'_, PARAMS> {
     fn NormalCompletion(&mut self, argument: RegisterId) -> RegisterId {
         self.comment("NormalCompletion");
 
-        //# 1. Return Completion { [[Type]]: normal, [[Value]]: argument, [[Target]]: empty }.
+        //# 1. Return Completion { [[Type]]: normal, [[Value]]: argument, [[Target]]:
+        //# empty }.
         let completion_record = self.record_new();
         let normal = self.program.constant_str("normal");
         let normal = self.make_string(normal);
@@ -425,7 +427,8 @@ impl<const PARAMS: usize> EmitterExt for Emitter<'_, PARAMS> {
     fn ThrowCompletion(&mut self, argument: RegisterId) -> RegisterId {
         self.comment("ThrowCompletion");
 
-        //# 1. Return Completion { [[Type]]: throw, [[Value]]: argument, [[Target]]: empty }.
+        //# 1. Return Completion { [[Type]]: throw, [[Value]]: argument, [[Target]]:
+        //# empty }.
         let completion_record = self.record_new();
         let throw = self.program.constant_str("throw");
         let normal = self.block.make_string(throw);
