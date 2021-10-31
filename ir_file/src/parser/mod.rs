@@ -335,15 +335,17 @@ fn parse_expression(node: Node<&str>) -> Expression {
                 }
                 (
                     Some(lhs),
-                    Some(Node::Word(kind @ ("+" | "&&" | "==" | "<" | "||"), _)),
+                    Some(Node::Word(kind @ ("+" | "and" | "==" | "<" | "or"), _)),
                     Some(rhs),
                 ) => Expression::BinOp {
                     kind: match kind {
+                        // DEAR FUTURE EDITORS: make sure to edit the pattern up above too
+                        // you're welcome
                         "+" => BinOpKind::Add,
-                        "&&" => BinOpKind::And,
+                        "and" => BinOpKind::And,
                         "==" => BinOpKind::Eq,
                         "<" => BinOpKind::Lt,
-                        "||" => BinOpKind::Or,
+                        "or" => BinOpKind::Or,
                         _ => unreachable!("what"),
                     },
                     lhs: Box::new(parse_expression(lhs)),

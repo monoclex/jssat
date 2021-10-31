@@ -168,6 +168,25 @@ impl<S> Node<S> {
     }
 }
 
+impl Node {
+    pub fn to_lisp(&self) -> String {
+        match self {
+            Node::Word(value, _) => value.to_owned(),
+            Node::Atom(value, _) => format!(":{}", value),
+            Node::String(value, _) => format!("{:?}", value),
+            Node::Number(value, _) => value.to_string(),
+            Node::Parent(value, _) => format!(
+                "({})",
+                value
+                    .iter()
+                    .map(|node| node.to_lisp())
+                    .reduce(|a, b| format!("{} {}", a, b))
+                    .unwrap_or_else(|| "".into())
+            ),
+        }
+    }
+}
+
 struct DisplaySpan(Span);
 
 impl Display for DisplaySpan {

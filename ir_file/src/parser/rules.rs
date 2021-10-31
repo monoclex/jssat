@@ -153,6 +153,7 @@ mod rule_tests {
         matches_itself("word");
         matches_itself("6.9");
         matches_itself(r#""string""#);
+        matches_itself(":x");
         matches_itself("(abc)");
         matches_itself("(abc def)");
     }
