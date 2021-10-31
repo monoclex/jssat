@@ -21,6 +21,7 @@ pub enum ControlFlow {
     // TODO: support `carry` for expression fun-ness
     Carry(RegisterId),
     Return(Option<RegisterId>),
+    Unreachable,
 }
 
 impl ControlFlow {
@@ -34,6 +35,10 @@ impl ControlFlow {
 
     fn is_return(&self) -> bool {
         matches!(self, ControlFlow::Return(_))
+    }
+
+    fn is_unreachable(&self) -> bool {
+        matches!(self, ControlFlow::Unreachable)
     }
 }
 
@@ -195,6 +200,10 @@ impl<'bo, 'bu, const P: usize> EmitterIf<'bo, 'bu, P> {
             ControlFlow::Fallthrough => current_path.jmp_dynargs(fallthrough_id, vec![]),
             ControlFlow::Carry(value) => current_path.jmp_dynargs(fallthrough_id, vec![value]),
             ControlFlow::Return(value) => current_path.ret(value),
+            ControlFlow::Unreachable => {
+                current_path.unreachable();
+                current_path.ret(None)
+            }
         };
         self.emitter.function_builder.end_block_dyn(termination);
 
@@ -278,16 +287,16 @@ where
         let _end_clause = &mut emitter.block_builder;
         let false_clause = end_clause;
 
-        println!("path: {:?}", path);
-        println!("true_clause_id: {:?}", true_clause_id);
-        println!("false_clause_id: {:?}", false_clause_id);
-        println!("end_clause_id: {:?}", end_clause_id);
         debug_assert_eq!(false_clause_id, false_clause.id);
 
         let finalized = match control_flow {
             ControlFlow::Fallthrough => false_clause.jmp_dynargs(end_clause_id, vec![]),
             ControlFlow::Carry(value) => false_clause.jmp_dynargs(end_clause_id, vec![value]),
             ControlFlow::Return(value) => false_clause.ret(value),
+            ControlFlow::Unreachable => {
+                false_clause.unreachable();
+                false_clause.ret(None)
+            }
         };
         emitter.function_builder.end_block_dyn(finalized);
 

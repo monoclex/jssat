@@ -48,6 +48,8 @@ pub enum RecordKey {
     Number(i64),
     Boolean(bool),
     FnPtr(FunctionId),
+    // TODO: implement
+    Symbol(()),
 }
 
 #[derive(Clone, Debug, Trace, Finalize)]
@@ -59,6 +61,7 @@ pub enum Value {
     Boolean(bool),
     FnPtr(#[unsafe_ignore_trace] FunctionId),
     Record(Gc<GcCell<Record>>),
+    Symbol(()),
 }
 
 macro_rules! value_unwrap {
@@ -441,7 +444,8 @@ impl<'c> InstExec<'c> {
                     | (Value::Number(_), ValueType::Number)
                     | (Value::Boolean(_), ValueType::Boolean)
                     | (Value::FnPtr(_), ValueType::FnPtr)
-                    | (Value::Record(_), ValueType::Record) => Value::Boolean(true),
+                    | (Value::Record(_), ValueType::Record)
+                    | (Value::Symbol(_), ValueType::Symbol) => Value::Boolean(true),
                     _ => Value::Boolean(false),
                 };
 
@@ -468,6 +472,7 @@ impl<'c> InstExec<'c> {
             Value::FnPtr(value) => RecordKey::FnPtr(*value),
             Value::Trivial(value) => RecordKey::Trivial(*value),
             Value::Number(value) => RecordKey::Number(*value),
+            Value::Symbol(value) => todo!("implement symbol as record key"),
             // TODO: support using records as keys, as this is possible
             // in python (and i think lua)
             Value::Record(_) => {

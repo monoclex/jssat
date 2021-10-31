@@ -63,6 +63,7 @@
 
 #![feature(proc_macro_span)]
 #![feature(extend_one)]
+#![feature(proc_macro_diagnostic)]
 
 use proc_macro::*;
 
@@ -73,6 +74,7 @@ trait TSExt {
 }
 
 impl TSExt for TokenTree {
+    #[track_caller]
     fn ident(self) -> Ident {
         match self {
             TokenTree::Ident(ident) => ident,
@@ -80,6 +82,7 @@ impl TSExt for TokenTree {
         }
     }
 
+    #[track_caller]
     fn group(self) -> Group {
         match self {
             TokenTree::Group(group) => group,
@@ -87,6 +90,7 @@ impl TSExt for TokenTree {
         }
     }
 
+    #[track_caller]
     fn punct(self) -> Punct {
         match self {
             TokenTree::Punct(punct) => punct,
@@ -112,10 +116,10 @@ pub fn method_syntax(tokens: TokenStream) -> TokenStream {
 
     let mut methods = vec![];
 
-    while let Some(_whitespace) = tokens.next() {
-        let name = tokens.next().unwrap().ident();
-        let args = tokens.next().expect("expected arguments").group();
-        let body = tokens.next().expect("expected body").group();
+    while let Some(_fn_keyword) = tokens.next() {
+        let name = tokens.next().expect("next should be ident").ident();
+        let args = tokens.next().expect("next should be arguments").group();
+        let body = tokens.next().expect("next should be body").group();
 
         let mut arg_names = vec![];
 
@@ -129,13 +133,19 @@ pub fn method_syntax(tokens: TokenStream) -> TokenStream {
 
                 let i = 0;
                 while i < args.len() {
+                    let args_ip1 = args.remove(0);
                     let args_i = args.remove(i);
-                    let args_ip1 = args.remove(i + 1);
 
                     arg_names.push(args_i);
 
                     let comma = args_ip1.punct();
-                    assert_eq!(comma.span().source_text(), Some(",".into()));
+
+                    if comma.span().source_text() != Some(",".into()) {
+                        let mut error = Diagnostic::new(Level::Error, "expected comma");
+                        error.set_spans(comma.span());
+                        error.emit();
+                        return TokenStream::new();
+                    }
 
                     // i += 2;
                 }
@@ -231,7 +241,7 @@ pub fn method_syntax(tokens: TokenStream) -> TokenStream {
         let mut args = TokenStream::new();
         args.extend_one(makero!(format!("&self, mut e: Emitter<{}>, ", num_args)));
         args.extend_one(destructed_args);
-        args.extend_one(makero!(": [RegisterId; 1]"));
+        args.extend_one(makero!(format!(": [RegisterId; {}]", num_args)));
 
         inner_methods.extend_one(TokenTree::Group(Group::new(Delimiter::Parenthesis, args)));
         inner_methods.extend_one(makero!(format!("-> FnSignature<{}>", num_args)));

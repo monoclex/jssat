@@ -13,6 +13,7 @@ pub enum ValueType {
     Boolean,
     FnPtr,
     Record,
+    Symbol,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

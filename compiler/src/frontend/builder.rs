@@ -455,6 +455,7 @@ impl DynBlockBuilder {
     /// being, it causes a panic if the symbolic execution engine reaches it
     #[track_caller]
     pub fn unreachable(&mut self) -> RegisterId {
+        // TODO(isa): implement an actual unreachable instruction
         self.comment("unreachable");
         let null = self.make_null();
         self.negate(null)
