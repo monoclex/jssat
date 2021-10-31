@@ -1,5 +1,7 @@
 use std::fmt::Display;
 
+use self::rules::apply_rule_recursively;
+
 use super::*;
 
 mod node;
@@ -32,6 +34,75 @@ pub fn parse(code: &str) -> AST {
     }
 
     todo!()
+}
+
+fn parse_with_rule_application(nodes: Vec<Node>) -> Vec<Node> {
+    let mut new_nodes = Vec::new();
+    let mut custom_rules = Vec::new();
+
+    for node in nodes {
+        if let Node::Parent(children, _) = &node {
+            if let Some(Node::Word(header_word, _)) = children.get(0) {
+                if header_word == "def" {
+                    let (rule, generate) = (children[1].clone(), children[2].clone());
+                    custom_rules.push((rule, generate));
+                    continue;
+                }
+            }
+        };
+
+        let node = custom_rules.iter().fold(node, |node, (rule, generate)| {
+            apply_rule_recursively(rule, generate, node)
+        });
+        new_nodes.push(node);
+    }
+
+    new_nodes
+}
+
+mod parse_with_rule_application_tests {
+    use super::*;
+
+    macro_rules! parse {
+        ($code: expr, $yields: expr) => {
+            assert_eq!(
+                parse_with_rule_application(parse_to_nodes($code)),
+                parse_to_nodes($yields)
+            )
+        };
+    }
+
+    #[test]
+    fn identity() {
+        let id = |x| parse!(x, x);
+
+        id("f x");
+        id("(whatever-idk)");
+        id("(a (s) (d) (fff))");
+    }
+
+    #[test]
+    fn obeys_rule_order() {
+        parse!("(def x y) x", "y");
+        parse!("x (def x y)", "x");
+        parse!("x (def x y) x", "x y");
+        parse!("x y (def y x) x y (def x y) x y", "x y x x y y");
+    }
+
+    #[test]
+    fn applies_rules_to_node() {
+        parse!(
+            r#"
+(def x y)
+
+(x
+    x
+    (x)
+    (x))
+"#,
+            "(y y (y) (y))"
+        );
+    }
 }
 
 #[test]
