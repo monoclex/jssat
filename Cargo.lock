@@ -364,6 +364,7 @@ name = "ir_file"
 version = "0.1.0"
 dependencies = [
  "lexpr",
+ "rustc-hash",
 ]
 
 [[package]]

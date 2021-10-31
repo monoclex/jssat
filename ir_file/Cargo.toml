@@ -7,3 +7,4 @@ edition = "2018"
 
 [dependencies]
 lexpr = "0.2.6"
+rustc-hash = "1.1.0"

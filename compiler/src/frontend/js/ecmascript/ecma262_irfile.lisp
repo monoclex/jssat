@@ -1,6 +1,10 @@
 (def
-  (:is-not-undefined x)
-  (x = (trivial undefined)))
+  (is-not-undefined :x)
+  (:x = (trivial undefined)))
+
+(def
+  (elif :condition :then-expr :end-expr)
+  (else ((if :condition :then-expr :end-expr))))
 
 (section
   (header 6.9 testing)
