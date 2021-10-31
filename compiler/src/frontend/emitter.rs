@@ -189,7 +189,7 @@ impl<'bo, 'bu, const P: usize> EmitterIf<'bo, 'bu, P> {
         // we have already written the code for the true clause in the constructor of
         // `Emitter`, so we shall terminate the true clause
         std::mem::swap(&mut self.emitter.block_builder, &mut false_clause);
-        let current_path = false_clause;
+        let mut current_path = false_clause;
         let _false_clause = &mut self.emitter.block_builder;
 
         // used to configure where to fallthrough to, so that the else emitter can
@@ -285,7 +285,7 @@ where
         // then terminate the else branch
         std::mem::swap(&mut emitter.block_builder, &mut end_clause);
         let _end_clause = &mut emitter.block_builder;
-        let false_clause = end_clause;
+        let mut false_clause = end_clause;
 
         debug_assert_eq!(false_clause_id, false_clause.id);
 

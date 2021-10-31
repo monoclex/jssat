@@ -3,6 +3,7 @@ members = [
     "compiler",
     "method_syntax",
     "runtime",
+    "ir_file",
 ]
 
 [profile.release]

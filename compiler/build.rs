@@ -1,6 +1,37 @@
-use std::path::Path;
+#![feature(with_options)]
+
+use std::{
+    io::{BufWriter, Write},
+    path::Path,
+};
 
 fn main() {
+    compile_ecmascript_in_jssat_vm();
+    link_jssatrt();
+}
+
+fn compile_ecmascript_in_jssat_vm() {
+    let out_dir = std::env::var("OUT_DIR").unwrap();
+    let dest_path = Path::new(&out_dir).join("ecma262_irfile.rs");
+    let mut output = BufWriter::new(
+        std::fs::File::with_options()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(dest_path)
+            .unwrap(),
+    );
+
+    let ecmascript_src =
+        std::fs::read_to_string("./src/frontend/js/ecmascript/ecma262_irfile.lisp").unwrap();
+    println!("cargo:rerun-if-changed=src/frontend/js/ecmascript/ecma262_irfile.lisp");
+
+    output
+        .write_all(r#"const HELLO_WORLD: &str = "Hello, World!";"#.as_bytes())
+        .unwrap();
+}
+
+fn link_jssatrt() {
     // hack:
     // we want the `./target/release/` folder that contains the runtime
     // we might be in `./target/x86-64-some-target-triplet/debug` or etc,
