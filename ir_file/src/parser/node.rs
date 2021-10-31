@@ -57,12 +57,12 @@ pub fn parse_to_nodes(code: &str) -> Vec<Node> {
 /// understands. The existence of this simplifies parsing and rules for a JSSAT
 /// IR file, as [`lexpr`] provides far more utilities that we do not need.
 #[derive(Debug, Clone)]
-pub enum Node {
+pub enum Node<S = String> {
     /// ```text
     /// (hello)
     ///  ^^^^^ is a word
     /// ```
-    Word(String, Span),
+    Word(S, Span),
     /// Similar to a word, except the first character starts with a `:`. The `:`
     /// is removed from the value of the atom.
     ///
@@ -73,12 +73,12 @@ pub enum Node {
     /// (:6.1.7.2)
     ///  ^^^^^^^^ is also an atom
     /// ```
-    Atom(String, Span),
+    Atom(S, Span),
     /// ```text
     /// ("wowies")
     ///  ^^^^^^^^ is a string
     /// ```
-    String(String, Span),
+    String(S, Span),
     /// ```text
     /// (69)
     ///  ^^ is a number
@@ -101,7 +101,20 @@ pub enum Node {
     Parent(Vec<Node>, Span),
 }
 
-impl PartialEq for Node {
+impl Node {
+    /// NOTE: this may be expensive
+    pub fn as_ref(&self) -> Node<&str> {
+        match self {
+            Node::Word(data, span) => Node::Word(data.as_str(), *span),
+            Node::Atom(data, span) => Node::Atom(data.as_str(), *span),
+            Node::String(data, span) => Node::String(data.as_str(), *span),
+            Node::Number(data, span) => Node::Number(data.clone(), *span),
+            Node::Parent(data, span) => Node::Parent(data.clone(), *span),
+        }
+    }
+}
+
+impl<S: PartialEq> PartialEq for Node<S> {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Word(l0, _), Self::Word(r0, _)) => l0 == r0,
@@ -121,6 +134,12 @@ impl Node {
             other => panic!("expected word node on {}", DisplaySpan(other.span())),
         }
     }
+    pub fn expect_atom(self) -> String {
+        match self {
+            Node::Atom(value, _) => value,
+            other => panic!("expected atom node on {}", DisplaySpan(other.span())),
+        }
+    }
 
     pub fn expect_string(self) -> String {
         match self {
@@ -137,7 +156,7 @@ impl Node {
     }
 }
 
-impl Node {
+impl<S> Node<S> {
     pub fn span(&self) -> Span {
         match self {
             Node::Word(_, span)
@@ -204,7 +223,7 @@ mod node_tests {
     pub fn parses_empty_parent() {
         let nodes = parse_to_nodes("()");
         assert_eq!(nodes.len(), 1);
-        assert!(matches!(&nodes[0], Parent(a, _) if a.len() == 0));
+        assert!(matches!(&nodes[0], Parent(a, _) if a.is_empty()));
     }
 
     #[test]
