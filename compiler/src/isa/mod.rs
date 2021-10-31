@@ -91,7 +91,7 @@ mod assert;
 pub use assert::Assert;
 
 mod is_type;
-pub use is_type::{IsType, ValueType};
+pub use is_type::{CompareType, IsType, ValueType};
 
 pub struct Registers<'a, R: Tag>(pub &'a Vec<RegisterId<R>>);
 

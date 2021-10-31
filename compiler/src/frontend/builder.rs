@@ -8,9 +8,9 @@ use crate::id::{Counter, IdCompat};
 use crate::UnwrapNone;
 
 use crate::isa::{
-    Assert, BinOp, BinaryOperator, BlockJump, Call, Comment, Generalize, InternalSlot, IsType,
-    Jump, JumpIf, Make, Negate, NewRecord, RecordGet, RecordHasKey, RecordKey, RecordSet, Return,
-    TrivialItem, ValueType,
+    Assert, BinOp, BinaryOperator, BlockJump, Call, Comment, CompareType, Generalize, InternalSlot,
+    IsType, Jump, JumpIf, Make, Negate, NewRecord, RecordGet, RecordHasKey, RecordKey, RecordSet,
+    Return, TrivialItem, ValueType,
 };
 
 pub type BlockId = crate::id::BlockId<crate::id::IrCtx>;
@@ -474,12 +474,22 @@ impl DynBlockBuilder {
             .push(Instruction::Assert(Assert { condition, message }))
     }
 
-    pub fn is_type(&mut self, value: RegisterId, kind: ValueType) -> RegisterId {
+    pub fn is_type_of(&mut self, value: RegisterId, kind: ValueType) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions.push(Instruction::IsType(IsType {
             result,
             value,
-            kind,
+            kind: CompareType::Kind(kind),
+        }));
+        result
+    }
+
+    pub fn is_type_as(&mut self, value: RegisterId, other: RegisterId) -> RegisterId {
+        let result = self.gen_register_id.next();
+        self.instructions.push(Instruction::IsType(IsType {
+            result,
+            value,
+            kind: CompareType::Register(other),
         }));
         result
     }

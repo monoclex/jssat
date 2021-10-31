@@ -13,6 +13,14 @@ pub trait EmitterExt<'builder, const P: usize> {
     fn is_normal_completion(&mut self, argument: RegisterId) -> RegisterId;
     fn is_abrupt_completion(&mut self, argument: RegisterId) -> RegisterId;
 
+    fn is_absent(&mut self, record: RegisterId, slot: InternalSlot) -> RegisterId;
+    fn is_undefined(&mut self, argument: RegisterId) -> RegisterId;
+    fn is_not_undefined(&mut self, argument: RegisterId) -> RegisterId;
+    fn is_null(&mut self, argument: RegisterId) -> RegisterId;
+    fn is_not_null(&mut self, argument: RegisterId) -> RegisterId;
+    fn is_true(&mut self, argument: RegisterId) -> RegisterId;
+    fn is_false(&mut self, argument: RegisterId) -> RegisterId;
+
     fn get_slot_or_default(
         &mut self,
         record: RegisterId,
@@ -20,11 +28,15 @@ pub trait EmitterExt<'builder, const P: usize> {
         default: RegisterId,
     ) -> RegisterId;
 
-    fn is_absent(&mut self, record: RegisterId, slot: InternalSlot) -> RegisterId;
-    fn is_undefined(&mut self, argument: RegisterId) -> RegisterId;
-    fn is_not_undefined(&mut self, argument: RegisterId) -> RegisterId;
-    fn is_true(&mut self, argument: RegisterId) -> RegisterId;
-    fn is_false(&mut self, argument: RegisterId) -> RegisterId;
+    /// Calls either the first method or the second method.
+    fn call_either_with_result<const PARAMS: usize>(
+        &mut self,
+        call_first: RegisterId,
+        call_second: RegisterId,
+        first: FnSignature<PARAMS>,
+        second: FnSignature<PARAMS>,
+        args: [RegisterId; PARAMS],
+    ) -> RegisterId;
 }
 
 impl<'bu, const P: usize> EmitterExt<'bu, P> for Emitter<'bu, P> {
@@ -92,7 +104,7 @@ impl<'bu, const P: usize> EmitterExt<'bu, P> for Emitter<'bu, P> {
         // 1. is it a record
         // 2. does it have a [[Type]] internal slot
         self.if_then(
-            |e| e.is_type(argument, ValueType::Record),
+            |e| e.is_type_of(argument, ValueType::Record),
             |e| {
                 // we have to use an if statement because `record_has_slot` doesn't work on
                 // non-records
@@ -144,21 +156,6 @@ impl<'bu, const P: usize> EmitterExt<'bu, P> for Emitter<'bu, P> {
         .unwrap()
     }
 
-    fn get_slot_or_default(
-        &mut self,
-        record: RegisterId,
-        slot: InternalSlot,
-        default: RegisterId,
-    ) -> RegisterId {
-        self.if_then(
-            |e| e.record_has_slot(record, slot),
-            |e| ControlFlow::Carry(e.record_get_slot(record, slot)),
-        )
-        .else_then(|_| ControlFlow::Carry(default))
-        .end()
-        .unwrap()
-    }
-
     fn is_absent(&mut self, record: RegisterId, slot: InternalSlot) -> RegisterId {
         let is_present = self.record_has_slot(record, slot);
         self.negate(is_present)
@@ -166,7 +163,7 @@ impl<'bu, const P: usize> EmitterExt<'bu, P> for Emitter<'bu, P> {
 
     fn is_undefined(&mut self, argument: RegisterId) -> RegisterId {
         self.if_then(
-            |e| e.is_type(argument, ValueType::Trivial),
+            |e| e.is_type_of(argument, ValueType::Trivial),
             |e| {
                 let undefined = e.make_undefined();
                 let is_undef = e.compare_equal(argument, undefined);
@@ -183,6 +180,25 @@ impl<'bu, const P: usize> EmitterExt<'bu, P> for Emitter<'bu, P> {
         self.negate(is_undefined)
     }
 
+    fn is_null(&mut self, argument: RegisterId) -> RegisterId {
+        self.if_then(
+            |e| e.is_type_of(argument, ValueType::Trivial),
+            |e| {
+                let undefined = e.make_null();
+                let is_undef = e.compare_equal(argument, undefined);
+                ControlFlow::Carry(is_undef)
+            },
+        )
+        .else_then(|e| ControlFlow::Carry(e.make_bool(false)))
+        .end()
+        .unwrap()
+    }
+
+    fn is_not_null(&mut self, argument: RegisterId) -> RegisterId {
+        let is_null = self.is_null(argument);
+        self.negate(is_null)
+    }
+
     fn is_true(&mut self, argument: RegisterId) -> RegisterId {
         let r#true = self.make_bool(true);
         self.compare_equal(argument, r#true)
@@ -192,9 +208,94 @@ impl<'bu, const P: usize> EmitterExt<'bu, P> for Emitter<'bu, P> {
         let r#false = self.make_bool(false);
         self.compare_equal(argument, r#false)
     }
+
+    fn get_slot_or_default(
+        &mut self,
+        record: RegisterId,
+        slot: InternalSlot,
+        default: RegisterId,
+    ) -> RegisterId {
+        self.if_then(
+            |e| e.record_has_slot(record, slot),
+            |e| ControlFlow::Carry(e.record_get_slot(record, slot)),
+        )
+        .else_then(|_| ControlFlow::Carry(default))
+        .end()
+        .unwrap()
+    }
+
+    fn call_either_with_result<const PARAMS: usize>(
+        &mut self,
+        call_first: RegisterId,
+        call_second: RegisterId,
+        first: FnSignature<PARAMS>,
+        second: FnSignature<PARAMS>,
+        args: [RegisterId; PARAMS],
+    ) -> RegisterId {
+        let is_both = self.and(call_first, call_second);
+        let shouldnt_be_both = self.negate(is_both);
+        self.assert(shouldnt_be_both, "cannot wish to call both functions");
+
+        self.if_then(
+            |_| call_first,
+            |e| ControlFlow::Carry(e.call_with_result(first, args)),
+        )
+        .else_then(|e| ControlFlow::Carry(e.call_with_result(second, args)))
+        .end()
+        .unwrap()
+    }
 }
 
+// TODO(refactor): y'know, maybe handwriting all of the ecmascript specification
+//     in rust isn't really that good of an idea... maybe in the future could
+//     translate ECMAScript to a small little DSL that's easily convertible into
+//     this rust code for us. that way, it's far more maintainable and smaller
+//     in terms of code.
 method_syntax::method_syntax! {
+    fn Number_sameValue(x, y) {
+        let mut e: Emitter<2> = e;
+        e.comment("6.1.6.1.14 Number::sameValue ( x, y )");
+
+        // TODO(correctness): implement number equality properly. we don't have
+        //     numbers representing decimal at the moment, so i can't do any of
+        //     this
+
+        //# 1. If x is NaN and y is NaN, return true.
+        //# 2. If x is +0픽 and y is -0픽, return false.
+        //# 3. If x is -0픽 and y is +0픽, return false.
+        //# 4. If x is the same Number value as y, return true.
+        e.if_then(|e| e.compare_equal(x, y), |e| ControlFlow::Return(Some(e.make_bool(true))));
+
+        //# 5. Return false.
+        let r#false = e.make_bool(false);
+        e.finish(Some(r#false))
+    }
+
+    fn BigInt_equal(x, y) {
+        let mut e: Emitter<2> = e;
+        e.comment("6.1.6.2.13 BigInt::equal ( x, y )");
+
+        //# The abstract operation BigInt::equal takes arguments x (a BigInt) and y (a BigInt).
+        let x_is_bigint = e.is_type_of(x, ValueType::BigNumber);
+        e.assert(x_is_bigint, "argument x must be a BigInt");
+
+        let y_is_bigint = e.is_type_of(y, ValueType::BigNumber);
+        e.assert(y_is_bigint, "argument y must be a BigInt");
+
+        //# It returns true if ℝ(x) = ℝ(y) and false otherwise.
+        let are_equal = e.compare_equal(x, y);
+        e.finish(Some(are_equal))
+    }
+
+    fn BigInt_sameValue(x, y) {
+        let mut e: Emitter<2> = e;
+        e.comment("6.1.6.2.14 BigInt::sameValue ( x, y )");
+
+        //# 1. Return BigInt::equal(x, y).
+        let result = e.call_with_result(self.BigInt_equal, [x, y]);
+        e.finish(Some(result))
+    }
+
     fn NormalCompletion(argument) {
         let mut e: Emitter<1> = e;
         e.comment("6.2.3.2 NormalCompletion");
@@ -305,7 +406,7 @@ method_syntax::method_syntax! {
 
         //# 1. Assert: Type(O) is Object.
         // TODO(correctness): check that `O` is a JS *object*, not a JSSAT record.
-        let kind = e.is_type(O, ValueType::Record);
+        let kind = e.is_type_of(O, ValueType::Record);
 
         //# 2. Return ? O.[[IsExtensible]]().
         let is_extensible = e.record_get_slot(O, InternalSlot::IsExtensible);
@@ -320,13 +421,95 @@ method_syntax::method_syntax! {
         e.comment("7.2.7 IsPropertyKey ( argument )");
 
         //# 1. If Type(argument) is String, return true.
-        let is_string = e.is_type(argument, ValueType::Bytes);
+        let is_string = e.is_type_of(argument, ValueType::Bytes);
         //# 2. If Type(argument) is Symbol, return true.
-        let is_symbol = e.is_type(argument, ValueType::Symbol);
+        let is_symbol = e.is_type_of(argument, ValueType::Symbol);
         //# 3. Return false.
 
         let is_string_or_symbol = e.or(is_string, is_symbol);
         e.finish(Some(is_string_or_symbol))
+    }
+
+    fn SameValue(x, y) {
+        let mut e: Emitter<2> = e;
+        e.comment("7.2.10 SameValue ( x, y )");
+
+        //# 1. If Type(x) is different from Type(y), return false.
+        e.if_then(|e| e.is_type_as(x, y), |e| ControlFlow::Return(Some(e.make_bool(false))));
+
+        //# 2. If Type(x) is Number or BigInt, then
+        let is_num = e.is_type_of(x, ValueType::Number);
+        let is_bignum = e.is_type_of(x, ValueType::BigNumber);
+        e.if_then(|e| e.or(is_num, is_bignum), |e| {
+            //# a. Return ! Type(x)::sameValue(x, y).
+            let same_value_e = e.call_either_with_result(is_num, is_bignum, self.Number_sameValue, self.BigInt_sameValue, [x, y]);
+            let same_value = e.E(same_value_e);
+
+            ControlFlow::Return(Some(same_value))
+        });
+
+        //# 3. Return ! SameValueNonNumeric(x, y).
+        let same_e = e.call_with_result(self.SameValueNonNumeric, [x, y]);
+        let same = e.E(same_e);
+
+        e.finish(Some(same))
+    }
+
+    fn SameValueNonNumeric(x, y) {
+        let mut e: Emitter<2> = e;
+        e.comment("7.2.12 SameValueNonNumeric ( x, y )");
+        // The abstract operation SameValueNonNumeric ... returns a completion
+        // record whose [[Type]] is normal and whose [[Value]] is a Boolean
+
+        //# 1. Assert: Type(x) is not Number or BigInt.
+        let is_num = e.is_type_of(x, ValueType::Number);
+        let isnt_num = e.negate(is_num);
+
+        let is_bigint = e.is_type_of(x, ValueType::BigNumber);
+        let isnt_bigint = e.negate(is_bigint);
+
+        let is_neither = e.and(isnt_num, isnt_bigint);
+        e.assert(is_neither, "Type(x) is not Number or BigInt");
+
+        //# 2. Assert: Type(x) is the same as Type(y).
+        let same_type = e.is_type_as(x, y);
+        e.assert(same_type, "Type(x) is the same as Type(y)");
+
+        // In JSSAT, "Undefined" and "Null" have the same type - trivial. thus,
+        // we perform explicit equality:
+        //# 3. If Type(x) is Undefined, return true.
+        e.if_then(|e| e.is_undefined(x), |e| ControlFlow::Return(Some(e.make_bool(true))));
+
+        //# 4. If Type(x) is Null, return true.
+        e.if_then(|e| e.is_null(x), |e| ControlFlow::Return(Some(e.make_bool(true))));
+
+        //# 5. If Type(x) is String, then
+        e.if_then(|e| e.is_type_of(x, ValueType::Bytes), |e| {
+            //# a. If x and y are exactly the same sequence of code units (same
+            //#    length and same code units at corresponding indices), return
+            //#    true; otherwise, return false.
+            ControlFlow::Return(Some(e.compare_equal(x, y)))
+        });
+
+        //# 6. If Type(x) is Boolean, then
+        e.if_then(|e| e.is_type_of(x, ValueType::Boolean), |e| {
+            //# a. If x and y are both true or both false, return true; otherwise,
+            //#    return false.
+            ControlFlow::Return(Some(e.compare_equal(x, y)))
+        });
+
+        //# 7. If Type(x) is Symbol, then
+        e.if_then(|e| e.is_type_of(x, ValueType::Symbol), |e| {
+            //# a. If x and y are both the same Symbol value, return true; otherwise,
+            //#    return false.
+            ControlFlow::Return(Some(e.compare_equal(x, y)))
+        });
+
+        //# 8. If x and y are the same Object value, return true. Otherwise,
+        //#    return false.
+        let same = e.compare_equal(x, y);
+
+        e.finish(Some(same))
     }
 
     fn MakeBasicObject(internalSlotsList) {
@@ -463,10 +646,7 @@ method_syntax::method_syntax! {
         e.comment("10.1.6.3 ValidateAndApplyPropertyDescriptor ( O, P, extensible, Desc, current )");
 
         //# 1. Assert: If O is not undefined, then IsPropertyKey(P) is true.
-        e.if_then(|e| {
-            let is_undef = e.is_undefined(O);
-            e.negate(is_undef)
-        }, |e| {
+        e.if_then(|e| e.is_not_undefined(O), |e| {
             let is_prop_key = e.call_with_result(self.IsPropertyKey, [P]);
             e.assert(is_prop_key, "If O is not undefined, then IsPropertyKey(P) is true");
             ControlFlow::Fallthrough
@@ -571,42 +751,113 @@ method_syntax::method_syntax! {
         e.if_then(|e| e.is_false(configurable), |e| {
             //# a. If Desc.[[Configurable]] is present and its value is true,
             //#    return false.
-            todo!("complete this later");
+            let is_present = e.record_has_slot(Desc, InternalSlot::Configurable);
+            e.if_then(|e| is_present, |e| {
+                let configurable = e.record_get_slot(Desc, InternalSlot::Configurable);
+                e.if_then(|e| e.is_true(configurable), |e| ControlFlow::Return(Some(e.make_bool(true))));
+                ControlFlow::Fallthrough
+            });
 
             //# b. If Desc.[[Enumerable]] is present and ! SameValue(Desc.[[
             //#    Enumerable]], current.[[Enumerable]]) is false, return false.
-            ControlFlow::Unreachable
+            e.if_then(|e| e.record_has_slot(Desc, InternalSlot::Enumerable), |e| {
+                let desc_enumerable = e.record_get_slot(Desc, InternalSlot::Enumerable);
+                let curr_enumerable = e.record_get_slot(current, InternalSlot::Enumerable);
+
+                let same_e = e.call_with_result(self.SameValue, [desc_enumerable, curr_enumerable]);
+                let same = e.E(same_e);
+
+                e.if_then(|e| e.negate(same), |e| ControlFlow::Return(Some(e.make_bool(false))));
+
+                ControlFlow::Fallthrough
+            });
+
+            ControlFlow::Fallthrough
         });
 
         //# 5. If ! IsGenericDescriptor(Desc) is true, then
-        //# a. NOTE: No further validation is required.
+        let is_gen_desc_e = e.call_with_result(self.IsGenericDescriptor, [Desc]);
+        let is_gen_desc = e.E(is_gen_desc_e);
+        e.if_then(|e| e.negate(is_gen_desc), |e| {
+            //# a. NOTE: No further validation is required.
+            ControlFlow::Fallthrough
+        })
         //# 6. Else if ! SameValue(! IsDataDescriptor(current), ! IsDataDescriptor(Desc)) is false, then
-        //# a. If current.[[Configurable]] is false, return false.
-        //# b. If IsDataDescriptor(current) is true, then
-        //# i. If O is not undefined, convert the property named P of object O from a data property to an
-        //# accessor property. Preserve the existing values of the converted property's [[Configurable]] and
-        //# [[Enumerable]] attributes and set the rest of the property's attributes to their default values.
-        //# c. Else,
-        //# i. If O is not undefined, convert the property named P of object O from an accessor property to a
-        //# data property. Preserve the existing values of the converted property's [[Configurable]] and
-        //# [[Enumerable]] attributes and set the rest of the property's attributes to their default values.
-        //# 7. Else if IsDataDescriptor(current) and IsDataDescriptor(Desc) are both true, then
-        //# a. If current.[[Configurable]] is false and current.[[Writable]] is false, then
-        //# i. If Desc.[[Writable]] is present and Desc.[[Writable]] is true, return false.
-        //# ii. If Desc.[[Value]] is present and SameValue(Desc.[[Value]], current.[[Value]]) is false, return false.
-        //# iii. Return true.
-        //# 8. Else,
-        //# a. Assert: ! IsAccessorDescriptor(current) and ! IsAccessorDescriptor(Desc) are both true.
-        //# b. If current.[[Configurable]] is false, then
-        //# i. If Desc.[[Set]] is present and SameValue(Desc.[[Set]], current.[[Set]]) is false, return false.
-        //# ii. If Desc.[[Get]] is present and SameValue(Desc.[[Get]], current.[[Get]]) is false, return false.
-        //# iii. Return true.
-        //# 9. If O is not undefined, then
-        //# a. For each field of Desc that is present, set the corresponding attribute of the property named P of object O
-        //# to the value of the field.
-        //# 10. Return true.
+        .else_then(|e| {
+            let idd_current_e = e.call_with_result(self.IsDataDescriptor, [current]);
+            let idd_current = e.E(idd_current_e);
 
-        e.finish(None)
+            let idd_desc_e = e.call_with_result(self.IsDataDescriptor, [Desc]);
+            let idd_desc = e.E(idd_desc_e);
+
+            let same_e = e.call_with_result(self.SameValue, [idd_current, idd_desc]);
+            let same = e.E(same_e);
+
+            e.if_then(|_| same, |e| {
+                //# a. If current.[[Configurable]] is false, return false.
+                let config = e.record_get_slot(current, InternalSlot::Configurable);
+                e.if_then(|e| e.is_false(config), |e| ControlFlow::Return(Some(e.make_bool(false))));
+
+                //# b. If IsDataDescriptor(current) is true, then
+                let idd_curr = e.call_with_result(self.IsDataDescriptor, [current]);
+                e.if_then(|e| e.is_true(idd_curr), |e| {
+                    //# i. If O is not undefined, convert the property named P of object O from a data property to an
+                    //# accessor property. Preserve the existing values of the converted property's [[Configurable]] and
+                    //# [[Enumerable]] attributes and set the rest of the property's attributes to their default values.
+                    ControlFlow::Fallthrough
+                })
+                //# c. Else,
+                .else_then(|e| {
+                    //# i. If O is not undefined, convert the property named P of object O from an accessor property to a
+                    //# data property. Preserve the existing values of the converted property's [[Configurable]] and
+                    //# [[Enumerable]] attributes and set the rest of the property's attributes to their default values.
+                    ControlFlow::Fallthrough
+                });
+
+                ControlFlow::Fallthrough
+            })
+            //# 7. Else if IsDataDescriptor(current) and IsDataDescriptor(Desc) are both true, then
+            .else_then(|e| {
+                let idd_current = e.call_with_result(self.IsDataDescriptor, [current]);
+                let idd_desc = e.call_with_result(self.IsDataDescriptor, [Desc]);
+                let cur_idd = e.is_true(idd_current);
+                let desc_idd = e.is_true(idd_desc);
+
+                e.if_then(|e| e.and(cur_idd, desc_idd), |e| {
+                    //# a. If current.[[Configurable]] is false and current.[[Writable]] is false, then
+                    //# i. If Desc.[[Writable]] is present and Desc.[[Writable]] is true, return false.
+                    //# ii. If Desc.[[Value]] is present and SameValue(Desc.[[Value]], current.[[Value]]) is false, return false.
+                    //# iii. Return true.
+                    ControlFlow::Fallthrough
+                })
+                //# 8. Else,
+                .else_then(|e| {
+                    //# a. Assert: ! IsAccessorDescriptor(current) and ! IsAccessorDescriptor(Desc) are both true.
+                    //# b. If current.[[Configurable]] is false, then
+                    //# i. If Desc.[[Set]] is present and SameValue(Desc.[[Set]], current.[[Set]]) is false, return false.
+                    //# ii. If Desc.[[Get]] is present and SameValue(Desc.[[Get]], current.[[Get]]) is false, return false.
+                    //# iii. Return true.
+                    ControlFlow::Fallthrough
+                });
+
+                ControlFlow::Fallthrough
+            });
+
+            ControlFlow::Fallthrough
+        });
+
+        //# 9. If O is not undefined, then
+        e.if_then(|e| e.is_not_undefined(O), |e| {
+            //# a. For each field of Desc that is present, set the corresponding
+            //#    attribute of the property named P of object O to the value of
+            //#    the field.
+            e.record_set_prop(O, P, Desc);
+            ControlFlow::Fallthrough
+        });
+
+        //# 10. Return true.
+        let r#true = e.make_bool(true);
+        e.finish(Some(r#true))
     }
 
     fn OrdinaryDefineOwnProperty(O, P, Desc) {

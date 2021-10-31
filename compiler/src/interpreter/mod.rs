@@ -17,7 +17,7 @@ use gc::{custom_trace, BorrowError, BorrowMutError, Finalize, Gc, GcCell, Trace}
 use rustc_hash::FxHashMap;
 use thiserror::Error;
 
-use crate::isa::ValueType;
+use crate::isa::{CompareType, ValueType};
 use crate::{collections::StrictZip, isa::BinaryOperator};
 
 use crate::{
@@ -62,6 +62,20 @@ pub enum Value {
     FnPtr(#[unsafe_ignore_trace] FunctionId),
     Record(Gc<GcCell<Record>>),
     Symbol(()),
+}
+
+impl Value {
+    pub fn kind(&self) -> ValueType {
+        match self {
+            Value::Trivial(_) => ValueType::Trivial,
+            Value::Bytes(_) => ValueType::Bytes,
+            Value::Number(_) => ValueType::Number,
+            Value::Boolean(_) => ValueType::Boolean,
+            Value::FnPtr(_) => ValueType::FnPtr,
+            Value::Record(_) => ValueType::Record,
+            Value::Symbol(_) => ValueType::Symbol,
+        }
+    }
 }
 
 macro_rules! value_unwrap {
@@ -436,7 +450,13 @@ impl<'c> InstExec<'c> {
             }
             IsType(i) => {
                 let value = self.get(i.value)?;
-                let target_kind = i.kind;
+                let target_kind = match i.kind {
+                    CompareType::Kind(kind) => kind,
+                    CompareType::Register(register) => {
+                        let value = self.get(register)?;
+                        value.kind()
+                    }
+                };
 
                 let is_type = match (value, target_kind) {
                     (Value::Trivial(_), ValueType::Trivial)
