@@ -36,13 +36,26 @@
 //! (i like (candy candy candy) !!!)
 //! ```
 
-use std::{collections::HashMap, ops::Deref};
+use std::ops::Deref;
 
 use rustc_hash::FxHashMap;
 
 use super::*;
 
-pub fn apply_rule(rule: &Node, node: Node, generate: &Node) -> Node {
+pub fn apply_rule_recursively(rule: &Node, generate: &Node, node: Node) -> Node {
+    match apply_rule(rule, generate, node) {
+        Node::Parent(children, span) => Node::Parent(
+            children
+                .into_iter()
+                .map(|child| apply_rule_recursively(rule, generate, child))
+                .collect(),
+            span,
+        ),
+        other => other,
+    }
+}
+
+pub fn apply_rule(rule: &Node, generate: &Node, node: Node) -> Node {
     if !matches_rule(rule, &node) {
         return node;
     }
@@ -109,7 +122,6 @@ mod rule_tests {
     fn doesnt_match(rule: &str, code: &str) {
         let mut rule_nodes = parse_to_nodes(rule);
         let rule = rule_nodes.remove(0);
-        let generate = rule_nodes.remove(0);
 
         let node = parse_to_nodes(code).remove(0);
         assert!(!matches_rule(&node, &rule))
@@ -131,7 +143,7 @@ mod rule_tests {
 
         let node = parse_to_nodes(rule_and_code).remove(0);
         assert!(matches_rule(&node, &rule), "rule should match");
-        let result = apply_rule(&rule, node.clone(), &generate);
+        let result = apply_rule(&rule, &generate, node.clone());
 
         assert_eq!(node, result);
     }
@@ -152,7 +164,7 @@ mod rule_tests {
 
         let node = parse_to_nodes(code).remove(0);
         assert!(matches_rule(&rule, &node), "rule should match");
-        apply_rule(&rule, node, &generate)
+        apply_rule(&rule, &generate, node)
     }
 
     fn yields(node: &str) -> Node {
@@ -203,5 +215,69 @@ mod rule_tests {
             ),
             yields("(else (if (condition) (then ()) (else ())))")
         );
+    }
+
+    fn rec_transform(rule: &str, code: &str) -> Node {
+        let mut rule_nodes = parse_to_nodes(rule);
+        let rule = rule_nodes.remove(0);
+        let generate = rule_nodes.remove(0);
+
+        let node = parse_to_nodes(code).remove(0);
+        apply_rule_recursively(&rule, &generate, node)
+    }
+
+    #[test]
+    fn recursive_rule_smokescreen_test() {
+        assert_eq!(
+            rec_transform(":x y", "x"),
+            yields("y"),
+            "sanity check passes"
+        );
+    }
+
+    #[test]
+    fn recursive_rule_applies_to_children_of_parent_node() {
+        assert_eq!(
+            rec_transform("x y", "(x x x)"),
+            yields("(y y y)"),
+            "applies to children inside parent node"
+        );
+
+        assert_eq!(
+            rec_transform("x y", "(x (x x x) x)"),
+            yields("(y (y y y) y)"),
+            "applies to children nested inside parent node"
+        );
+
+        assert_eq!(
+            rec_transform("x y", "(x (x (x x x) x) x)"),
+            yields("(y (y (y y y) y) y)"),
+            "applies to children deeply nested inside parent node"
+        );
+    }
+
+    #[test]
+    fn recursive_rule_applies_to_parent_nodes() {
+        assert_eq!(rec_transform("(f x) (f y)", "(f x)"), yields("(f y)"));
+        assert_eq!(
+            rec_transform("(f x) (f y)", "(f (f x))"),
+            yields("(f (f y))")
+        );
+
+        assert_eq!(
+            rec_transform("(f x) (f y)", "(f (f (f x)))"),
+            yields("(f (f (f y)))")
+        );
+    }
+
+    #[test]
+    fn recursive_rule_applies_to_parent_nodes_and_children() {
+        assert_eq!(
+            rec_transform("((x)) (x)", "((x))"),
+            yields("(x)"),
+            "smokescreen check"
+        );
+        assert_eq!(rec_transform("((x)) (x)", "((((x))))"), yields("(((x)))"));
+        assert_eq!(rec_transform("((x)) (x)", "((((x))))"), yields("(((x)))"));
     }
 }
