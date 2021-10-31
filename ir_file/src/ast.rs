@@ -55,6 +55,7 @@ pub enum Statement {
     Return {
         expr: Option<Expression>,
     },
+    // TODO(irfile): should we have a comment instruction?
     Comment {
         message: String,
         location: Span,

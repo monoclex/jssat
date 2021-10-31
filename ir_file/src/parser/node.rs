@@ -128,12 +128,15 @@ impl<S: PartialEq> PartialEq for Node<S> {
 }
 
 impl Node {
+    #[track_caller]
     pub fn expect_word(self) -> String {
         match self {
             Node::Word(value, _) => value,
             other => panic!("expected word node on {}", DisplaySpan(other.span())),
         }
     }
+
+    #[track_caller]
     pub fn expect_atom(self) -> String {
         match self {
             Node::Atom(value, _) => value,
@@ -141,13 +144,7 @@ impl Node {
         }
     }
 
-    pub fn expect_string(self) -> String {
-        match self {
-            Node::String(value, _) => value,
-            other => panic!("expected string node on {}", DisplaySpan(other.span())),
-        }
-    }
-
+    #[track_caller]
     pub fn expect_parent(self) -> Vec<Node> {
         match self {
             Node::Parent(value, _) => value,
@@ -169,6 +166,7 @@ impl<S> Node<S> {
 }
 
 impl Node {
+    #[allow(dead_code)]
     pub fn to_lisp(&self) -> String {
         match self {
             Node::Word(value, _) => value.to_owned(),

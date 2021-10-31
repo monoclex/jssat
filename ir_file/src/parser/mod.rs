@@ -1,5 +1,3 @@
-use std::convert::TryInto;
-
 use self::rules::apply_rule_recursively;
 use super::*;
 
@@ -373,4 +371,339 @@ fn parse_expression(node: Node<&str>) -> Expression {
         }
         other => panic!("unrecognized expression {:?}", other),
     }
+}
+
+#[test]
+fn parses_header() {
+    assert_eq!(
+        parse_header(parse_to_nodes(":6.9.4.2 TheFunctionName ( a, b, c )")),
+        Header {
+            document_index: "6.9.4.2".into(),
+            method_name: "TheFunctionName".into(),
+            parameters: vec!["a".into(), "b".into(), "c".into()]
+        }
+    );
+}
+
+#[test]
+fn parses_statement() {
+    let x = || Expression::VarReference {
+        variable: "x".into(),
+    };
+
+    let y = || Expression::VarReference {
+        variable: "y".into(),
+    };
+
+    let z = || Expression::VarReference {
+        variable: "z".into(),
+    };
+
+    let check = |code, stmt| assert_eq!(parse_body(parse_to_nodes(code)), vec![stmt]);
+
+    check(
+        "(y = :x)",
+        Statement::Assign {
+            variable: "y".into(),
+            value: x(),
+        },
+    );
+
+    check(
+        "(return-if-abrupt :x)",
+        Statement::ReturnIfAbrupt { expr: x() },
+    );
+
+    check(
+        "(if :x ((return-if-abrupt :x)))",
+        Statement::If {
+            condition: x(),
+            then: vec![Statement::ReturnIfAbrupt { expr: x() }],
+            r#else: None,
+        },
+    );
+
+    check(
+        "(if :x () ((return-if-abrupt :x)))",
+        Statement::If {
+            condition: x(),
+            then: vec![],
+            r#else: Some(vec![Statement::ReturnIfAbrupt { expr: x() }]),
+        },
+    );
+
+    check(
+        "(record-set-prop :x :y :z)",
+        Statement::RecordSetProp {
+            record: x(),
+            prop: y(),
+            value: Some(z()),
+        },
+    );
+
+    check(
+        "(record-del-prop :x :y)",
+        Statement::RecordSetProp {
+            record: x(),
+            prop: y(),
+            value: None,
+        },
+    );
+
+    check(
+        "(record-set-slot :x InternalSlot :z)",
+        Statement::RecordSetSlot {
+            record: x(),
+            slot: "InternalSlot".into(),
+            value: Some(z()),
+        },
+    );
+
+    check(
+        "(record-del-slot :x InternalSlot)",
+        Statement::RecordSetSlot {
+            record: x(),
+            slot: "InternalSlot".into(),
+            value: None,
+        },
+    );
+
+    check("(return)", Statement::Return { expr: None });
+    check("(return :x)", Statement::Return { expr: Some(x()) });
+
+    check(
+        "(call f)",
+        Statement::CallStatic {
+            function_name: "f".into(),
+            args: Vec::new(),
+        },
+    );
+
+    check(
+        "(call f :x :y :z)",
+        Statement::CallStatic {
+            function_name: "f".into(),
+            args: vec![x(), y(), z()],
+        },
+    );
+
+    check(
+        "(call-virt :x)",
+        Statement::CallVirt {
+            fn_ptr: x(),
+            args: Vec::new(),
+        },
+    );
+
+    check(
+        "(call-virt :x :y :z)",
+        Statement::CallVirt {
+            fn_ptr: x(),
+            args: vec![y(), z()],
+        },
+    );
+
+    check(
+        r#"(assert :x "x must be true")"#,
+        Statement::Assert {
+            expr: x(),
+            message: "x must be true".into(),
+        },
+    );
+}
+
+#[cfg(test)]
+macro_rules! expr {
+    ($x: expr) => {
+        parse_expression(parse_to_nodes($x)[0].as_ref())
+    };
+}
+
+#[test]
+fn parses_expression() {
+    let x = || Expression::VarReference {
+        variable: "x".into(),
+    };
+
+    let y = || Expression::VarReference {
+        variable: "y".into(),
+    };
+
+    let z = || Expression::VarReference {
+        variable: "z".into(),
+    };
+
+    assert_eq!(expr!(":x"), x());
+    assert_eq!(expr!(":y"), y());
+    assert_eq!(expr!(":z"), z());
+
+    let x = || Box::new(x());
+    let y = || Box::new(y());
+    let z = || Box::new(z());
+
+    assert_eq!(
+        expr!("(if :x (:y) (:z))"),
+        Expression::If {
+            condition: x(),
+            then: (Vec::new(), y()),
+            r#else: (Vec::new(), z()),
+        }
+    );
+
+    assert_eq!(
+        expr!("(if :x ((z = :x) :y) ((z = :y) :z))"),
+        Expression::If {
+            condition: x(),
+            then: (
+                vec![Statement::Assign {
+                    variable: "z".into(),
+                    value: *x(),
+                }],
+                y()
+            ),
+            r#else: (
+                vec![Statement::Assign {
+                    variable: "z".into(),
+                    value: *y(),
+                }],
+                z()
+            ),
+        }
+    );
+
+    assert_eq!(
+        expr!("(return-if-abrupt :x)"),
+        Expression::ReturnIfAbrupt(x())
+    );
+
+    // test parenthetical nesting
+    assert_eq!(expr!("record-new"), Expression::RecordNew);
+    assert_eq!(expr!("(record-new)"), Expression::RecordNew);
+    assert_eq!(expr!("((record-new))"), Expression::RecordNew);
+
+    assert_eq!(
+        expr!("(record-get-prop :x :y)"),
+        Expression::RecordGetProp {
+            record: x(),
+            property: y(),
+        }
+    );
+
+    assert_eq!(
+        expr!("(record-get-slot :x InternalSlot)"),
+        Expression::RecordGetSlot {
+            record: x(),
+            slot: "InternalSlot".into()
+        }
+    );
+
+    assert_eq!(
+        expr!("(record-has-prop :x :y)"),
+        Expression::RecordHasProp {
+            record: x(),
+            property: y(),
+        }
+    );
+
+    assert_eq!(
+        expr!("(record-has-slot :x InternalSlot)"),
+        Expression::RecordHasSlot {
+            record: x(),
+            slot: "InternalSlot".into(),
+        }
+    );
+
+    assert_eq!(
+        expr!("(get-fn-ptr FnName)"),
+        Expression::GetFnPtr {
+            function_name: "FnName".into()
+        }
+    );
+
+    assert_eq!(
+        expr!("(call FnName)"),
+        Expression::CallStatic {
+            function_name: "FnName".into(),
+            args: Vec::new()
+        }
+    );
+
+    assert_eq!(
+        expr!("(call FnName :x :y :z)"),
+        Expression::CallStatic {
+            function_name: "FnName".into(),
+            args: vec![*x(), *y(), *z()]
+        }
+    );
+
+    assert_eq!(
+        expr!("(call-virt :x)"),
+        Expression::CallVirt {
+            fn_ptr: x(),
+            args: vec![],
+        }
+    );
+
+    assert_eq!(
+        expr!("(call-virt :x :y :z)"),
+        Expression::CallVirt {
+            fn_ptr: x(),
+            args: vec![*y(), *z()],
+        }
+    );
+
+    assert_eq!(
+        expr!("(trivial undefined)"),
+        Expression::MakeTrivial {
+            trivial_item: "undefined".into()
+        }
+    );
+
+    assert_eq!(
+        expr!(r#""xD""#),
+        Expression::MakeBytes {
+            bytes: "xD".as_bytes().to_owned()
+        }
+    );
+
+    assert_eq!(
+        expr!(r#""xD""#),
+        Expression::MakeBytes {
+            bytes: "xD".as_bytes().to_owned()
+        }
+    );
+
+    assert_eq!(expr!(r#"69"#), Expression::MakeInteger { value: 69 });
+    assert_eq!(expr!(r#"(69)"#), Expression::MakeInteger { value: 69 });
+    assert_eq!(expr!(r#"((69))"#), Expression::MakeInteger { value: 69 });
+
+    assert_eq!(expr!("true"), Expression::MakeBoolean { value: true });
+    assert_eq!(expr!("false"), Expression::MakeBoolean { value: false });
+
+    let binop = |kind| Expression::BinOp {
+        kind,
+        lhs: x(),
+        rhs: y(),
+    };
+
+    assert_eq!(expr!("(:x + :y)"), binop(BinOpKind::Add));
+    assert_eq!(expr!("(:x and :y)"), binop(BinOpKind::And));
+    assert_eq!(expr!("(:x or :y)"), binop(BinOpKind::Or));
+    assert_eq!(expr!("(:x == :y)"), binop(BinOpKind::Eq));
+    assert_eq!(expr!("(:x < :y)"), binop(BinOpKind::Lt));
+
+    assert_eq!(expr!("(not :x)"), Expression::Negate { expr: x() });
+
+    assert_eq!(
+        expr!("(is-type-of String :x)"),
+        Expression::IsTypeOf {
+            expr: x(),
+            kind: "String".into()
+        }
+    );
+
+    assert_eq!(
+        expr!("(is-type-as :x :y)"),
+        Expression::IsTypeAs { lhs: x(), rhs: y() }
+    );
 }
