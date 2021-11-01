@@ -172,7 +172,7 @@ impl<'bo, 'bu, const P: usize> EmitterIf<'bo, 'bu, P> {
         // true or false clause
         std::mem::swap(&mut self.emitter.block_builder, &mut true_clause);
         let current_path = true_clause;
-        let _true_clause = &mut self.emitter.block_builder;
+        let true_clause = &mut self.emitter.block_builder;
 
         let termination = current_path.jmpif_dynargs(
             self.condition,
@@ -184,6 +184,9 @@ impl<'bo, 'bu, const P: usize> EmitterIf<'bo, 'bu, P> {
         self.emitter.function_builder.end_block_dyn(termination);
 
         // now, we're in the true clause
+        // keep in mind that after the switch in branches, `true_clause_id` is most
+        // likely stale
+        let true_clause_id = true_clause.id;
         debug_assert_eq!(self.emitter.block_builder.id, true_clause_id);
 
         // we have already written the code for the true clause in the constructor of
