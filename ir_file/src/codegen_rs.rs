@@ -58,16 +58,17 @@ use crate::{Expression, Section, Statement, AST};
 pub fn gen(ast: AST) -> String {
     let mut scope = Scope::new();
 
-    let r#struct = scope.new_struct("Methods");
+    let r#struct = scope.new_struct("ECMA262Methods");
+    r#struct.vis("pub");
 
     for method in ast.sections.iter() {
         r#struct.push_field(Field::new(
-            &method.header.method_name,
+            &format!("pub {}", method.header.method_name),
             format!("FnSignature<{}>", method.header.parameters.len()),
         ));
     }
 
-    let r#impl = scope.new_impl("Methods");
+    let r#impl = scope.new_impl("ECMA262Methods");
 
     for method in ast.sections.iter() {
         emit_method(r#impl, method);
@@ -105,7 +106,10 @@ fn emit_method_new(ast: &AST) -> Function {
         fields.line(format!("{}: signature_{0},", &method.header.method_name));
     }
 
-    f.line(format!("let methods = Methods {};", blk_to_s(fields)));
+    f.line(format!(
+        "let methods = ECMA262Methods {};",
+        blk_to_s(fields)
+    ));
 
     for method in ast.sections.iter() {
         f.line(format!(

@@ -27,7 +27,9 @@ fn parse_with_rule_application(nodes: Vec<Node>) -> Vec<Node> {
     let mut new_nodes = Vec::new();
     let mut custom_rules = Vec::new();
 
-    for node in nodes {
+    // read all rules first so you can just define rules in your file and have them
+    // work anywhere else
+    for node in nodes.iter() {
         if let Node::Parent(children, _) = &node {
             if let Some(Node::Word(header_word, _)) = children.get(0) {
                 if header_word == "def" {
@@ -37,10 +39,25 @@ fn parse_with_rule_application(nodes: Vec<Node>) -> Vec<Node> {
                 }
             }
         };
+    }
 
-        let node = custom_rules.iter().fold(node, |node, (rule, generate)| {
-            apply_rule_recursively(rule, generate, node)
-        });
+    for node in nodes {
+        if let Node::Parent(children, _) = &node {
+            if let Some(Node::Word(header_word, _)) = children.get(0) {
+                if header_word == "def" {
+                    continue;
+                }
+            }
+        };
+
+        let node = custom_rules
+            .iter()
+            // apply the rules in reverse because it's more idiomatic to put super generic things at
+            // the top and more specific things farther down
+            .rev()
+            .fold(node, |node, (rule, generate)| {
+                apply_rule_recursively(rule, generate, node)
+            });
         new_nodes.push(node);
     }
 
@@ -70,11 +87,22 @@ mod parse_with_rule_application_tests {
     }
 
     #[test]
-    fn obeys_rule_order() {
+    fn rules_work_in_all_locations() {
         parse!("(def x y) x", "y");
-        parse!("x (def x y)", "x");
-        parse!("x (def x y) x", "x y");
-        parse!("x y (def y x) x y (def x y) x y", "x y x x y y");
+        parse!("x (def x y)", "y");
+        parse!("x (def x y) x", "y y");
+    }
+
+    #[test]
+    fn rules_work_from_more_generic_to_more_specific() {
+        parse!(
+            r#"
+(def value (value generic))
+(def value (value specific))
+value
+"#,
+            "((value generic) specific)"
+        );
     }
 
     #[test]

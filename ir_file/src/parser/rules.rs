@@ -43,26 +43,49 @@ use rustc_hash::FxHashMap;
 use super::*;
 
 pub fn apply_rule_recursively(rule: &Node, generate: &Node, node: Node) -> Node {
-    match apply_rule(rule, generate, node) {
-        Node::Parent(children, span) => Node::Parent(
-            children
-                .into_iter()
-                .map(|child| apply_rule_recursively(rule, generate, child))
-                .collect(),
-            span,
-        ),
-        other => other,
+    fn apply_rule_recursively_inner(rule: &Node, generate: &Node, node: Node) -> (bool, Node) {
+        let (changed, node) = apply_rule(rule, generate, node);
+
+        if changed {
+            return (changed, node);
+        }
+
+        match node {
+            Node::Parent(children, span) => {
+                let mut changed = false;
+
+                (
+                    changed,
+                    Node::Parent(
+                        children
+                            .into_iter()
+                            .map(|child| {
+                                let (change, node) =
+                                    apply_rule_recursively_inner(rule, generate, child);
+                                changed = changed || change;
+                                node
+                            })
+                            .collect(),
+                        span,
+                    ),
+                )
+            }
+            other => (false, other),
+        }
     }
+
+    let (_, node) = apply_rule_recursively_inner(rule, generate, node);
+    node
 }
 
-pub fn apply_rule(rule: &Node, generate: &Node, node: Node) -> Node {
+pub fn apply_rule(rule: &Node, generate: &Node, node: Node) -> (bool, Node) {
     if !matches_rule(rule, &node) {
-        return node;
+        return (false, node);
     }
 
     let mut rule_values = FxHashMap::default();
     get_rule_params(rule, &node, &mut rule_values);
-    apply_rule_inner(generate, &rule_values)
+    (true, apply_rule_inner(generate, &rule_values))
 }
 
 fn get_rule_params<'data>(
@@ -143,7 +166,7 @@ mod rule_tests {
 
         let node = parse_to_nodes(rule_and_code).remove(0);
         assert!(matches_rule(&node, &rule), "rule should match");
-        let result = apply_rule(&rule, &generate, node.clone());
+        let (_, result) = apply_rule(&rule, &generate, node.clone());
 
         assert_eq!(node, result);
     }
@@ -165,7 +188,8 @@ mod rule_tests {
 
         let node = parse_to_nodes(code).remove(0);
         assert!(matches_rule(&rule, &node), "rule should match");
-        apply_rule(&rule, &generate, node)
+        let (_, node) = apply_rule(&rule, &generate, node);
+        node
     }
 
     fn yields(node: &str) -> Node {
