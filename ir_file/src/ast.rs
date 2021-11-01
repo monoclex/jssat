@@ -91,6 +91,12 @@ pub enum Expression {
     VarReference {
         variable: Variable,
     },
+    LetIn {
+        variable: Variable,
+        be_bound_to: Box<Expression>,
+        r#in: (Vec<Statement>, Box<Expression>),
+    },
+    Unreachable,
     ReturnIfAbrupt(Box<Expression>),
     RecordNew,
     RecordGetProp {

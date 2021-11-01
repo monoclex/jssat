@@ -186,6 +186,8 @@ pub fn emit_method(scope: &mut Impl, section: &Section) {
 }
 
 fn emit_stmts(counter: &mut usize, block: &mut Block, stmts: &[Statement], emit_fallthrough: bool) {
+    let varname = |x: &str| format!("r#var_{}", x.replace("-", "_"));
+
     // emit statements
     let mut returned = false;
     for stmt in stmts.iter() {
@@ -196,7 +198,7 @@ fn emit_stmts(counter: &mut usize, block: &mut Block, stmts: &[Statement], emit_
         match stmt {
             crate::Statement::Assign { variable, value } => {
                 let value = emit_expr(counter, block, value);
-                block.line(format!("let {} = {};", variable, value));
+                block.line(format!("let {} = {};", varname(variable), value));
             }
             crate::Statement::ReturnIfAbrupt { expr } => {
                 let value = emit_expr(counter, block, expr);
@@ -240,12 +242,40 @@ fn emit_stmts(counter: &mut usize, block: &mut Block, stmts: &[Statement], emit_
                 record,
                 prop,
                 value,
-            } => todo!(),
+            } => {
+                let record = emit_expr(counter, block, record);
+                let prop = emit_expr(counter, block, prop);
+
+                match value.as_ref().map(|expr| emit_expr(counter, block, expr)) {
+                    Some(value) => block.line(format!(
+                        "e.record_set_prop({}, {}, {});",
+                        record, prop, value
+                    )),
+                    None => block.line(format!("e.record_del_prop({}, {});", record, prop)),
+                };
+            }
             crate::Statement::RecordSetSlot {
                 record,
                 slot,
                 value,
-            } => todo!(),
+            } => {
+                let record = emit_expr(counter, block, record);
+                match value {
+                    Some(value) => {
+                        let value = emit_expr(counter, block, value);
+                        block.line(format!(
+                            "e.record_set_slot({}, InternalSlot::{}, {});",
+                            record, slot, value
+                        ));
+                    }
+                    None => {
+                        block.line(format!(
+                            "e.record_del_slot({}, InternalSlot::{});",
+                            record, slot
+                        ));
+                    }
+                }
+            }
             crate::Statement::Return { expr } => {
                 returned = true;
 
@@ -297,22 +327,69 @@ fn emit_expr(counter: &mut usize, block: &mut Block, expr: &Expression) -> Strin
         })
     };
 
+    let varname = |x: &str| format!("r#var_{}", x.replace("-", "_"));
+
     let result = name(counter);
 
     match expr {
         Expression::If {
             condition,
-            then,
-            r#else,
-        } => todo!(),
+            then: (then, thene),
+            r#else: (els, els_e),
+        } => {
+            let mut cond_scope = Block::new("");
+            let condition = emit_expr(counter, &mut cond_scope, condition);
+            cond_scope.line(condition);
+
+            let mut then_scope = Block::new("");
+            emit_stmts(counter, &mut then_scope, then, false);
+            let then_expr = emit_expr(counter, &mut then_scope, thene);
+            then_scope.line(format!("ControlFlow::Carry({})", then_expr));
+
+            let mut else_scope = Block::new("");
+            emit_stmts(counter, &mut else_scope, els, false);
+            let else_expr = emit_expr(counter, &mut else_scope, els_e);
+            else_scope.line(format!("ControlFlow::Carry({})", else_expr));
+
+            block.line(format!(
+                "let {} = e.if_then(|e| {}, |e| {}).else_then(|e| {}).end().unwrap();",
+                result,
+                blk_to_s(cond_scope),
+                blk_to_s(then_scope),
+                blk_to_s(else_scope)
+            ));
+        }
         Expression::VarReference { variable } => {
             *counter -= 1;
-            return format!("r#var_{}", variable.replace("-", "_"));
+            return varname(variable);
         }
         Expression::ReturnIfAbrupt(_) => todo!(),
-        Expression::RecordNew => todo!(),
+        Expression::LetIn {
+            variable,
+            be_bound_to,
+            r#in: (stmts, expr),
+        } => {
+            *counter -= 1;
+
+            let value = emit_expr(counter, block, be_bound_to);
+            block.line(format!("let {} = {};", varname(variable), value));
+
+            emit_stmts(counter, block, stmts, false);
+
+            return emit_expr(counter, block, expr);
+        }
+        Expression::RecordNew => {
+            block.line(format!("let {} = e.record_new();", result));
+        }
+        Expression::Unreachable => todo!(),
         Expression::RecordGetProp { record, property } => todo!(),
-        Expression::RecordGetSlot { record, slot } => todo!(),
+        Expression::RecordGetSlot { record, slot } => {
+            let record = emit_expr(counter, block, record);
+            block.line(format!(
+                "let {} = e.record_get_slot({}, InternalSlot::{});",
+                result, record, slot
+            ));
+        }
         Expression::RecordHasProp { record, property } => todo!(),
         Expression::RecordHasSlot { record, slot } => {
             let expr = emit_expr(counter, block, record);
@@ -344,8 +421,19 @@ fn emit_expr(counter: &mut usize, block: &mut Block, expr: &Expression) -> Strin
                 result, trivial_item
             ));
         }
-        Expression::MakeBytes { bytes } => todo!(),
-        Expression::MakeInteger { value } => todo!(),
+        Expression::MakeBytes { bytes } => {
+            block.line(format!(
+                "let {} = e.load_constant(&{:?});",
+                result,
+                bytes.as_slice()
+            ));
+        }
+        Expression::MakeInteger { value } => {
+            block.line(format!(
+                "let {} = e.make_number_decimal({});",
+                result, value
+            ));
+        }
         Expression::MakeBoolean { value } => {
             block.line(format!("let {} = e.make_bool({});", result, value));
         }

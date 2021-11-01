@@ -1,3 +1,5 @@
+use crate::parser::rules::apply_rule_recursively_inner;
+
 use self::rules::apply_rule_recursively;
 use super::*;
 
@@ -41,6 +43,44 @@ fn parse_with_rule_application(nodes: Vec<Node>) -> Vec<Node> {
         };
     }
 
+    // then apply the rules to themselves thoroughly
+    // this will mean that once we match a rule, it will already be fully expanded
+    // which is useful for both performance and for ease of use (as we now mostly
+    // don't have to care about the order things are defined in)
+    let old = custom_rules.clone();
+    custom_rules = custom_rules
+        .iter()
+        // for every rewrite rule
+        .map(|(rule, generate)| {
+            let mut new_generate = generate.clone();
+
+            // keep rewriting the rule using the existing rules until it is fully rewritten
+            // (i.e. expanded)
+            #[allow(
+                unused_parens,
+                // emphasize that `while {} {}` is `while expr block`
+            )]
+            while ({
+                let mut did_change = false;
+
+                new_generate =
+                    custom_rules
+                        .iter()
+                        .fold(new_generate, |new_generate, (rule, generate)| {
+                            let (changed, new_generate) =
+                                apply_rule_recursively_inner(rule, generate, new_generate);
+                            did_change = did_change || changed;
+                            new_generate
+                        });
+
+                did_change
+            }) {}
+
+            // use the fully rewritten rule as the new rule
+            (rule.clone(), new_generate)
+        })
+        .collect();
+
     for node in nodes {
         if let Node::Parent(children, _) = &node {
             if let Some(Node::Word(header_word, _)) = children.get(0) {
@@ -50,14 +90,10 @@ fn parse_with_rule_application(nodes: Vec<Node>) -> Vec<Node> {
             }
         };
 
-        let node = custom_rules
-            .iter()
-            // apply the rules in reverse because it's more idiomatic to put super generic things at
-            // the top and more specific things farther down
-            .rev()
-            .fold(node, |node, (rule, generate)| {
-                apply_rule_recursively(rule, generate, node)
-            });
+        let node = custom_rules.iter().fold(node, |node, (rule, generate)| {
+            apply_rule_recursively(rule, generate, node)
+        });
+
         new_nodes.push(node);
     }
 
@@ -94,18 +130,6 @@ mod parse_with_rule_application_tests {
     }
 
     #[test]
-    fn rules_work_from_more_generic_to_more_specific() {
-        parse!(
-            r#"
-(def value (value generic))
-(def value (value specific))
-value
-"#,
-            "((value generic) specific)"
-        );
-    }
-
-    #[test]
     fn applies_rules_to_node() {
         parse!(
             r#"
@@ -118,6 +142,53 @@ value
 "#,
             "(y y (y) (y))"
         );
+    }
+
+    #[test]
+    fn rules_apply_themselves_to_expand_fully() {
+        parse!(
+            r#"
+(def a b)
+(def c d)
+(def b c)
+(a b c d)
+"#,
+            "(d d d d)"
+        );
+
+        parse!(
+            r#"
+(def (and :a :b) (:a and :b))
+(def (and3 :a :b :c) (and (and :a :b) :c))
+
+(and3 x y z)
+        "#,
+            "((x and y) and z)"
+        )
+    }
+
+    #[test]
+    fn rules_are_order_independent() {
+        let emit = |x| match x {
+            1 => "(def (wrap1 :x) (unwrapped1 :x))",
+            2 => "(def (wrap2 :x) (unwrapped2 (wrap1 :x)))",
+            3 => "(def (wrap3 :x) (unwrapped3 (wrap2 :x)))",
+            _ => unreachable!(),
+        };
+
+        let test = |a, b, c| {
+            parse!(
+                &format!("{}\n{}\n{}\n(wrap3 x)", emit(a), emit(b), emit(c)),
+                "(unwrapped3 (unwrapped2 (unwrapped1 x)))"
+            )
+        };
+
+        test(1, 2, 3);
+        test(1, 3, 2);
+        test(2, 1, 3);
+        test(3, 1, 2);
+        test(2, 3, 1);
+        test(3, 2, 1);
     }
 }
 
@@ -143,7 +214,10 @@ fn parse_body(body: Vec<Node>) -> Vec<Statement> {
     body.into_iter()
         .map(|node| {
             let node_span = node.span();
-            let children = node.expect_parent();
+            let children = match node {
+                Node::Parent(children, _) => children,
+                other => panic!("expected parent node, got {:?}", other),
+            };
 
             let get = |x| children.get(x).map(Node::as_ref);
 
@@ -247,9 +321,9 @@ fn parse_body(body: Vec<Node>) -> Vec<Statement> {
                     Statement::Return { expr: None }
                 }
                 _ => panic!(
-                    "unrecognized statement {:?}",
+                    "unrecognized statement {}",
                     // TODO(maybe-rustc-bug): why can't rustc infer the type here?
-                    Node::<String>::Parent(children, node_span)
+                    Node::<String>::Parent(children, node_span).to_lisp()
                 ),
             }
         })
@@ -261,6 +335,7 @@ fn parse_expression(node: Node<&str>) -> Expression {
         Node::Word("record-new", _) => Expression::RecordNew,
         Node::Word("true", _) => Expression::MakeBoolean { value: true },
         Node::Word("false", _) => Expression::MakeBoolean { value: false },
+        Node::Word("unreachable", _) => Expression::Unreachable,
         Node::Atom(identifier, _) => Expression::VarReference {
             variable: identifier.to_string(),
         },
@@ -277,27 +352,56 @@ fn parse_expression(node: Node<&str>) -> Expression {
         Node::Parent(children, parent_span) => {
             let get = |x| children.get(x).map(Node::as_ref);
 
-            if let (
-                Some(Node::Word("if", _)),
-                Some(condition),
-                Some(Node::Parent(mut then, _)),
-                Some(Node::Parent(mut r#else, _)),
-            ) = (get(0), get(1), get(2), get(3))
-            {
-                let condition = parse_expression(condition);
+            match (get(0), get(1), get(2), get(3), get(4), get(5)) {
+                (
+                    Some(Node::Word("let", _)),
+                    Some(Node::Word(identifier, _)),
+                    Some(Node::Word("=", _)),
+                    Some(expr),
+                    Some(Node::Word("in", _)),
+                    Some(expr2),
+                ) => {
+                    let r#in = match expr2 {
+                        Node::Parent(mut children, _) => {
+                            let result = children.pop().unwrap();
+                            (
+                                parse_body(children),
+                                Box::new(parse_expression(result.as_ref())),
+                            )
+                        }
+                        expr => (Vec::new(), Box::new(parse_expression(expr))),
+                    };
 
-                let then_expr = parse_expression(then.pop().unwrap().as_ref());
-                let then_stmts = parse_body(then);
+                    return Expression::LetIn {
+                        variable: identifier.into(),
+                        be_bound_to: Box::new(parse_expression(expr)),
+                        r#in,
+                    };
+                }
+                (
+                    Some(Node::Word("if", _)),
+                    Some(condition),
+                    Some(Node::Parent(mut then, _)),
+                    Some(Node::Parent(mut r#else, _)),
+                    None,
+                    None,
+                ) => {
+                    let condition = parse_expression(condition);
 
-                let else_expr = parse_expression(r#else.pop().unwrap().as_ref());
-                let else_stmts = parse_body(r#else);
+                    let then_expr = parse_expression(then.pop().unwrap().as_ref());
+                    let then_stmts = parse_body(then);
 
-                return Expression::If {
-                    condition: Box::new(condition),
-                    then: (then_stmts, Box::new(then_expr)),
-                    r#else: (else_stmts, Box::new(else_expr)),
-                };
-            }
+                    let else_expr = parse_expression(r#else.pop().unwrap().as_ref());
+                    let else_stmts = parse_body(r#else);
+
+                    return Expression::If {
+                        condition: Box::new(condition),
+                        then: (then_stmts, Box::new(then_expr)),
+                        r#else: (else_stmts, Box::new(else_expr)),
+                    };
+                }
+                _ => {}
+            };
 
             match (get(0), get(1), get(2)) {
                 (Some(Node::Word("return-if-abrupt", _)), Some(expr), None) => {
@@ -393,11 +497,11 @@ fn parse_expression(node: Node<&str>) -> Expression {
                 (Some(parenthetical), None, None) => parse_expression(parenthetical),
                 _ => panic!(
                     "unrecognized expression {:?}",
-                    Node::<String>::Parent(children, parent_span)
+                    Node::<String>::Parent(children, parent_span).to_lisp()
                 ),
             }
         }
-        other => panic!("unrecognized expression {:?}", other),
+        other => panic!("unrecognized expression {:?}", other.to_lisp()),
     }
 }
 
@@ -733,5 +837,55 @@ fn parses_expression() {
     assert_eq!(
         expr!("(is-type-as :x :y)"),
         Expression::IsTypeAs { lhs: x(), rhs: y() }
+    );
+
+    assert_eq!(expr!("unreachable"), Expression::Unreachable);
+
+    assert_eq!(
+        expr!("(let x = :y in :x)"),
+        Expression::LetIn {
+            variable: "x".into(),
+            be_bound_to: y(),
+            r#in: (vec![], x())
+        }
+    );
+
+    assert_eq!(
+        expr!("(let x = :y in (:x))"),
+        Expression::LetIn {
+            variable: "x".into(),
+            be_bound_to: y(),
+            r#in: (vec![], x())
+        }
+    );
+
+    assert_eq!(
+        expr!("(let x = :y in ((tmp = record-new) :x))"),
+        Expression::LetIn {
+            variable: "x".into(),
+            be_bound_to: y(),
+            r#in: (
+                vec![Statement::Assign {
+                    variable: "tmp".into(),
+                    value: Expression::RecordNew
+                }],
+                x()
+            )
+        }
+    );
+
+    assert_eq!(
+        expr!("(let x = :y in ((tmp = record-new) (:x)))"),
+        Expression::LetIn {
+            variable: "x".into(),
+            be_bound_to: y(),
+            r#in: (
+                vec![Statement::Assign {
+                    variable: "tmp".into(),
+                    value: Expression::RecordNew
+                }],
+                x()
+            )
+        }
     );
 }

@@ -7,6 +7,8 @@
 //! This module provides a JSSAT IR parser, AST, and Rust code generator for
 //! JSSAT IR files.
 
+#![feature(bindings_after_at)]
+
 mod ast;
 pub use ast::*;
 

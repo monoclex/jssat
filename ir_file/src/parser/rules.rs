@@ -43,39 +43,37 @@ use rustc_hash::FxHashMap;
 use super::*;
 
 pub fn apply_rule_recursively(rule: &Node, generate: &Node, node: Node) -> Node {
-    fn apply_rule_recursively_inner(rule: &Node, generate: &Node, node: Node) -> (bool, Node) {
-        let (changed, node) = apply_rule(rule, generate, node);
-
-        if changed {
-            return (changed, node);
-        }
-
-        match node {
-            Node::Parent(children, span) => {
-                let mut changed = false;
-
-                (
-                    changed,
-                    Node::Parent(
-                        children
-                            .into_iter()
-                            .map(|child| {
-                                let (change, node) =
-                                    apply_rule_recursively_inner(rule, generate, child);
-                                changed = changed || change;
-                                node
-                            })
-                            .collect(),
-                        span,
-                    ),
-                )
-            }
-            other => (false, other),
-        }
-    }
-
     let (_, node) = apply_rule_recursively_inner(rule, generate, node);
     node
+}
+
+pub fn apply_rule_recursively_inner(rule: &Node, generate: &Node, node: Node) -> (bool, Node) {
+    let (changed, node) = apply_rule(rule, generate, node);
+
+    if changed {
+        return (changed, node);
+    }
+
+    match node {
+        Node::Parent(children, span) => {
+            let mut changed = false;
+
+            let node = Node::Parent(
+                children
+                    .into_iter()
+                    .map(|child| {
+                        let (change, node) = apply_rule_recursively_inner(rule, generate, child);
+                        changed = changed || change;
+                        node
+                    })
+                    .collect(),
+                span,
+            );
+
+            (changed, node)
+        }
+        other => (false, other),
+    }
 }
 
 pub fn apply_rule(rule: &Node, generate: &Node, node: Node) -> (bool, Node) {
@@ -111,7 +109,10 @@ fn apply_rule_inner(generate: &Node, params: &FxHashMap<String, &Node>) -> Node 
     //     information should try to be kept correct. rewriting the span information
     //     would help do so not sure if that's even possible or not tho
     match generate {
-        Node::Atom(x, _) => params.get(x).unwrap().deref().clone(),
+        atom @ Node::Atom(x, _) => match params.get(x) {
+            Some(rule_param) => rule_param.deref().clone(),
+            None => atom.clone(),
+        },
         Node::Parent(x, span) => {
             let mut children = Vec::new();
 
@@ -219,6 +220,11 @@ mod rule_tests {
     }
 
     #[test]
+    fn unknown_atoms_left_alone_in_rule() {
+        assert_eq!(transform(":x (:x :y)", "x"), yields("(x :y)"));
+    }
+
+    #[test]
     fn identity_transform() {
         let id = |x| assert_eq!(transform(":x :x", x), yields(x));
         id("word");
@@ -304,5 +310,17 @@ mod rule_tests {
         );
         assert_eq!(rec_transform("((x)) (x)", "((((x))))"), yields("(((x)))"));
         assert_eq!(rec_transform("((x)) (x)", "((((x))))"), yields("(((x)))"));
+    }
+
+    #[test]
+    fn nested_rule_applies() {
+        assert_eq!(
+            rec_transform(
+                "(w1 :x) (u1 :x)",
+                &rec_transform("(wrap3 :x) (u3 (u2 (w1 :x)))", "(wrap3 a)").to_lisp()
+            ),
+            yields("(u3 (u2 (u1 a)))"),
+            "nested rule application"
+        )
     }
 }

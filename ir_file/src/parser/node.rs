@@ -165,13 +165,13 @@ impl<S> Node<S> {
     }
 }
 
-impl Node {
+impl<S: ToString> Node<S> {
     #[allow(dead_code)]
     pub fn to_lisp(&self) -> String {
         match self {
-            Node::Word(value, _) => value.to_owned(),
-            Node::Atom(value, _) => format!(":{}", value),
-            Node::String(value, _) => format!("{:?}", value),
+            Node::Word(value, _) => value.to_string(),
+            Node::Atom(value, _) => format!(":{}", value.to_string()),
+            Node::String(value, _) => format!("{:?}", value.to_string()),
             Node::Number(value, _) => value.to_string(),
             Node::Parent(value, _) => format!(
                 "({})",
