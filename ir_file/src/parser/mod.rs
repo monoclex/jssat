@@ -35,7 +35,11 @@ fn parse_with_rule_application(nodes: Vec<Node>) -> Vec<Node> {
         if let Node::Parent(children, _) = &node {
             if let Some(Node::Word(header_word, _)) = children.get(0) {
                 if header_word == "def" {
-                    let (rule, generate) = (children[1].clone(), children[2].clone());
+                    let (rule, generate) = match (children.get(1), children.get(2)) {
+                        (Some(n), Some(m)) => (n.clone(), m.clone()),
+                        _ => panic!("malformed rule {}", node.to_lisp()),
+                    };
+
                     custom_rules.push((rule, generate));
                     continue;
                 }
@@ -190,6 +194,17 @@ mod parse_with_rule_application_tests {
         test(2, 3, 1);
         test(3, 2, 1);
     }
+
+    #[test]
+    fn applies_rule_recursively() {
+        parse!(
+            r#"
+(def (f :1 :2) ((:1) (:2)))
+(f (f 1 2) (f 3 4))
+"#,
+            "((((1) (2))) (((3) (4))))"
+        );
+    }
 }
 
 fn parse_header(mut header: Vec<Node>) -> Header {
@@ -222,23 +237,18 @@ fn parse_body(body: Vec<Node>) -> Vec<Statement> {
             let get = |x| children.get(x).map(Node::as_ref);
 
             match (get(0), get(1), get(2), get(3)) {
-                (Some(Node::Word("return-if-abrupt", _)), Some(expr), None, None) => {
-                    Statement::ReturnIfAbrupt {
-                        expr: parse_expression(expr),
-                    }
-                }
                 (Some(Node::Word("assert", _)), Some(expr), Some(Node::String(msg, _)), None) => {
                     Statement::Assert {
                         expr: parse_expression(expr),
                         message: msg.to_owned(),
                     }
                 }
-                (Some(Node::Word("comment", _)), Some(Node::String(msg, _)), None, None) => {
-                    Statement::Comment {
-                        message: msg.to_string(),
-                        location: node_span,
-                    }
-                }
+                // (Some(Node::Word("comment", _)), Some(Node::String(msg, _)), None, None) => {
+                //     Statement::Comment {
+                //         message: msg.to_string(),
+                //         location: node_span,
+                //     }
+                // }
                 (Some(Node::Word(identifier, _)), Some(Node::Word("=", _)), Some(expr), None) => {
                     Statement::Assign {
                         variable: identifier.to_string(),
@@ -404,9 +414,6 @@ fn parse_expression(node: Node<&str>) -> Expression {
             };
 
             match (get(0), get(1), get(2)) {
-                (Some(Node::Word("return-if-abrupt", _)), Some(expr), None) => {
-                    Expression::ReturnIfAbrupt(Box::new(parse_expression(expr)))
-                }
                 (Some(Node::Word("record-get-prop", _)), Some(record), Some(expr)) => {
                     Expression::RecordGetProp {
                         record: Box::new(parse_expression(record)),
@@ -538,29 +545,6 @@ fn parses_statement() {
         Statement::Assign {
             variable: "y".into(),
             value: x(),
-        },
-    );
-
-    check(
-        "(return-if-abrupt :x)",
-        Statement::ReturnIfAbrupt { expr: x() },
-    );
-
-    check(
-        "(if :x ((return-if-abrupt :x)))",
-        Statement::If {
-            condition: x(),
-            then: vec![Statement::ReturnIfAbrupt { expr: x() }],
-            r#else: None,
-        },
-    );
-
-    check(
-        "(if :x () ((return-if-abrupt :x)))",
-        Statement::If {
-            condition: x(),
-            then: vec![],
-            r#else: Some(vec![Statement::ReturnIfAbrupt { expr: x() }]),
         },
     );
 
@@ -701,11 +685,6 @@ fn parses_expression() {
                 z()
             ),
         }
-    );
-
-    assert_eq!(
-        expr!("(return-if-abrupt :x)"),
-        Expression::ReturnIfAbrupt(x())
     );
 
     // test parenthetical nesting

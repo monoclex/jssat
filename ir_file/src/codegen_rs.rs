@@ -63,7 +63,7 @@ pub fn gen(ast: AST) -> String {
 
     for method in ast.sections.iter() {
         r#struct.push_field(Field::new(
-            &format!("pub {}", method.header.method_name),
+            &format!("pub {}", method.header.method_name.replace(':', "_")),
             format!("FnSignature<{}>", method.header.parameters.len()),
         ));
     }
@@ -90,20 +90,23 @@ fn emit_method_new(ast: &AST) -> Function {
     for method in ast.sections.iter() {
         f.line(format!(
             "let {} = program.start_function();",
-            &method.header.method_name
+            &method.header.method_name.replace(':', "_")
         ));
     }
 
     for method in ast.sections.iter() {
         f.line(format!(
             "let signature_{} = {0}.0.signature();",
-            &method.header.method_name
+            &method.header.method_name.replace(':', "_")
         ));
     }
 
     let mut fields = Block::new("");
     for method in ast.sections.iter() {
-        fields.line(format!("{}: signature_{0},", &method.header.method_name));
+        fields.line(format!(
+            "{}: signature_{0},",
+            &method.header.method_name.replace(':', "_")
+        ));
     }
 
     f.line(format!(
@@ -114,7 +117,7 @@ fn emit_method_new(ast: &AST) -> Function {
     for method in ast.sections.iter() {
         f.line(format!(
             "methods.{}(Emitter::new(program, {0}.0), {0}.1);",
-            &method.header.method_name
+            &method.header.method_name.replace(':', "_")
         ));
     }
 
@@ -124,7 +127,7 @@ fn emit_method_new(ast: &AST) -> Function {
 }
 
 pub fn emit_method(scope: &mut Impl, section: &Section) {
-    let mut f = Function::new(&section.header.method_name);
+    let mut f = Function::new(&section.header.method_name.replace(':', "_"));
 
     f.arg_ref_self();
 
@@ -147,7 +150,7 @@ pub fn emit_method(scope: &mut Impl, section: &Section) {
     let mut code = Block::new("");
 
     let idx = &section.header.document_index;
-    let name = &section.header.method_name;
+    let name = &section.header.method_name.replace(':', "_");
     code.line(format!(
         r#"e.comment("{} {} ( {} )");"#,
         idx,
@@ -199,10 +202,6 @@ fn emit_stmts(counter: &mut usize, block: &mut Block, stmts: &[Statement], emit_
             crate::Statement::Assign { variable, value } => {
                 let value = emit_expr(counter, block, value);
                 block.line(format!("let {} = {};", varname(variable), value));
-            }
-            crate::Statement::ReturnIfAbrupt { expr } => {
-                let value = emit_expr(counter, block, expr);
-                block.line(format!("e.ReturnIfAbrupt({})", value));
             }
             crate::Statement::If {
                 condition,
@@ -291,7 +290,6 @@ fn emit_stmts(counter: &mut usize, block: &mut Block, stmts: &[Statement], emit_
 
                 block.line(line);
             }
-            crate::Statement::Comment { message, location } => todo!(),
             crate::Statement::CallStatic {
                 function_name,
                 args,
@@ -302,9 +300,22 @@ fn emit_stmts(counter: &mut usize, block: &mut Block, stmts: &[Statement], emit_
                     .collect::<Vec<_>>()
                     .join(", ");
 
-                block.line(format!("e.call(self.{}, [{}]", function_name, args));
+                block.line(format!(
+                    "e.call(self.{}, [{}]",
+                    function_name.replace(':', "_"),
+                    args
+                ));
             }
-            crate::Statement::CallVirt { fn_ptr, args } => todo!(),
+            crate::Statement::CallVirt { fn_ptr, args } => {
+                let fn_ptr = emit_expr(counter, block, fn_ptr);
+                let args = args
+                    .iter()
+                    .map(|e| emit_expr(counter, block, e))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+
+                block.line(format!("e.call_virt_dynargs({}, vec![{}]);", fn_ptr, args));
+            }
             crate::Statement::Assert { expr, message } => {
                 let assertion = emit_expr(counter, block, expr);
                 block.line(format!("e.assert({}, {:?});", assertion, message));
@@ -363,7 +374,6 @@ fn emit_expr(counter: &mut usize, block: &mut Block, expr: &Expression) -> Strin
             *counter -= 1;
             return varname(variable);
         }
-        Expression::ReturnIfAbrupt(_) => todo!(),
         Expression::LetIn {
             variable,
             be_bound_to,
@@ -381,8 +391,17 @@ fn emit_expr(counter: &mut usize, block: &mut Block, expr: &Expression) -> Strin
         Expression::RecordNew => {
             block.line(format!("let {} = e.record_new();", result));
         }
-        Expression::Unreachable => todo!(),
-        Expression::RecordGetProp { record, property } => todo!(),
+        Expression::Unreachable => {
+            block.line(format!("let {} = e.unreachable();", result));
+        }
+        Expression::RecordGetProp { record, property } => {
+            let record = emit_expr(counter, block, record);
+            let property = emit_expr(counter, block, property);
+            block.line(format!(
+                "let {} = e.record_get_prop({}, {});",
+                result, record, property
+            ));
+        }
         Expression::RecordGetSlot { record, slot } => {
             let record = emit_expr(counter, block, record);
             block.line(format!(
@@ -390,7 +409,14 @@ fn emit_expr(counter: &mut usize, block: &mut Block, expr: &Expression) -> Strin
                 result, record, slot
             ));
         }
-        Expression::RecordHasProp { record, property } => todo!(),
+        Expression::RecordHasProp { record, property } => {
+            let record = emit_expr(counter, block, record);
+            let property = emit_expr(counter, block, property);
+            block.line(format!(
+                "let {} = e.record_has_prop({}, {});",
+                result, record, property
+            ));
+        }
         Expression::RecordHasSlot { record, slot } => {
             let expr = emit_expr(counter, block, record);
             block.line(format!(
@@ -398,7 +424,13 @@ fn emit_expr(counter: &mut usize, block: &mut Block, expr: &Expression) -> Strin
                 result, expr, slot
             ));
         }
-        Expression::GetFnPtr { function_name } => todo!(),
+        Expression::GetFnPtr { function_name } => {
+            block.line(format!(
+                "let {} = e.make_fnptr(self.{}.id);",
+                result,
+                function_name.replace(':', "_")
+            ));
+        }
         Expression::CallStatic {
             function_name,
             args,
@@ -411,10 +443,25 @@ fn emit_expr(counter: &mut usize, block: &mut Block, expr: &Expression) -> Strin
 
             block.line(format!(
                 "let {} = e.call_with_result(self.{}, [{}]);",
-                result, function_name, args
+                result,
+                function_name.replace(':', "_"),
+                args
             ));
         }
-        Expression::CallVirt { fn_ptr, args } => todo!(),
+        Expression::CallVirt { fn_ptr, args } => {
+            let fn_ptr = emit_expr(counter, block, fn_ptr);
+
+            let args = args
+                .iter()
+                .map(|e| emit_expr(counter, block, e))
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            block.line(format!(
+                "let {} = e.call_virt_dynargs_with_result({}, vec![{}])",
+                result, fn_ptr, args
+            ));
+        }
         Expression::MakeTrivial { trivial_item } => {
             block.line(format!(
                 "let {} = e.make_trivial(TrivialItem::{});",
@@ -473,7 +520,11 @@ fn emit_expr(counter: &mut usize, block: &mut Block, expr: &Expression) -> Strin
                 result, expr, kind
             ));
         }
-        Expression::IsTypeAs { lhs, rhs } => todo!(),
+        Expression::IsTypeAs { lhs, rhs } => {
+            let lhs = emit_expr(counter, block, lhs);
+            let rhs = emit_expr(counter, block, rhs);
+            block.line(format!("let {} = e.is_type_as({}, {});", result, lhs, rhs));
+        }
     };
     result
 }

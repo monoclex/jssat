@@ -29,11 +29,6 @@ pub enum Statement {
         variable: Variable,
         value: Expression,
     },
-    /// ReturnIfAbrupt statement is not different from the expression version.
-    /// just simply usable at the statement level
-    ReturnIfAbrupt {
-        expr: Expression,
-    },
     /// An if statement as an expression is different than an if statement as a
     /// statement becuase an if statement as an expression MUST have a carry
     /// value, whereas an if statement as a statement does not.
@@ -56,10 +51,10 @@ pub enum Statement {
         expr: Option<Expression>,
     },
     // TODO(irfile): should we have a comment instruction?
-    Comment {
-        message: String,
-        location: Span,
-    },
+    // Comment {
+    //     message: String,
+    //     location: Span,
+    // },
     /// A call as an expression is different from a call as a statement, because
     /// an expression call expects a value whereas statement call does not.
     CallStatic {
@@ -97,7 +92,6 @@ pub enum Expression {
         r#in: (Vec<Statement>, Box<Expression>),
     },
     Unreachable,
-    ReturnIfAbrupt(Box<Expression>),
     RecordNew,
     RecordGetProp {
         record: Box<Expression>,
