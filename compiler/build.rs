@@ -26,9 +26,9 @@ fn compile_ecmascript_in_jssat_vm() {
         std::fs::read_to_string("./src/frontend/js/ecmascript/ecma262_irfile.lisp").unwrap();
     println!("cargo:rerun-if-changed=src/frontend/js/ecmascript/ecma262_irfile.lisp");
 
-    output
-        .write_all(r#"const HELLO_WORLD: &str = "Hello, World!";"#.as_bytes())
-        .unwrap();
+    let code = ir_file::generate(&ecmascript_src);
+
+    output.write_all(code.as_bytes()).unwrap();
 }
 
 fn link_jssatrt() {

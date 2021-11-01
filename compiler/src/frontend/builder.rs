@@ -532,49 +532,31 @@ impl DynBlockBuilder {
         result
     }
 
-    pub fn make_null(&mut self) -> RegisterId {
+    pub fn make_trivial(&mut self, item: TrivialItem) -> RegisterId {
         let result = self.gen_register_id.next();
-        self.instructions.push(Instruction::MakeTrivial(Make {
-            result,
-            item: TrivialItem::Null,
-        }));
+        self.instructions
+            .push(Instruction::MakeTrivial(Make { result, item }));
         result
+    }
+
+    pub fn make_null(&mut self) -> RegisterId {
+        self.make_trivial(TrivialItem::Null)
     }
 
     pub fn make_undefined(&mut self) -> RegisterId {
-        let result = self.gen_register_id.next();
-        self.instructions.push(Instruction::MakeTrivial(Make {
-            result,
-            item: TrivialItem::Undefined,
-        }));
-        result
+        self.make_trivial(TrivialItem::Undefined)
     }
 
     pub fn make_throw(&mut self) -> RegisterId {
-        let result = self.gen_register_id.next();
-        self.instructions.push(Instruction::MakeTrivial(Make {
-            result,
-            item: TrivialItem::Throw,
-        }));
-        result
+        self.make_trivial(TrivialItem::Throw)
     }
 
     pub fn make_empty(&mut self) -> RegisterId {
-        let result = self.gen_register_id.next();
-        self.instructions.push(Instruction::MakeTrivial(Make {
-            result,
-            item: TrivialItem::Empty,
-        }));
-        result
+        self.make_trivial(TrivialItem::Empty)
     }
 
     pub fn make_normal(&mut self) -> RegisterId {
-        let result = self.gen_register_id.next();
-        self.instructions.push(Instruction::MakeTrivial(Make {
-            result,
-            item: TrivialItem::Normal,
-        }));
-        result
+        self.make_trivial(TrivialItem::Normal)
     }
 
     pub fn make_fnptr(&mut self, function: FunctionId) -> RegisterId {

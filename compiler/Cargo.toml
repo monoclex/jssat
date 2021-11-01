@@ -41,6 +41,9 @@ gc = { version = "0.4.1", features = ["derive"] }
 method_syntax = { path = "../method_syntax" }
 serial_test = "0.5.1"
 
+[build-dependencies]
+ir_file = { path = "../ir_file" }
+
 [dependencies.inkwell]
 git = "https://github.com/TheDan64/inkwell"
 branch = "master"
