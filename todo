@@ -1,0 +1,5 @@
+split `compiler` into multiple components
+add `List` datatype to JSSAT
+add `loop` construct to IR files
+add `execution context` to IR files
+add virtual ParseNode methods to parsed JavaScript code

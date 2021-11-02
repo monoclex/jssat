@@ -458,7 +458,7 @@ fn emit_expr(counter: &mut usize, block: &mut Block, expr: &Expression) -> Strin
                 .join(", ");
 
             block.line(format!(
-                "let {} = e.call_virt_dynargs_with_result({}, vec![{}])",
+                "let {} = e.call_virt_dynargs_with_result({}, vec![{}]);",
                 result, fn_ptr, args
             ));
         }

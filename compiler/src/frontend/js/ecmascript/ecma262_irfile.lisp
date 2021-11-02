@@ -26,6 +26,7 @@
 (def (both :a :b (:x :y)) (and (:a :x :y) (:b :x :y)))
 (def (both :1 :2 :f) (and (:f :1) (:f :2)))
 (def (either :a :b (:x :y)) (or (:a :x :y) (:b :x :y)))
+(def (todo) (assert false "TODO"))
 
 (def
   (elif :condition :then-expr :end-expr)
@@ -71,6 +72,8 @@
 (def (isnt-null :x) (:x != null))
 (def (is-true :x) (:x == true))
 (def (is-false :x) (:x == false))
+(def (is-normal :x) (:x == normal))
+(def (is-empty :x) (:x == empty))
 (def (is-string :x) (is-type-of String :x))
 (def (is-symbol :x) (is-type-of Symbol :x))
 (def (is-number :x) (is-type-of Number :x))
@@ -142,15 +145,69 @@
 (def
   (? :x)
   (expr-block
-   ((arg = :x)
+   ((jssat_arg = :x)
     (;;; 1. If argument is an abrupt completion, return argument.
-     (if (is-abrupt-completion :arg)
-         ((return :arg)
+     (if (is-abrupt-completion :jssat_arg)
+         ((return :jssat_arg)
           (unreachable)))
      ;;; 2. Else if argument is a Completion Record, set argument to argument.[[Value]].
-     (elif (is-completion-record :arg)
-           ((record-get-slot :arg Value))
-           (:arg))))))
+     (elif (is-completion-record :jssat_arg)
+           ((record-get-slot :jssat_arg Value))
+           (:jssat_arg))))))
+
+; 6.2.3.2  NormalCompletion
+(def
+  (NormalCompletion :x)
+  (expr-block
+   ((jssat_normal_completion = record-new)
+    (:jssat_normal_completion Type <- normal)
+    (:jssat_normal_completion Value <- :x)
+    (:jssat_normal_completion Target <- empty)
+    (:jssat_normal_completion))))
+
+; 6.2.3.3  ThrowCompletion
+(def
+  (ThrowCompletion :x)
+  (expr-block
+   ((jssat_throw_completion = record-new)
+    (:jssat_throw_completion Type <- (trivial throw))
+    (:jssat_throw_completion Value <- :x)
+    (:jssat_throw_completion Target <- empty)
+    (:jssat_throw_completion))))
+
+;;;;;;;;;;;;;;;;;;
+; something ; (STATIC SEMANTICS AND RUNTIME SEMANTICS WIP SECTION)
+;;;;;;;;;;;;;;;;;;
+; well not really jssat behavior, more like implementation of static semantics
+; and the way static semantics are is that there's a jssat record for each ast
+; node with associated virtual methods that are implemented here
+; wait but we have runtime semantics too h m mm
+
+; TODO: these are all ParseNode related
+; we need to declare the algorithm steps here, then link to them in the code that
+; generates js objects from ecmascript spec
+
+;; TODO(isa): we need to auto generate these internal slots
+(def (evaluating :x) (call-virt (:x -> JSSATCode)))
+(def (BoundNames :x) (call-virt (:x -> JSSATBoundNames)))
+(def (DeclarationPart :x) (call-virt (:x -> JSSATDeclarationPart)))
+(def (IsConstantDeclaration :x) (call-virt (:x -> JSSATIsConstantDeclaration)))
+(def (LexicallyDeclaredNames :x) (call-virt (:x -> JSSATLexicallyDeclaredNames)))
+(def (LexicallyScopedDeclarations :x) (call-virt (:x -> JSSATLexicallyScopedDeclarations)))
+(def (VarDeclaredNames :x) (call-virt (:x -> JSSATVarDeclaredNames)))
+(def (VarScopedDeclarations :x) (call-virt (:x -> JSSATVarScopedDeclarations)))
+(def (TopLevelLexicallyDeclaredNames :x) (call-virt (:x -> JSSATTopLevelLexicallyDeclaredNames)))
+(def (TopLevelLexicallyScopedDeclarations :x) (call-virt (:x -> JSSATTopLevelLexicallyScopedDeclarations)))
+(def (TopLevelVarDeclaredNames :x) (call-virt (:x -> JSSATTopLevelVarDeclaredNames)))
+(def (TopLevelVarScopedDeclarations :x) (call-virt (:x -> JSSATTopLevelVarScopedDeclarations)))
+(def (ContainsDuplicateLabels :x) (call-virt (:x -> JSSATContainsDuplicateLabels)))
+(def (ContainsUndefinedBreakTarget :x) (call-virt (:x -> JSSATContainsUndefinedBreakTarget)))
+(def (ContainsUndefinedContinueTarget :x) (call-virt (:x -> JSSATContainsUndefinedContinueTarget)))
+(def (HasName :x) (call-virt (:x -> JSSATHasName)))
+(def (IsFunctionDefinition :x) (call-virt (:x -> JSSATIsFunctionDefinition)))
+
+; TODO: actually an algorithm we can write
+(def (IsAnonymousFunctionDefinition :x :expr) (call-virt (:x -> JSSATIsAnonymousFunctionDefinition) :expr))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; METHOD IMPLEMENTATIONS ;
@@ -375,3 +432,102 @@
         (record-copy-slot-if-present :Desc :P Enumerable)))
    ;;; 10. Return true
    (return true)))
+
+(section
+  (:16.1.6 ScriptEvaluation (scriptRecord))
+  (;;; 1. Let globalEnv be scriptRecord.[[Realm]].[[GlobalEnv]].
+   (globalEnv = ((:scriptRecord -> Realm) -> GlobalEnv))
+   ;;; 2. Let scriptContext be a new ECMAScript code execution context.
+   (scriptContext = record-new)
+   ;;; 3. Set the Function of scriptContext to null.
+   (:scriptContext Function <- null)
+   ;;; 4. Set the Realm of scriptContext to scriptRecord.[[Realm]].
+   (:scriptContext Realm <- (:scriptRecord -> Realm))
+   ;;; 5. Set the ScriptOrModule of scriptContext to scriptRecord.
+   (:scriptContext ScriptOrModule <- :scriptRecord)
+   ;;; 6. Set the VariableEnvironment of scriptContext to globalEnv.
+   (:scriptContext VariableEnvironment <- :globalEnv)
+   ;;; 7. Set the LexicalEnvironment of scriptContext to globalEnv.
+   (:scriptContext LexicalEnvironment <- :globalEnv)
+   ;;; 8. Suspend the currently running execution context.
+   (todo)
+   ;;; 9. Push scriptContext onto the execution context stack; scriptContext is now the running execution context.
+   (todo)
+   ;;; 10. Let scriptBody be scriptRecord.[[ECMAScriptCode]].
+   (scriptBody = (:scriptRecord -> ECMAScriptCode))
+   ;;; 11. Let result be GlobalDeclarationInstantiation(scriptBody, globalEnv).
+   (result = (call GlobalDeclarationInstantiation :scriptBody :globalEnv))
+   ;;; 12. If result.[[Type]] is normal, then
+   (result = (if (is-normal (:result -> Type))
+                 (;;; a. Set result to the result of evaluating scriptBody.
+                  (evaluating :scriptBody))
+                 (:result)))
+   ;;; 13. If result.[[Type]] is normal and result.[[Value]] is empty, then
+   (result = (if ((is-normal (:result -> Type)) and (is-empty (:result -> Value)))
+                 (;;; a. Set result to NormalCompletion(undefined).
+                  (NormalCompletion undefined))
+                 (:result)))
+   ;;; 14. Suspend scriptContext and remove it from the execution context stack.
+   (todo)
+   ;;; 15. Assert: The execution context stack is not empty.
+   (todo)
+   ;;; 16. Resume the context that is now on the top of the execution context stack as the running execution context.
+   (todo)
+   ;;; 17. Return Completion(result).
+   (return :result)))
+
+(section
+  (:16.1.7 GlobalDeclarationInstantiation (script, env))
+  (;;; 1. Assert: env is a global Environment Record.
+   (todo)
+   ;;; 2. Let lexNames be the LexicallyDeclaredNames of script.
+   (lexNames = (LexicallyDeclaredNames :script))
+   ;;; 3. Let varNames be the VarDeclaredNames of script.
+   (varNames = (VarDeclaredNames :script))
+   ;;; 4. For each element name of lexNames, do
+   ;;; a. If env.HasVarDeclaration(name) is true, throw a SyntaxError exception.
+   ;;; b. If env.HasLexicalDeclaration(name) is true, throw a SyntaxError exception.
+   ;;; c. Let hasRestrictedGlobal be ? env.HasRestrictedGlobalProperty(name).
+   ;;; d. If hasRestrictedGlobal is true, throw a SyntaxError exception.
+   ;;; 5. For each element name of varNames, do
+   ;;; a. If env.HasLexicalDeclaration(name) is true, throw a SyntaxError exception.
+   ;;; 6. Let varDeclarations be the VarScopedDeclarations of script.
+   ;;; 7. Let functionsToInitialize be a new empty List.
+   ;;; 8. Let declaredFunctionNames be a new empty List.
+   ;;; 9. For each element d of varDeclarations, in reverse List order, do
+   ;;; a. If d is neither a VariableDeclaration nor a ForBinding nor a BindingIdentifier, then
+   ;;; i. Assert: d is either a FunctionDeclaration, a GeneratorDeclaration, an AsyncFunctionDeclaration, or an AsyncGeneratorDeclaration.
+   ;;; ii. NOTE: If there are multiple function declarations for the same name, the last declaration is used.
+   ;;; iii. Let fn be the sole element of the BoundNames of d.
+   ;;; iv. If fn is not an element of declaredFunctionNames, then
+   ;;; 1. Let fnDefinable be ? env.CanDeclareGlobalFunction(fn).
+   ;;; 2. If fnDefinable is false, throw a TypeError exception.
+   ;;; 3. Append fn to declaredFunctionNames.
+   ;;; 4. Insert d as the first element of functionsToInitialize.
+   ;;; 10. Let declaredVarNames be a new empty List.
+   ;;; 11. For each element d of varDeclarations, do
+   ;;; a. If d is a VariableDeclaration, a ForBinding, or a BindingIdentifier, then
+   ;;; i. For each String vn of the BoundNames of d, do
+   ;;; 1. If vn is not an element of declaredFunctionNames, then
+   ;;; a. Let vnDefinable be ? env.CanDeclareGlobalVar(vn).
+   ;;; b. If vnDefinable is false, throw a TypeError exception.
+   ;;; c. If vn is not an element of declaredVarNames, then
+   ;;; i. Append vn to declaredVarNames.
+   ;;; 12. NOTE: No abnormal terminations occur after this algorithm step if the global object is an ordinary object.However, if the global object is a Proxy exotic object it may exhibit behaviours that cause abnormalterminations in some of the following steps.
+   ;;; 13. NOTE: Annex B.3.3.2 adds additional steps at this point.
+   ;;; 14. Let lexDeclarations be the LexicallyScopedDeclarations of script.
+   ;;; 15. For each element d of lexDeclarations, do
+   ;;; a. NOTE: Lexically declared names are only instantiated here but not initialized.
+   ;;; b. For each element dn of the BoundNames of d, do
+   ;;; i. If IsConstantDeclaration of d is true, then
+   ;;; 1. Perform ? env.CreateImmutableBinding(dn, true).
+   ;;; ii. Else,
+   ;;; 1. Perform ? env.CreateMutableBinding(dn, false).
+   ;;; 16. For each Parse Node f of functionsToInitialize, do
+   ;;; a. Let fn be the sole element of the BoundNames of f.
+   ;;; b. Let fo be InstantiateFunctionObject of f with argument env.
+   ;;; c. Perform ? env.CreateGlobalFunctionBinding(fn, fo, false).
+   ;;; 17. For each String vn of declaredVarNames, do
+   ;;; a. Perform ? env.CreateGlobalVarBinding(vn, false).
+   ;;; 18. Return NormalCompletion(empty).
+   (return)))

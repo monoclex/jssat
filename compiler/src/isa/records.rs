@@ -77,6 +77,24 @@ pub enum InternalSlot {
     FunctionPrototype,
     /// `%Object.prototype%`
     ObjectPrototype,
+    // TODO: auto generate these from the ecmascript IR file
+    JSSATCode,
+    JSSATBoundNames,
+    JSSATDeclarationPart,
+    JSSATIsConstantDeclaration,
+    JSSATLexicallyDeclaredNames,
+    JSSATLexicallyScopedDeclarations,
+    JSSATVarDeclaredNames,
+    JSSATVarScopedDeclarations,
+    JSSATTopLevelLexicallyDeclaredNames,
+    JSSATTopLevelLexicallyScopedDeclarations,
+    JSSATTopLevelVarDeclaredNames,
+    JSSATTopLevelVarScopedDeclarations,
+    JSSATContainsDuplicateLabels,
+    JSSATContainsUndefinedBreakTarget,
+    JSSATContainsUndefinedContinueTarget,
+    JSSATHasName,
+    JSSATIsFunctionDefinition,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
