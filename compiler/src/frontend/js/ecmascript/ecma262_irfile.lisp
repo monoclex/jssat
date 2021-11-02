@@ -31,6 +31,17 @@
   (elif :condition :then-expr :end-expr)
   ((if :condition :then-expr :end-expr)))
 
+(def
+  (if-elif3-else
+   (:cond :then)
+   (:cond1 :then1)
+   (:cond2 :then2)
+   :else)
+  (if :cond
+      :then
+      (elif :cond1 :then1
+            (elif :cond2 :then2 :else))))
+
 ; i'm too lazy to change let exprs to expr blocks atm
 (def (expr-block :x) (let
                        _discard
@@ -86,6 +97,11 @@
   (if (record-absent-slot :src :slot)
       ((record-set-slot :dest :slot :default))
       ((record-set-slot :dest :slot (record-get-slot :src :slot)))))
+
+(def
+  (record-copy-slot-if-present :src :dest :slot)
+  (if (record-has-slot :src :slot)
+      ((record-set-slot :dest :slot (:src -> :slot)))))
 
 (def (record-absent-slot2 :r :1 :2)
   (and (record-absent-slot :r :1) (record-absent-slot :r :2)))
@@ -286,47 +302,76 @@
             ((if (is-false (! (call SameValue (:Desc -> Enumerable) (:current -> Enumerable))))
                  ((return false)))))))
    ;;; 5. If ! IsGenericDescriptor(Desc) is true, then
-   (if (is-true (! (call IsGenericDescriptor :Desc)))
-       ;;; a. NOTE: No further validation is required.
-       ()
-       ;;; 6. Else if ! SameValue(! IsDataDescriptor(current), ! IsDataDescriptor(Desc)) is false, then
-       (elif (is-false (! (call SameValue (! (call IsDataDescriptor :current)) (! (call IsDataDescriptor :Desc)))))
-             (;;; a. If current.[[Configurable]] is false, return false.
-              (if (is-false (:current -> Configurable)) ((return false)))
-              ;;; b. If IsDataDescriptor(current) is true, then
-              (if (is-true (call IsDataDescriptor :current))
-                  (;;; i. If O is not undefined, convert the property named P of object O from a data property to an
-                   ;;;    accessor property. Preserve the existing values of the converted property's [[Configurable]]
-                   ;;;    and [[Enumerable]] attributes and set the rest of the property's attributes to their default
-                   ;;;    values.
-                   (if (isnt-undef :O)
-                       ((P = (:O => :P))
-                        (:P Get <- undefined)
-                        (:P Set <- undefined)
-                        (:P Value <-)
-                        (:P Writable <-))))
-                  ;;; c. Else,
-                  (;;; i. If O is not undefined, convert the property named P of object O from an accessor property to
-                   ;;;    a data property. Preserve the existing values of the converted property's [[Configurable]]
-                   ;;;    and [[Enumerable]] attributes and set the rest of the property's attributes to their default
-                   ;;;    values.
-                   (if (isnt-undef :O)
-                       ((P = (:O => :P))
-                        (:P Value <- undefined)
-                        (:P Writable <- undefined)
-                        (:P Get <-)
-                        (:P Set <-))))))
-             ;;; 7. Else if IsDataDescriptor(current) and IsDataDescriptor(Desc) are both true, then
-             (elif (both (call IsDataDescriptor :current) (call IsDataDescriptor :Desc) is-true)
-                   (;;; a. If current.[[Configurable]] is false and current.[[Writable]] is false, then
-                    (if (both (:current -> Configurable) (:current -> Writable) is-false)
-                        (;;; i. If Desc.[[Writable]] is present and Desc.[[Writable]] is true, return false.
-                         (record-do-slot writable :Desc Writable (if (is-true writable) ((return true))))
-                         ;;; ii. If Desc.[[Value]] is present and SameValue(Desc.[[Value]], current.[[Value]]) is false, return false.
-                         (if (record-has-slot :Desc Value)
-                             ((if (is-false (call SameValue (:Desc -> Value) (:current -> Value)))
-                                  ((return false)))))
-                         ;;; iii. Return true.
-                         (return true)))))))
-
-   (return)))
+   (if-elif3-else
+    ((is-true (! (call IsGenericDescriptor :Desc)))
+     (;;; a. NOTE: No further validation is required.
+     ))
+    ;;; 6. Else if ! SameValue(! IsDataDescriptor(current), ! IsDataDescriptor(Desc)) is false, then
+    ((is-false (! (call SameValue (! (call IsDataDescriptor :current)) (! (call IsDataDescriptor :Desc)))))
+     (;;; a. If current.[[Configurable]] is false, return false.
+      (if (is-false (:current -> Configurable)) ((return false)))
+      ;;; b. If IsDataDescriptor(current) is true, then
+      (if (is-true (call IsDataDescriptor :current))
+          (;;; i. If O is not undefined, convert the property named P of object O from a data property to an
+           ;;;    accessor property. Preserve the existing values of the converted property's [[Configurable]]
+           ;;;    and [[Enumerable]] attributes and set the rest of the property's attributes to their default
+           ;;;    values.
+           (if (isnt-undef :O)
+               ((P = (:O => :P))
+                (:P Get <- undefined)
+                (:P Set <- undefined)
+                (:P Value <-)
+                (:P Writable <-))))
+          ;;; c. Else,
+          (;;; i. If O is not undefined, convert the property named P of object O from an accessor property to
+           ;;;    a data property. Preserve the existing values of the converted property's [[Configurable]]
+           ;;;    and [[Enumerable]] attributes and set the rest of the property's attributes to their default
+           ;;;    values.
+           (if (isnt-undef :O)
+               ((P = (:O => :P))
+                (:P Value <- undefined)
+                (:P Writable <- undefined)
+                (:P Get <-)
+                (:P Set <-)))))))
+    ;;; 7. Else if IsDataDescriptor(current) and IsDataDescriptor(Desc) are both true, then
+    ((both (call IsDataDescriptor :current) (call IsDataDescriptor :Desc) is-true)
+     (;;; a. If current.[[Configurable]] is false and current.[[Writable]] is false, then
+      (if (both (:current -> Configurable) (:current -> Writable) is-false)
+          (;;; i. If Desc.[[Writable]] is present and Desc.[[Writable]] is true, return false.
+           (record-do-slot writable :Desc Writable (if (is-true :writable) ((return true))))
+           ;;; ii. If Desc.[[Value]] is present and SameValue(Desc.[[Value]], current.[[Value]]) is false, return false.
+           (if (record-has-slot :Desc Value)
+               ((if (is-false (call SameValue (:Desc -> Value) (:current -> Value)))
+                    ((return false)))))
+           ;;; iii. Return true.
+           (return true)))))
+    ;;;  8. Else,
+    (;;; a. Assert: ! IsAccessorDescriptor(current) and ! IsAccessorDescriptor(Desc) are both true.
+     (assert
+      (both (! (call IsAccessorDescriptor :current)) (! (call IsAccessorDescriptor :Desc)) is-true)
+      "! IsAccessorDescriptor(current) and ! IsAccessorDescriptor(Desc) are both true")
+     ;;; b. If current.[[Configurable]] is false, then
+     (if (is-false (:current -> Configurable))
+         (;;; i. If Desc.[[Set]] is present and SameValue(Desc.[[Set]], current.[[Set]]) is false, return false.
+          (if ((record-has-slot :Desc Set))
+              ((if (is-false (call SameValue (:Desc -> Set) (:current -> Set)))
+                   ((return false)))))
+          ;;; ii. If Desc.[[Get]] is present and SameValue(Desc.[[Get]], current.[[Get]]) is false, return false.
+          (if ((record-has-slot :Desc Get))
+              ((if (is-false (call SameValue (:Desc -> Get) (:current -> Get)))
+                   ((return false)))))
+          ;;; iii. Return true.
+          (return true)))))
+   ;;; 9. If O is not undefined, then
+   (if (isnt-undef :O)
+       (;;; a. For each field of Desc that is present, set the corresponding attribute of the property named P of object O
+        ;;;    to the value of the field.
+        (P = (:O => :P))
+        (record-copy-slot-if-present :Desc :P Value)
+        (record-copy-slot-if-present :Desc :P Writable)
+        (record-copy-slot-if-present :Desc :P Get)
+        (record-copy-slot-if-present :Desc :P Set)
+        (record-copy-slot-if-present :Desc :P Configurable)
+        (record-copy-slot-if-present :Desc :P Enumerable)))
+   ;;; 10. Return true
+   (return true)))

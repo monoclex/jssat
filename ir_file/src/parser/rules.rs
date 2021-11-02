@@ -48,13 +48,7 @@ pub fn apply_rule_recursively(rule: &Node, generate: &Node, node: Node) -> Node 
 }
 
 pub fn apply_rule_recursively_inner(rule: &Node, generate: &Node, node: Node) -> (bool, Node) {
-    let (changed, node) = apply_rule(rule, generate, node);
-
-    if changed {
-        return (changed, node);
-    }
-
-    match node {
+    let (changed, node) = match node {
         Node::Parent(children, span) => {
             let mut changed = false;
 
@@ -73,7 +67,10 @@ pub fn apply_rule_recursively_inner(rule: &Node, generate: &Node, node: Node) ->
             (changed, node)
         }
         other => (false, other),
-    }
+    };
+
+    let (changed2, node) = apply_rule(rule, generate, node);
+    (changed || changed2, node)
 }
 
 pub fn apply_rule(rule: &Node, generate: &Node, node: Node) -> (bool, Node) {
@@ -308,8 +305,8 @@ mod rule_tests {
             yields("(x)"),
             "smokescreen check"
         );
-        assert_eq!(rec_transform("((x)) (x)", "((((x))))"), yields("(((x)))"));
-        assert_eq!(rec_transform("((x)) (x)", "((((x))))"), yields("(((x)))"));
+        assert_eq!(rec_transform("((x)) (x)", "((((x))))"), yields("(x)"));
+        assert_eq!(rec_transform("((x)) (x)", "((((x))))"), yields("(x)"));
     }
 
     #[test]
