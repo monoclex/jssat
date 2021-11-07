@@ -1,4 +1,14 @@
-use super::builder::{DynBlockBuilder, FnSignature, FunctionBuilder, ProgramBuilder, RegisterId};
+//! The Emitter API provides high-level features over the raw Builder API, such
+//! as for loops and if statements.
+//!
+//! The Emitter API is a giant hack, primarily geared towards code generation
+//! from IR files, and is gross.
+
+use std::convert::TryInto;
+
+use super::builder::{
+    BlockId, DynBlockBuilder, FnSignature, FunctionBuilder, ProgramBuilder, RegisterId,
+};
 use derive_more::{Deref, DerefMut};
 
 // pub use super::builder::*;
@@ -15,13 +25,34 @@ pub struct Emitter<'builder, const P: usize> {
     block_builder: DynBlockBuilder,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum ControlFlow {
     Fallthrough,
     // TODO: support `carry` for expression fun-ness
     Carry(RegisterId),
     Return(Option<RegisterId>),
     Unreachable,
+    /// Not intended for public users
+    Jump(BlockId, Vec<RegisterId>),
+    /// Not intended for general use
+    Next(Vec<RegisterId>),
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub enum LoopControlFlow<const L: usize> {
+    Return(Option<RegisterId>),
+    Next([RegisterId; L]),
+}
+
+impl<const L: usize> LoopControlFlow<L> {
+    pub fn into_dyn(self) -> ControlFlow {
+        use LoopControlFlow::*;
+
+        match self {
+            Return(value) => ControlFlow::Return(value),
+            Next(value) => ControlFlow::Next(value.to_vec()),
+        }
+    }
 }
 
 impl ControlFlow {
@@ -89,6 +120,98 @@ impl<'b, const P: usize> Emitter<'b, P> {
         let condition = condition(self);
 
         EmitterIf::new(self, condition, then)
+    }
+
+    /// Creates a loop with a set of initialization expressions, a condition
+    // TODO: thorough documentation
+    pub fn do_loop<const R: usize>(
+        &mut self,
+        init_exprs: [Box<dyn FnOnce(&mut Self) -> RegisterId>; R],
+        cond_expr: impl FnOnce(&mut Self, [RegisterId; R]) -> RegisterId,
+        body: impl FnOnce(&mut Self, [RegisterId; R]) -> LoopControlFlow<R>,
+    ) {
+        self.do_loop_dyn(
+            std::array::IntoIter::new(init_exprs).into_iter().collect(),
+            |me, args| cond_expr(me, args.try_into().unwrap()),
+            |me, args| body(me, args.try_into().unwrap()).into_dyn(),
+        )
+    }
+
+    /// See [`do_loop`] for more documentation
+    pub fn do_loop_dyn(
+        &mut self,
+        init_exprs: Vec<Box<dyn FnOnce(&mut Self) -> RegisterId>>,
+        cond_expr: impl FnOnce(&mut Self, Vec<RegisterId>) -> RegisterId,
+        body: impl FnOnce(&mut Self, Vec<RegisterId>) -> ControlFlow,
+    ) {
+        let arg_count = init_exprs.len();
+
+        // get the initial values
+        let initial_values = init_exprs.into_iter().map(|f| f(self)).collect::<Vec<_>>();
+
+        // set up a block to run on each iteration of hte loop
+        let (mut loop_iter, args) = self.function_builder.start_block_dynargs(arg_count);
+        let loop_iter_id = loop_iter.id;
+
+        // set up a block to return to once the
+        let (mut final_block, _) = self.function_builder.start_block_dynargs(0);
+        let final_block_id = final_block.id;
+
+        // jump to the loop block with the initial values
+        // swap with the `loop_iter` block because that's where we want to emit code to
+        // eventually
+        std::mem::swap(&mut self.block_builder, &mut loop_iter);
+        let real_self = loop_iter;
+        let real_loop_iter = &mut self.block_builder;
+
+        // now perform the jump to the loop
+        self.function_builder
+            .end_block_dyn(real_self.jmp_dynargs(loop_iter_id, initial_values));
+
+        // emit code to check the condition
+        let condition = cond_expr(self, args.clone());
+
+        // jump out of the loop if the condition is false
+        self.if_then(
+            |e| e.negate(condition),
+            |_| ControlFlow::Jump(final_block_id, vec![]),
+        );
+
+        // emit the body of the loop
+        let new_values = body(self, args);
+
+        // to finish off the loop, we must set our current control flow to after the
+        // loop then, jump back to the top of the loop
+        let real_loop_iter = &mut self.block_builder;
+        std::mem::swap(&mut final_block, real_loop_iter);
+        let real_final_block = real_loop_iter;
+        let mut real_loop_iter = final_block;
+
+        self.function_builder.end_block_dyn(match new_values {
+            ControlFlow::Return(value) => real_loop_iter.ret(value),
+            ControlFlow::Next(new_values) => {
+                debug_assert_eq!(arg_count, new_values.len());
+                real_loop_iter.jmp_dynargs(loop_iter_id, new_values)
+            }
+            ControlFlow::Unreachable => {
+                real_loop_iter.unreachable();
+                real_loop_iter.ret(None)
+            }
+            _ => panic!("should not be using that control flow methtod here"),
+            /* // we shouldn't be pattern matching on any of these ever, but there is a sensible
+             * // implementation for all of them
+             * ControlFlow::Fallthrough => {
+             *     assert_eq!(arg_count, 0);
+             *     real_loop_iter.jmp_dynargs(real_final_block.id, vec![])
+             * }
+             * ControlFlow::Carry(value) => {
+             *     assert_eq!(arg_count, 1);
+             *     real_loop_iter.jmp_dynargs(real_final_block.id, vec![value])
+             * }
+             * ControlFlow::Jump(block, args) => real_loop_iter.jmp_dynargs(block, args), */
+        });
+
+        // now we're done
     }
 }
 
@@ -199,14 +322,16 @@ impl<'bo, 'bu, const P: usize> EmitterIf<'bo, 'bu, P> {
         // fallthrough to after the end
         let fallthrough_id = self.fallthrough_clause.unwrap_or(false_clause_id);
 
-        let termination = match self.control_flow {
+        let termination = match self.control_flow.clone() {
             ControlFlow::Fallthrough => current_path.jmp_dynargs(fallthrough_id, vec![]),
             ControlFlow::Carry(value) => current_path.jmp_dynargs(fallthrough_id, vec![value]),
             ControlFlow::Return(value) => current_path.ret(value),
+            ControlFlow::Jump(block, args) => current_path.jmp_dynargs(block, args),
             ControlFlow::Unreachable => {
                 current_path.unreachable();
                 current_path.ret(None)
             }
+            ControlFlow::Next(args) => panic!("improper control flow in if"),
         };
         self.emitter.function_builder.end_block_dyn(termination);
 
@@ -296,10 +421,12 @@ where
             ControlFlow::Fallthrough => false_clause.jmp_dynargs(end_clause_id, vec![]),
             ControlFlow::Carry(value) => false_clause.jmp_dynargs(end_clause_id, vec![value]),
             ControlFlow::Return(value) => false_clause.ret(value),
+            ControlFlow::Jump(block, args) => false_clause.jmp_dynargs(block, args),
             ControlFlow::Unreachable => {
                 false_clause.unreachable();
                 false_clause.ret(None)
             }
+            ControlFlow::Next(args) => panic!("improper control flow in if"),
         };
         emitter.function_builder.end_block_dyn(finalized);
 
@@ -511,5 +638,63 @@ mod tests {
 
         value_is_bytes("if", run([Boolean(true)]).get());
         value_is_bytes("else", run([Boolean(false)]).get());
+    }
+
+    /// Makes sure that loop codegen doesn't spin
+    #[test]
+    #[ntest::timeout(1_000)]
+    pub fn empty_loop_works() {
+        let run = create_interpreter(|e, []| {
+            e.do_loop(
+                [],
+                |e, []| e.make_bool(false),
+                |_, []| LoopControlFlow::Next([]),
+            );
+            None
+        });
+
+        assert!(run([]).unwrap().is_none());
+    }
+
+    /// Makes sure that the loop body gets executed
+    #[test]
+    #[ntest::timeout(1_000)]
+    pub fn simple_loop() {
+        let run = create_interpreter(|e, []| {
+            e.do_loop(
+                [],
+                |e, []| e.make_bool(true),
+                |e, []| LoopControlFlow::Return(Some(e.load_str("return"))),
+            );
+            Some(e.load_str("end"))
+        });
+
+        value_is_bytes("return", run([]).get());
+    }
+
+    /// Ensure that a loop runs 10 times successfully
+    #[test]
+    #[ntest::timeout(1_000)]
+    pub fn addition_loop() {
+        let run = create_interpreter(|e, []| {
+            e.do_loop(
+                [Box::new(|e| e.make_number_decimal(0))],
+                |e, [i]| {
+                    let max = e.make_number_decimal(10);
+                    e.if_then(
+                        |e| e.compare_equal(i, max),
+                        |e| ControlFlow::Return(Some(e.load_str("added"))),
+                    );
+                    e.compare_less_than(i, max)
+                },
+                |e, [i]| {
+                    let one = e.make_number_decimal(1);
+                    LoopControlFlow::Next([e.add(one, i)])
+                },
+            );
+            Some(e.load_str("end"))
+        });
+
+        value_is_bytes("added", run([]).get());
     }
 }

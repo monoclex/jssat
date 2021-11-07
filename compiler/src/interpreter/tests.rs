@@ -25,21 +25,6 @@ fn prepare() -> (Tests, Interpreter<'static>) {
     (tests, run)
 }
 
-/*
-
-macro_rules! vec {
-    () => (
-        $crate::__rust_force_expr!($crate::vec::Vec::new())
-    );
-    ($elem:expr; $n:expr) => (
-        $crate::__rust_force_expr!($crate::vec::from_elem($elem, $n))
-    );
-    ($($x:expr),+ $(,)?) => (
-        $crate::__rust_force_expr!(<[_]>::into_vec(box [$($x),+]))
-    );
-}
-*/
-
 macro_rules! list {
     () => {
         Value::List(Default::default())

@@ -486,7 +486,10 @@ impl<'c> InstExec<'c> {
                         (Trivial(lhs), Trivial(rhs)) => lhs == rhs,
                         _ => return fail(),
                     }),
-                    LessThan => return fail(),
+                    LessThan => Boolean(match (lhs, rhs) {
+                        (Number(lhs), Number(rhs)) => lhs < rhs,
+                        _ => return fail(),
+                    }),
                 };
 
                 self.registers.insert(i.result, value);

@@ -278,6 +278,19 @@ impl<const P: usize> FunctionBuilder<P> {
         (builder, parameters)
     }
 
+    pub fn start_block_dynargs(&mut self, arg_len: usize) -> (DynBlockBuilder, Vec<RegisterId>) {
+        let id = self.gen_block_id.next();
+
+        let mut parameters = Vec::with_capacity(arg_len);
+        for _ in 0..arg_len {
+            parameters.push(self.gen_register_id.next());
+        }
+
+        let builder = DynBlockBuilder::new(id, self.gen_register_id.clone(), parameters.clone());
+
+        (builder, parameters)
+    }
+
     pub fn end_block<const PARAMETERS: usize>(
         &mut self,
         builder: FinalizedBlockBuilder<PARAMETERS>,

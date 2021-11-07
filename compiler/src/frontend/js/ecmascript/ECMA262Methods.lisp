@@ -114,6 +114,8 @@
         (record-absent-slot :r :s3) (record-absent-slot :r :s4)
         (record-absent-slot :r :s5) (record-absent-slot :r :s6)))
 
+(def (list-push :list :x) (list-set :list ((list-len :list) - 1) :x))
+
 (def (isnt-abrupt-completion :x) (not (is-abrupt-completion :x)))
 (def
   (is-abrupt-completion :x)
