@@ -4,8 +4,6 @@
 //! ECMAScript specification. In order to use the generated ECMAScript methods,
 //! simply call [`use_ecma262`].
 
-#![allow(non_snake_case)]
-
 use crate::frontend::builder::ProgramBuilder;
 
 /// Includes all algorithms specified in ECMA262 into a JSSAT program. To use
@@ -16,12 +14,14 @@ pub fn use_ecma262(program_builder: &mut ProgramBuilder) -> ECMA262Methods {
     ECMA262Methods::new(program_builder)
 }
 
-use crate::{
-    frontend::{
-        builder::{FnSignature, RegisterId},
-        emitter::{ControlFlow, Emitter},
-    },
-    isa::{InternalSlot, TrivialItem, ValueType},
-};
-
-include!(concat!(env!("OUT_DIR"), "/ecma262_irfile.rs"));
+// thanks to Yandros ꜰʀ-ᴇꜱ on the Rust Programming Language Community Server for
+// helping out with this - pressing F12 on a method will go to the source code
+//
+// https://discord.com/channels/273534239310479360/335502067432947748/906949057379966996
+with_builtin_macros::with_builtin! {
+    let $path = concat!(env!("OUT_DIR"), "/ecma262_irfile.rs") in {
+        #[path = $path]
+        mod generated_code;
+        pub use generated_code::*;
+    }
+}

@@ -40,6 +40,7 @@ bumpalo = { version = "3.7.1", features = ["allocator_api", "boxed", "collection
 gc = { version = "0.4.1", features = ["derive"] }
 method_syntax = { path = "../method_syntax" }
 serial_test = "0.5.1"
+with_builtin_macros = "0.0.3"
 
 [build-dependencies]
 ir_file = { path = "../ir_file" }

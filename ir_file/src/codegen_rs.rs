@@ -77,11 +77,25 @@ pub fn gen(ast: AST) -> String {
     let f = emit_method_new(&ast);
     r#impl.push_fn(f);
 
-    scope.to_string()
+    format!(
+        "#![allow(non_snake_case)]
+
+use crate::{{
+    frontend::{{
+        builder::{{FnSignature, RegisterId, ProgramBuilder}},
+        emitter::{{ControlFlow, Emitter}},
+    }},
+    isa::{{InternalSlot, TrivialItem, ValueType}},
+}};
+
+{}",
+        scope.to_string()
+    )
 }
 
 fn emit_method_new(ast: &AST) -> Function {
     let mut f = Function::new("new");
+    f.vis("pub(crate)");
     f.arg("program", "&mut ProgramBuilder");
     f.ret("Self");
 
