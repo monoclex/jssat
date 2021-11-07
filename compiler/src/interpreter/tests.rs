@@ -1,6 +1,7 @@
 use crate::{frontend::builder::ProgramBuilder, lifted::lift};
 
 use super::*;
+use Value::*;
 
 with_builtin_macros::with_builtin! {
     let $path = concat!(env!("OUT_DIR"), "/Tests_irfile.rs") in {
@@ -24,14 +25,59 @@ fn prepare() -> (Tests, Interpreter<'static>) {
     (tests, run)
 }
 
+/*
+
+macro_rules! vec {
+    () => (
+        $crate::__rust_force_expr!($crate::vec::Vec::new())
+    );
+    ($elem:expr; $n:expr) => (
+        $crate::__rust_force_expr!($crate::vec::from_elem($elem, $n))
+    );
+    ($($x:expr),+ $(,)?) => (
+        $crate::__rust_force_expr!(<[_]>::into_vec(box [$($x),+]))
+    );
+}
+*/
+
+macro_rules! list {
+    () => {
+        Value::List(Default::default())
+    };
+    ($x: expr, $($rest: expr),+) => {{
+        let list_value = Value::List(Default::default());
+        let mut list = list_value.try_into_list_mut().unwrap();
+        list!(>>, list, $x, $($rest),+);
+        drop(list);
+        list_value
+    }};
+    (>>, $list: ident, $x: expr, $($rest: expr),+) => {{
+        $list.push($x);
+        list!(>>, $list, $($rest),+)
+    }};
+    (>>, $list: ident, $x: expr) => {{
+        $list.push($x);
+    }};
+}
+
 #[test]
 fn can_add() {
     let (tests, run) = prepare();
     let results = run
+        .execute_fn_id(tests.Add.id.map_context(), vec![Number(2), Number(3)])
+        .unwrap();
+    assert!(matches!(results, Some(Number(5))));
+}
+
+#[test]
+fn can_get() {
+    let (tests, run) = prepare();
+
+    let results = run
         .execute_fn_id(
-            tests.Add.id.map_context(),
-            vec![Value::Number(2), Value::Number(3)],
+            tests.GetList.id.map_context(),
+            vec![list![Number(1), Number(2), Number(3)], Number(1)],
         )
         .unwrap();
-    assert!(matches!(results, Some(Value::Number(5))));
+    assert!(matches!(results, Some(Number(2))));
 }

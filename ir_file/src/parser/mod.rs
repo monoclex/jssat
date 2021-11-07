@@ -289,6 +289,20 @@ fn parse_body(body: Vec<Node>) -> Vec<Statement> {
                         value: None,
                     }
                 }
+                (Some(Node::Word("list-set", _)), Some(list), Some(prop), Some(value)) => {
+                    Statement::ListSet {
+                        list: parse_expression(list),
+                        prop: parse_expression(prop),
+                        value: Some(parse_expression(value)),
+                    }
+                }
+                (Some(Node::Word("list-del", _)), Some(list), Some(prop), None) => {
+                    Statement::ListSet {
+                        list: parse_expression(list),
+                        prop: parse_expression(prop),
+                        value: None,
+                    }
+                }
                 (Some(Node::Word("call", _)), Some(Node::Word(fn_name, _)), _, _) => {
                     Statement::CallStatic {
                         function_name: fn_name.to_owned(),
@@ -343,6 +357,7 @@ fn parse_body(body: Vec<Node>) -> Vec<Statement> {
 fn parse_expression(node: Node<&str>) -> Expression {
     match node {
         Node::Word("record-new", _) => Expression::RecordNew,
+        Node::Word("list-new", _) => Expression::ListNew,
         Node::Word("true", _) => Expression::MakeBoolean { value: true },
         Node::Word("false", _) => Expression::MakeBoolean { value: false },
         Node::Word("unreachable", _) => Expression::Unreachable,
@@ -441,6 +456,14 @@ fn parse_expression(node: Node<&str>) -> Expression {
                 ) => Expression::RecordHasSlot {
                     record: Box::new(parse_expression(record)),
                     slot: slot.to_owned(),
+                },
+                (Some(Node::Word("list-get", _)), Some(list), Some(expr)) => Expression::ListGet {
+                    list: Box::new(parse_expression(list)),
+                    property: Box::new(parse_expression(expr)),
+                },
+                (Some(Node::Word("list-has", _)), Some(list), Some(expr)) => Expression::ListHas {
+                    list: Box::new(parse_expression(list)),
+                    property: Box::new(parse_expression(expr)),
                 },
                 (Some(Node::Word("get-fn-ptr", _)), Some(Node::Word(fn_name, _)), None) => {
                     Expression::GetFnPtr {

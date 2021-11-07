@@ -6,6 +6,10 @@
 ;
 
 (section
-  (:0.0.0 Add (x, y))
+  (:0 Add (x, y))
   ((result = (:x + :y))
    (return :result)))
+
+(section
+  (:0 GetList (list, idx))
+  ((return (list-get :list :idx))))

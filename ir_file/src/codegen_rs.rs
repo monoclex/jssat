@@ -331,6 +331,17 @@ fn emit_stmts(counter: &mut usize, block: &mut Block, stmts: &[Statement], emit_
                 let assertion = emit_expr(counter, block, expr);
                 block.line(format!("e.assert({}, {:?});", assertion, message));
             }
+            crate::Statement::ListSet { list, prop, value } => {
+                let list = emit_expr(counter, block, list);
+                let prop = emit_expr(counter, block, prop);
+
+                match value.as_ref().map(|expr| emit_expr(counter, block, expr)) {
+                    Some(value) => {
+                        block.line(format!("e.list_set({}, {}, {});", list, prop, value))
+                    }
+                    None => block.line(format!("e.list_del({}, {});", list, prop)),
+                };
+            }
         }
     }
 
@@ -535,6 +546,25 @@ fn emit_expr(counter: &mut usize, block: &mut Block, expr: &Expression) -> Strin
             let lhs = emit_expr(counter, block, lhs);
             let rhs = emit_expr(counter, block, rhs);
             block.line(format!("let {} = e.is_type_as({}, {});", result, lhs, rhs));
+        }
+        Expression::ListNew => {
+            block.line(format!("let {} = e.list_new();", result));
+        }
+        Expression::ListGet { list, property } => {
+            let record = emit_expr(counter, block, list);
+            let property = emit_expr(counter, block, property);
+            block.line(format!(
+                "let {} = e.list_get({}, {});",
+                result, record, property
+            ));
+        }
+        Expression::ListHas { list, property } => {
+            let record = emit_expr(counter, block, list);
+            let property = emit_expr(counter, block, property);
+            block.line(format!(
+                "let {} = e.list_has({}, {});",
+                result, record, property
+            ));
         }
     };
     result

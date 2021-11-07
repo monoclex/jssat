@@ -10,6 +10,7 @@
 mod build;
 pub use build::*;
 
+#[cfg(test)]
 mod tests;
 
 use std::convert::TryInto;

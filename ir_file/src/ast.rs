@@ -47,6 +47,11 @@ pub enum Statement {
         slot: Slot,
         value: Option<Expression>,
     },
+    ListSet {
+        list: Expression,
+        prop: Expression,
+        value: Option<Expression>,
+    },
     Return {
         expr: Option<Expression>,
     },
@@ -108,6 +113,15 @@ pub enum Expression {
     RecordHasSlot {
         record: Box<Expression>,
         slot: Slot,
+    },
+    ListNew,
+    ListGet {
+        list: Box<Expression>,
+        property: Box<Expression>,
+    },
+    ListHas {
+        list: Box<Expression>,
+        property: Box<Expression>,
     },
     GetFnPtr {
         function_name: FnName,
