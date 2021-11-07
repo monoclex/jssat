@@ -74,6 +74,9 @@ pub use binop::{BinOp, BinaryOperator};
 mod records;
 pub use records::{InternalSlot, NewRecord, RecordGet, RecordHasKey, RecordKey, RecordSet};
 
+mod lists;
+pub use lists::{ListGet, ListHasKey, ListKey, ListSet, NewList};
+
 mod call;
 pub use call::Call;
 

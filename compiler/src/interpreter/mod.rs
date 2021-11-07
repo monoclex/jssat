@@ -10,6 +10,7 @@
 mod build;
 pub use build::*;
 
+use std::convert::TryInto;
 use std::panic::Location;
 
 use derive_more::{Deref, DerefMut};
@@ -52,6 +53,11 @@ pub enum RecordKey {
     Symbol(()),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ListKey {
+    Index(usize),
+}
+
 #[derive(Clone, Debug, Trace, Finalize)]
 pub enum Value {
     Trivial(#[unsafe_ignore_trace] TrivialItem),
@@ -62,6 +68,7 @@ pub enum Value {
     FnPtr(#[unsafe_ignore_trace] FunctionId),
     Record(Gc<GcCell<Record>>),
     Symbol(()),
+    List(Gc<GcCell<List>>),
 }
 
 impl Value {
@@ -74,6 +81,7 @@ impl Value {
             Value::FnPtr(_) => ValueType::FnPtr,
             Value::Record(_) => ValueType::Record,
             Value::Symbol(_) => ValueType::Symbol,
+            Value::List(_) => ValueType::List,
         }
     }
 }
@@ -133,6 +141,32 @@ impl Value {
             _ => Err(InvalidType(Location::caller())),
         }
     }
+
+    #[track_caller]
+    pub fn try_into_list(&self) -> InstResult<gc::GcCellRef<List>> {
+        match self {
+            // writing `Ok(record.borrow())` causes rustc to overflow
+            // while trying to evaluate Add for OrderedFloat (...??? wtf????)
+            //
+            // implicitly solved by wrapping for error (we should anyways)
+            Self::List(list) => {
+                let borrow = list.try_borrow().map_err(BorrowErrorWrapper::Immut)?;
+                Ok(borrow)
+            }
+            _ => Err(InvalidType(Location::caller())),
+        }
+    }
+
+    #[track_caller]
+    pub fn try_into_list_mut(&self) -> InstResult<gc::GcCellRefMut<List>> {
+        match self {
+            Self::List(list) => {
+                let borrow = list.try_borrow_mut().map_err(BorrowErrorWrapper::Mut)?;
+                Ok(borrow)
+            }
+            _ => Err(InvalidType(Location::caller())),
+        }
+    }
 }
 
 #[derive(Deref, DerefMut, Debug, Finalize, Default)]
@@ -160,6 +194,27 @@ unsafe impl Trace for Record {
                 mark(v);
             }
         }
+    }
+}
+
+#[derive(Deref, DerefMut, Debug, Finalize, Trace, Default)]
+pub struct List(Vec<Value>);
+
+impl List {
+    #[track_caller]
+    pub fn try_get(&self, key: &ListKey) -> InstResult<&Value> {
+        let ListKey::Index(idx) = key;
+
+        self.get(*idx)
+            .ok_or_else(|| InstErr::ListDNCKey(*key, Location::caller()))
+    }
+
+    #[track_caller]
+    pub fn try_get_mut(&mut self, key: &ListKey) -> InstResult<&mut Value> {
+        let ListKey::Index(idx) = key;
+
+        self.get_mut(*idx)
+            .ok_or_else(|| InstErr::ListDNCKey(*key, Location::caller()))
     }
 }
 
@@ -250,11 +305,19 @@ pub enum InstErr {
     #[error("Register does not exist: {}", .0)]
     RegisterDNE(RegisterId, PanicLocation),
     // TODO: wrap `Value` in something that formats better
-    #[error("Invalid key used as register key: {:?}", .0)]
+    #[error("Invalid key used as record key: {:?}", .0)]
     InvalidRecKey(Value, PanicLocation),
+    #[error("Invalid key used as list key: {:?}", .0)]
+    InvalidListKey(Value, PanicLocation),
     // TODO: wrap `RecordKey` in  something that formats better
     #[error("Record does not contain key: {:?}", .0)]
     RecordDNCKey(RecordKey, PanicLocation),
+    #[error("List does not contain key: {:?}", .0)]
+    ListDNCKey(ListKey, PanicLocation),
+    #[error("Invalid index for list: {:?}", .0)]
+    ListInvalidIndex(i64, PanicLocation),
+    #[error("Invalid index value for list: {:?}", .0)]
+    ListInvalidIndexRegister(Value, PanicLocation),
     #[error("Constant does not exist: {}", .0)]
     ConstantDNE(ConstantId, PanicLocation),
     #[error("Unable to perform binary operation: {:?} `{}` {:?}", .0, .2, .1)]
@@ -465,11 +528,45 @@ impl<'c> InstExec<'c> {
                     | (Value::Boolean(_), ValueType::Boolean)
                     | (Value::FnPtr(_), ValueType::FnPtr)
                     | (Value::Record(_), ValueType::Record)
-                    | (Value::Symbol(_), ValueType::Symbol) => Value::Boolean(true),
+                    | (Value::Symbol(_), ValueType::Symbol)
+                    | (Value::List(_), ValueType::List) => Value::Boolean(true),
                     _ => Value::Boolean(false),
                 };
 
                 self.registers.insert(i.result, is_type);
+            }
+            NewList(i) => {
+                self.registers
+                    .insert(i.result, Value::List(Default::default()));
+            }
+            ListGet(i) => {
+                let key = self.list_to_key(i.key)?;
+                let list = self.get_list(i.list)?;
+                let value = list.try_get(&key)?.clone();
+                drop(list);
+                self.registers.insert(i.result, value);
+            }
+            ListSet(i) => {
+                let ListKey::Index(idx) = self.list_to_key(i.key)?;
+
+                match i.value {
+                    Some(register) => {
+                        let value = self.get(register)?.clone();
+                        let mut list = self.get_list_mut(i.list)?;
+                        list.insert(idx, value);
+                    }
+                    None => {
+                        let mut list = self.get_list_mut(i.list)?;
+                        list.remove(idx);
+                    }
+                };
+            }
+            ListHasKey(i) => {
+                let ListKey::Index(idx) = self.list_to_key(i.key)?;
+                let list = self.get_list(i.list)?;
+                let has_key = list.len() > idx;
+                drop(list);
+                self.registers.insert(i.result, Value::Boolean(has_key));
             }
         }
 
@@ -485,6 +582,24 @@ impl<'c> InstExec<'c> {
     }
 
     #[track_caller]
+    fn list_to_key(&self, key: crate::isa::ListKey<LiftedCtx>) -> InstResult<ListKey> {
+        match key {
+            crate::isa::ListKey::Index(register) => {
+                let value = self.get(register)?;
+                let idx = if let Value::Number(idx) = value {
+                    (*idx)
+                        .try_into()
+                        .map_err(|_| ListInvalidIndex(*idx, Location::caller()))?
+                } else {
+                    return Err(ListInvalidIndexRegister(value.clone(), Location::caller()));
+                };
+
+                Ok(ListKey::Index(idx))
+            }
+        }
+    }
+
+    #[track_caller]
     fn value_to_key(&self, value: &Value) -> InstResult<RecordKey> {
         Ok(match value {
             Value::Boolean(value) => RecordKey::Boolean(*value),
@@ -496,6 +611,9 @@ impl<'c> InstExec<'c> {
             // TODO: support using records as keys, as this is possible
             // in python (and i think lua)
             Value::Record(_) => {
+                return Err(InstErr::InvalidRecKey(value.clone(), Location::caller()))
+            }
+            Value::List(_) => {
                 return Err(InstErr::InvalidRecKey(value.clone(), Location::caller()))
             }
         })
@@ -518,6 +636,18 @@ impl<'c> InstExec<'c> {
     fn get_record_mut(&mut self, register: RegisterId) -> InstResult<gc::GcCellRefMut<Record>> {
         let value = self.get(register)?;
         value.try_into_record_mut()
+    }
+
+    #[track_caller]
+    fn get_list(&self, register: RegisterId) -> InstResult<gc::GcCellRef<List>> {
+        let value = self.get(register)?;
+        value.try_into_list()
+    }
+
+    #[track_caller]
+    fn get_list_mut(&mut self, register: RegisterId) -> InstResult<gc::GcCellRefMut<List>> {
+        let value = self.get(register)?;
+        value.try_into_list_mut()
     }
 
     #[track_caller]

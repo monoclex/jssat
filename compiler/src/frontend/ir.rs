@@ -10,10 +10,7 @@ type FunctionId = crate::id::FunctionId<IrCtx>;
 type ConstantId = crate::id::ConstantId<IrCtx>;
 use crate::id::RegisterId;
 
-use crate::isa::{
-    Assert, BinOp, BlockJump, Call, Comment, Generalize, ISAInstruction, IsType, Jump, JumpIf,
-    Make, Negate, NewRecord, RecordGet, RecordHasKey, RecordSet, Return, TrivialItem,
-};
+use crate::isa::*;
 use crate::retag::{BlkRetagger, CnstRetagger, ExtFnRetagger, FnRetagger, RegRetagger};
 type PlainRegisterId = RegisterId<IrCtx>;
 type ExternalFunctionId = crate::id::ExternalFunctionId<IrCtx>;
@@ -94,6 +91,10 @@ pub enum Instruction<C: Tag = crate::id::IrCtx, F: Tag = crate::id::IrCtx> {
     RecordGet(RecordGet<C>),
     RecordSet(RecordSet<C>),
     RecordHasKey(RecordHasKey<C>),
+    NewList(NewList<C>),
+    ListGet(ListGet<C>),
+    ListSet(ListSet<C>),
+    ListHasKey(ListHasKey<C>),
     GetFnPtr(Make<C, crate::id::FunctionId<F>>),
     CallStatic(Call<C, crate::id::FunctionId<F>>),
     CallExtern(Call<C, crate::id::ExternalFunctionId<F>>),
@@ -164,6 +165,10 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::RecordGet(inst) => Instruction::RecordGet(inst.retag(retagger)),
             Instruction::RecordSet(inst) => Instruction::RecordSet(inst.retag(retagger)),
             Instruction::RecordHasKey(inst) => Instruction::RecordHasKey(inst.retag(retagger)),
+            Instruction::NewList(inst) => Instruction::NewList(inst.retag(retagger)),
+            Instruction::ListGet(inst) => Instruction::ListGet(inst.retag(retagger)),
+            Instruction::ListSet(inst) => Instruction::ListSet(inst.retag(retagger)),
+            Instruction::ListHasKey(inst) => Instruction::ListHasKey(inst.retag(retagger)),
             Instruction::GetFnPtr(inst) => Instruction::GetFnPtr(inst.retag(retagger, fn_retagger)),
             Instruction::CallStatic(inst) => {
                 Instruction::CallStatic(inst.retag(retagger, fn_retagger))
@@ -224,6 +229,10 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::Generalize(inst) => inst.declared_register(),
             Instruction::Assert(inst) => inst.declared_register(),
             Instruction::IsType(inst) => inst.declared_register(),
+            Instruction::NewList(inst) => inst.declared_register(),
+            Instruction::ListGet(inst) => inst.declared_register(),
+            Instruction::ListSet(inst) => inst.declared_register(),
+            Instruction::ListHasKey(inst) => inst.declared_register(),
         }
     }
 
@@ -247,6 +256,10 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::Generalize(inst) => inst.used_registers(),
             Instruction::Assert(inst) => inst.used_registers(),
             Instruction::IsType(inst) => inst.used_registers(),
+            Instruction::NewList(inst) => inst.used_registers(),
+            Instruction::ListGet(inst) => inst.used_registers(),
+            Instruction::ListSet(inst) => inst.used_registers(),
+            Instruction::ListHasKey(inst) => inst.used_registers(),
         }
     }
 
@@ -270,6 +283,10 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::Generalize(inst) => inst.used_registers_mut(),
             Instruction::Assert(inst) => inst.used_registers_mut(),
             Instruction::IsType(inst) => inst.used_registers_mut(),
+            Instruction::NewList(inst) => inst.used_registers_mut(),
+            Instruction::ListGet(inst) => inst.used_registers_mut(),
+            Instruction::ListSet(inst) => inst.used_registers_mut(),
+            Instruction::ListHasKey(inst) => inst.used_registers_mut(),
         }
     }
 
@@ -297,6 +314,10 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::Generalize(inst) => inst.display(w),
             Instruction::Assert(inst) => inst.display(w),
             Instruction::IsType(inst) => inst.display(w),
+            Instruction::NewList(inst) => inst.display(w),
+            Instruction::ListGet(inst) => inst.display(w),
+            Instruction::ListSet(inst) => inst.display(w),
+            Instruction::ListHasKey(inst) => inst.display(w),
         }
     }
 }

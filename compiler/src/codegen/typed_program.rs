@@ -254,6 +254,10 @@ impl<'r> FnTyper<'r, '_> {
             ir::Instruction::Generalize(_) => todo!(),
             ir::Instruction::Assert(_) => todo!(),
             ir::Instruction::IsType(_) => todo!(),
+            ir::Instruction::NewList(_) => todo!(),
+            ir::Instruction::ListGet(_) => todo!(),
+            ir::Instruction::ListSet(_) => todo!(),
+            ir::Instruction::ListHasKey(_) => todo!(),
         }
     }
 

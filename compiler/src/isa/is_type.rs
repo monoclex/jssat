@@ -15,6 +15,7 @@ pub enum ValueType {
     Record,
     Symbol,
     BigNumber,
+    List,
 }
 
 // TODO(isa/specification): add a new 'type' value to allow carrying around and

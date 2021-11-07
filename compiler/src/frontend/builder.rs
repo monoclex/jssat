@@ -7,11 +7,7 @@ use crate::frontend::ir::*;
 use crate::id::{Counter, IdCompat};
 use crate::UnwrapNone;
 
-use crate::isa::{
-    Assert, BinOp, BinaryOperator, BlockJump, Call, Comment, CompareType, Generalize, InternalSlot,
-    IsType, Jump, JumpIf, Make, Negate, NewRecord, RecordGet, RecordHasKey, RecordKey, RecordSet,
-    Return, TrivialItem, ValueType,
-};
+use crate::isa::*;
 
 pub type BlockId = crate::id::BlockId<crate::id::IrCtx>;
 pub type FunctionId = crate::id::FunctionId<crate::id::IrCtx>;
@@ -661,6 +657,49 @@ impl DynBlockBuilder {
                 record,
                 key: RecordKey::Slot(slot),
             }));
+        result
+    }
+
+    pub fn list_new(&mut self) -> RegisterId {
+        let result = self.gen_register_id.next();
+        self.instructions
+            .push(Instruction::NewList(NewList { result }));
+        result
+    }
+
+    pub fn list_get(&mut self, list: RegisterId, key: RegisterId) -> RegisterId {
+        let result = self.gen_register_id.next();
+        self.instructions.push(Instruction::ListGet(ListGet {
+            result,
+            list,
+            key: ListKey::Index(key),
+        }));
+        result
+    }
+
+    pub fn list_set(&mut self, list: RegisterId, key: RegisterId, value: RegisterId) {
+        self.instructions.push(Instruction::ListSet(ListSet {
+            list,
+            key: ListKey::Index(key),
+            value: Some(value),
+        }));
+    }
+
+    pub fn list_del(&mut self, list: RegisterId, key: RegisterId) {
+        self.instructions.push(Instruction::ListSet(ListSet {
+            list,
+            key: ListKey::Index(key),
+            value: None,
+        }))
+    }
+
+    pub fn list_has(&mut self, list: RegisterId, key: RegisterId) -> RegisterId {
+        let result = self.gen_register_id.next();
+        self.instructions.push(Instruction::ListHasKey(ListHasKey {
+            result,
+            list,
+            key: ListKey::Index(key),
+        }));
         result
     }
 
