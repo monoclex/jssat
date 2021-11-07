@@ -44,6 +44,7 @@ with_builtin_macros = "0.0.3"
 
 [build-dependencies]
 ir_file = { path = "../ir_file" }
+walkdir = "2.3.2"
 
 [dependencies.inkwell]
 git = "https://github.com/TheDan64/inkwell"

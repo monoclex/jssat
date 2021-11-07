@@ -19,7 +19,7 @@ pub fn use_ecma262(program_builder: &mut ProgramBuilder) -> ECMA262Methods {
 //
 // https://discord.com/channels/273534239310479360/335502067432947748/906949057379966996
 with_builtin_macros::with_builtin! {
-    let $path = concat!(env!("OUT_DIR"), "/ecma262_irfile.rs") in {
+    let $path = concat!(env!("OUT_DIR"), "/ECMA262Methods_irfile.rs") in {
         #[path = $path]
         mod generated_code;
         pub use generated_code::*;

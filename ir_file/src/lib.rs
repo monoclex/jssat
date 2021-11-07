@@ -18,7 +18,7 @@ pub use codegen_rs::*;
 mod parser;
 pub use parser::*;
 
-pub fn generate(code: &str) -> String {
+pub fn generate(name: &str, code: &str) -> String {
     let ast = parser::parse(code);
-    codegen_rs::gen(ast)
+    codegen_rs::gen(name, ast)
 }

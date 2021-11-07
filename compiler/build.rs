@@ -5,30 +5,41 @@ use std::{
     path::Path,
 };
 
+use walkdir::WalkDir;
+
 fn main() {
-    compile_ecmascript_in_jssat_vm();
+    compile_irfiles();
     link_jssatrt();
 }
 
-fn compile_ecmascript_in_jssat_vm() {
+fn compile_irfiles() {
     let out_dir = std::env::var("OUT_DIR").unwrap();
-    let dest_path = Path::new(&out_dir).join("ecma262_irfile.rs");
-    let mut output = BufWriter::new(
-        std::fs::File::with_options()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(dest_path)
-            .unwrap(),
-    );
 
-    let ecmascript_src =
-        std::fs::read_to_string("./src/frontend/js/ecmascript/ecma262_irfile.lisp").unwrap();
-    println!("cargo:rerun-if-changed=src/frontend/js/ecmascript/ecma262_irfile.lisp");
+    for entry in WalkDir::new("./src/") {
+        let entry = entry.unwrap();
+        let name = entry.file_name().to_str().unwrap();
 
-    let code = ir_file::generate(&ecmascript_src);
+        if !name.ends_with(".lisp") {
+            continue;
+        }
 
-    output.write_all(code.as_bytes()).unwrap();
+        let name = name.split('.').next().unwrap();
+        let dest_path = Path::new(&out_dir).join(format!("{}_irfile.rs", name));
+        let mut output = BufWriter::new(
+            std::fs::File::with_options()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(dest_path)
+                .unwrap(),
+        );
+
+        let src = std::fs::read_to_string(entry.path()).unwrap();
+        // println!("cargo:rerun-if-changed={}", entry.path().to_str().unwrap());
+
+        let code = ir_file::generate(name, &src);
+        output.write_all(code.as_bytes()).unwrap();
+    }
 }
 
 fn link_jssatrt() {

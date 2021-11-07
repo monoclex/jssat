@@ -55,10 +55,10 @@ use codegen::{Block, Field, Formatter, Function, Impl, Scope, Struct};
 
 use crate::{Expression, Section, Statement, AST};
 
-pub fn gen(ast: AST) -> String {
+pub fn gen(name: &str, ast: AST) -> String {
     let mut scope = Scope::new();
 
-    let r#struct = scope.new_struct("ECMA262Methods");
+    let r#struct = scope.new_struct(name);
     r#struct.vis("pub");
 
     for method in ast.sections.iter() {
@@ -68,13 +68,13 @@ pub fn gen(ast: AST) -> String {
         ));
     }
 
-    let r#impl = scope.new_impl("ECMA262Methods");
+    let r#impl = scope.new_impl(name);
 
     for method in ast.sections.iter() {
         emit_method(r#impl, method);
     }
 
-    let f = emit_method_new(&ast);
+    let f = emit_method_new(name, &ast);
     r#impl.push_fn(f);
 
     format!(
@@ -93,7 +93,7 @@ use crate::{{
     )
 }
 
-fn emit_method_new(ast: &AST) -> Function {
+fn emit_method_new(name: &str, ast: &AST) -> Function {
     let mut f = Function::new("new");
     f.vis("pub(crate)");
     f.arg("program", "&mut ProgramBuilder");
@@ -123,10 +123,7 @@ fn emit_method_new(ast: &AST) -> Function {
         ));
     }
 
-    f.line(format!(
-        "let methods = ECMA262Methods {};",
-        blk_to_s(fields)
-    ));
+    f.line(format!("let methods = {} {};", name, blk_to_s(fields)));
 
     for method in ast.sections.iter() {
         f.line(format!(

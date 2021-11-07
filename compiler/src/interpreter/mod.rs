@@ -10,6 +10,8 @@
 mod build;
 pub use build::*;
 
+mod tests;
+
 use std::convert::TryInto;
 use std::panic::Location;
 
@@ -465,6 +467,7 @@ impl<'c> InstExec<'c> {
                             combined.extend(rhs);
                             Bytes(combined)
                         }
+                        (Number(lhs), Number(rhs)) => Number(*lhs + *rhs),
                         _ => return fail(),
                     },
                     And => match (lhs, rhs) {
