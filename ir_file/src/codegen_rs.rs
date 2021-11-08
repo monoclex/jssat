@@ -51,9 +51,11 @@
 //! }
 //! ```
 
+use std::collections::HashMap;
+
 use codegen::{Block, Field, Formatter, Function, Impl, Scope, Struct};
 
-use crate::{Expression, Section, Statement, AST};
+use crate::{Assign, Expression, Section, Statement, AST};
 
 pub fn gen(name: &str, ast: AST) -> String {
     let mut scope = Scope::new();
@@ -181,7 +183,7 @@ pub fn emit_method(scope: &mut Impl, section: &Section) {
 
     let mut counter = 0;
 
-    emit_stmts(&mut counter, &mut code, stmts_to_emit, false);
+    emit_stmts(&mut counter, &mut code, stmts_to_emit, false, false);
 
     match ret_expr {
         Some(Some(expr)) => {
@@ -199,7 +201,13 @@ pub fn emit_method(scope: &mut Impl, section: &Section) {
     scope.push_fn(f);
 }
 
-fn emit_stmts(counter: &mut usize, block: &mut Block, stmts: &[Statement], emit_fallthrough: bool) {
+fn emit_stmts(
+    counter: &mut usize,
+    block: &mut Block,
+    stmts: &[Statement],
+    emit_fallthrough: bool,
+    emit_loop: bool,
+) {
     let varname = |x: &str| format!("r#var_{}", x.replace("-", "_"));
 
     // emit statements
@@ -210,7 +218,8 @@ fn emit_stmts(counter: &mut usize, block: &mut Block, stmts: &[Statement], emit_
         }
 
         match stmt {
-            crate::Statement::Assign { variable, value } => {
+            crate::Statement::Assign(x) => {
+                let Assign { variable, value } = x;
                 let value = emit_expr(counter, block, value);
                 block.line(format!("let {} = {};", varname(variable), value));
             }
@@ -224,7 +233,7 @@ fn emit_stmts(counter: &mut usize, block: &mut Block, stmts: &[Statement], emit_
                 cond_expr.line(condition);
 
                 let mut then_blk = Block::new("");
-                emit_stmts(counter, &mut then_blk, then, true);
+                emit_stmts(counter, &mut then_blk, then, true, false);
 
                 match r#else {
                     None => {
@@ -236,7 +245,7 @@ fn emit_stmts(counter: &mut usize, block: &mut Block, stmts: &[Statement], emit_
                     }
                     Some(stmts) => {
                         let mut else_blk = Block::new("");
-                        emit_stmts(counter, &mut else_blk, stmts, true);
+                        emit_stmts(counter, &mut else_blk, stmts, true, false);
 
                         block.line(format!(
                             "e.if_then(|e| {}, |e| {})",
@@ -289,14 +298,18 @@ fn emit_stmts(counter: &mut usize, block: &mut Block, stmts: &[Statement], emit_
             crate::Statement::Return { expr } => {
                 returned = true;
 
+                let cf = match emit_loop {
+                    true => "LoopControlFlow",
+                    false => "ControlFlow",
+                };
+
                 // we are most likely being called from within a nested set of stmts
                 // the most outer layer has already handled return stmts for us
                 let line = match expr {
-                    Some(expr) => format!(
-                        "ControlFlow::Return(Some({}))",
-                        emit_expr(counter, block, expr)
-                    ),
-                    None => "ControlFlow::Return(None)".to_string(),
+                    Some(expr) => {
+                        format!("{}::Return(Some({}))", cf, emit_expr(counter, block, expr))
+                    }
+                    None => format!("{}::Return(None)", cf),
                 };
 
                 block.line(line);
@@ -342,6 +355,99 @@ fn emit_stmts(counter: &mut usize, block: &mut Block, stmts: &[Statement], emit_
                     None => block.line(format!("e.list_del({}, {});", list, prop)),
                 };
             }
+            Statement::Loop {
+                init,
+                cond,
+                body,
+                next,
+            } => {
+                let mut vars = HashMap::new();
+                for i in init {
+                    vars.insert(i.variable.clone(), &i.value);
+                }
+
+                let mut vars2 = HashMap::new();
+                for i in next {
+                    let init = *vars
+                        .get(&i.variable)
+                        .expect("should be same assignments in next as init");
+                    vars2.insert(i.variable.clone(), (init, &i.value));
+                }
+
+                // ensure we have same num of inits and nexts
+                assert_eq!(vars.len(), vars2.len());
+
+                let mut vars = vars2
+                    .into_iter()
+                    .map(|(name, (init, next))| (name, init, next))
+                    .collect::<Vec<_>>();
+
+                // UGLY CODE BEGIN
+                // we are going to sort `vars` based on the order of `init`
+
+                let mut new_vars = Vec::new();
+
+                for i in init {
+                    let mut tidx = None;
+                    for (idx, j) in vars.iter().enumerate() {
+                        if i.variable == j.0 {
+                            tidx = Some(idx);
+                            break;
+                        }
+                    }
+
+                    let v = vars.remove(tidx.expect("expected to find var"));
+                    new_vars.push(v);
+                }
+
+                let vars = new_vars;
+
+                // UGLY CODE END
+
+                let init_exprs = vars
+                    .iter()
+                    .map(|(_, init, _)| {
+                        let mut block = Block::new("");
+                        emit_expr(counter, &mut block, *init);
+                        blk_to_s(block)
+                    })
+                    .map(|s| format!("Box::new(|e| {})", s))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+
+                let names = vars
+                    .iter()
+                    .map(|(name, _, _)| varname(name.as_str()))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+
+                let cond_expr = {
+                    let mut block = Block::new("");
+                    emit_expr(counter, &mut block, cond);
+                    blk_to_s(block)
+                };
+
+                let body_stmts = {
+                    let mut block = Block::new("");
+                    emit_stmts(counter, &mut block, body, false, true);
+
+                    let names = vars
+                        .iter()
+                        .map(|(_, _, next)| emit_expr(counter, &mut block, *next))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+
+                    block.line(format!("LoopControlFlow::Next([{}])", names));
+                    blk_to_s(block)
+                };
+
+                block.line(format!(
+                    "e.do_loop([{}], |e, [{}]| {}, |e, [{}]| {});",
+                    init_exprs, names, cond_expr, names, body_stmts,
+                ));
+
+                assert_eq!(init.len(), next.len());
+            }
         }
     }
 
@@ -375,12 +481,12 @@ fn emit_expr(counter: &mut usize, block: &mut Block, expr: &Expression) -> Strin
             cond_scope.line(condition);
 
             let mut then_scope = Block::new("");
-            emit_stmts(counter, &mut then_scope, then, false);
+            emit_stmts(counter, &mut then_scope, then, false, false);
             let then_expr = emit_expr(counter, &mut then_scope, thene);
             then_scope.line(format!("ControlFlow::Carry({})", then_expr));
 
             let mut else_scope = Block::new("");
-            emit_stmts(counter, &mut else_scope, els, false);
+            emit_stmts(counter, &mut else_scope, els, false, false);
             let else_expr = emit_expr(counter, &mut else_scope, els_e);
             else_scope.line(format!("ControlFlow::Carry({})", else_expr));
 
@@ -406,7 +512,7 @@ fn emit_expr(counter: &mut usize, block: &mut Block, expr: &Expression) -> Strin
             let value = emit_expr(counter, block, be_bound_to);
             block.line(format!("let {} = {};", varname(variable), value));
 
-            emit_stmts(counter, block, stmts, false);
+            emit_stmts(counter, block, stmts, false, false);
 
             return emit_expr(counter, block, expr);
         }
@@ -565,6 +671,10 @@ fn emit_expr(counter: &mut usize, block: &mut Block, expr: &Expression) -> Strin
                 "let {} = e.list_has({}, {});",
                 result, record, property
             ));
+        }
+        Expression::ListLen { list } => {
+            let list = emit_expr(counter, block, list);
+            block.line(format!("let {} = e.list_len({});", result, list));
         }
     };
     result

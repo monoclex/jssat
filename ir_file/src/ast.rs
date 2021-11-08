@@ -24,11 +24,14 @@ type Slot = String;
 type TrivialItem = String;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Assign {
+    pub variable: Variable,
+    pub value: Expression,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Statement {
-    Assign {
-        variable: Variable,
-        value: Expression,
-    },
+    Assign(Assign),
     /// An if statement as an expression is different than an if statement as a
     /// statement becuase an if statement as an expression MUST have a carry
     /// value, whereas an if statement as a statement does not.
@@ -76,6 +79,12 @@ pub enum Statement {
         expr: Expression,
         message: String,
     },
+    Loop {
+        init: Vec<Assign>,
+        cond: Expression,
+        next: Vec<Assign>,
+        body: Vec<Statement>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -122,6 +131,9 @@ pub enum Expression {
     ListHas {
         list: Box<Expression>,
         property: Box<Expression>,
+    },
+    ListLen {
+        list: Box<Expression>,
     },
     GetFnPtr {
         function_name: FnName,

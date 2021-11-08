@@ -716,6 +716,13 @@ impl DynBlockBuilder {
         result
     }
 
+    pub fn list_len(&mut self, list: RegisterId) -> RegisterId {
+        let result = self.gen_register_id.next();
+        self.instructions
+            .push(Instruction::ListLen(ListLen { result, list }));
+        result
+    }
+
     fn binop(
         result: RegisterId,
         lhs: RegisterId,

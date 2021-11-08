@@ -202,3 +202,39 @@ impl<C: Tag> ListSet<C> {
         }
     }
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct ListLen<C: Tag> {
+    pub result: RegisterId<C>,
+    pub list: RegisterId<C>,
+}
+
+impl<C: Tag> ISAInstruction<C> for ListLen<C> {
+    fn declared_register(&self) -> Option<RegisterId<C>> {
+        Some(self.result)
+    }
+
+    fn used_registers(&self) -> TinyVec<[RegisterId<C>; 3]> {
+        let mut used_registers = tiny_vec![self.list];
+        used_registers
+    }
+
+    fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
+        let mut used_registers = vec![&mut self.list];
+        used_registers
+    }
+
+    fn display(&self, w: &mut impl Write) -> std::fmt::Result {
+        write!(w, "%{} = ListLen %{};", self.result, self.list)
+    }
+}
+
+impl<C: Tag> ListLen<C> {
+    #[track_caller]
+    pub fn retag<C2: Tag>(self, retagger: &mut impl RegRetagger<C, C2>) -> ListLen<C2> {
+        ListLen {
+            result: retagger.retag_new(self.result),
+            list: retagger.retag_old(self.list),
+        }
+    }
+}

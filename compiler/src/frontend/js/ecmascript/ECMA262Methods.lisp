@@ -43,6 +43,16 @@
       (elif :cond1 :then1
             (elif :cond2 :then2 :else))))
 
+(def for-item (list-get :jssat_list :jssat_i))
+
+(def
+  (for :list :body)
+  (loop
+        ((jssat_list = :list) (jssat_i = 0) (jssat_len = (list-len :jssat_list)))
+        (:jssat_i < :jssat_len)
+        ((jssat_list = :jssat_list) (jssat_i = (:jssat_i + 1)) (jssat_len = :jssat_len))
+        :body))
+
 ; i'm too lazy to change let exprs to expr blocks atm
 (def (expr-block :x) (let
                        _discard
@@ -487,12 +497,18 @@
    ;;; 3. Let varNames be the VarDeclaredNames of script.
    (varNames = (VarDeclaredNames :script))
    ;;; 4. For each element name of lexNames, do
-   ;;; a. If env.HasVarDeclaration(name) is true, throw a SyntaxError exception.
-   ;;; b. If env.HasLexicalDeclaration(name) is true, throw a SyntaxError exception.
-   ;;; c. Let hasRestrictedGlobal be ? env.HasRestrictedGlobalProperty(name).
-   ;;; d. If hasRestrictedGlobal is true, throw a SyntaxError exception.
+   (for :varNames
+        ((name = for-item)
+         ;;; a. If env.HasVarDeclaration(name) is true, throw a SyntaxError exception.
+         ;;; b. If env.HasLexicalDeclaration(name) is true, throw a SyntaxError exception.
+         ;;; c. Let hasRestrictedGlobal be ? env.HasRestrictedGlobalProperty(name).
+         ;;; d. If hasRestrictedGlobal is true, throw a SyntaxError exception.
+        ))
    ;;; 5. For each element name of varNames, do
-   ;;; a. If env.HasLexicalDeclaration(name) is true, throw a SyntaxError exception.
+   (for :varNames
+        ((name = for-item)
+         ;;; a. If env.HasLexicalDeclaration(name) is true, throw a SyntaxError exception.
+        ))
    ;;; 6. Let varDeclarations be the VarScopedDeclarations of script.
    ;;; 7. Let functionsToInitialize be a new empty List.
    ;;; 8. Let declaredFunctionNames be a new empty List.

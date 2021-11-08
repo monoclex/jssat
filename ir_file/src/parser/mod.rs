@@ -235,6 +235,43 @@ fn parse_body(body: Vec<Node>) -> Vec<Statement> {
             };
 
             let get = |x| children.get(x).map(Node::as_ref);
+            let getp = |x| children.get(x);
+
+            if let (
+                Some(Node::Word("loop", _)),
+                Some(assigns),
+                Some(cond),
+                Some(next),
+                Some(body),
+            ) = (get(0), getp(1), get(2), getp(3), getp(4))
+            {
+                let assigns = parse_body(assigns.clone().expect_parent())
+                    .into_iter()
+                    .map(|s| match s {
+                        Statement::Assign(a) => a,
+                        _ => panic!("expected list of assignments"),
+                    })
+                    .collect();
+
+                let nexts = parse_body(next.clone().expect_parent())
+                    .into_iter()
+                    .map(|s| match s {
+                        Statement::Assign(a) => a,
+                        _ => panic!("expected list of assignments"),
+                    })
+                    .collect();
+
+                let expr = parse_expression(cond);
+
+                let body = parse_body(body.clone().expect_parent());
+
+                return Statement::Loop {
+                    init: assigns,
+                    next: nexts,
+                    cond: expr,
+                    body,
+                };
+            }
 
             match (get(0), get(1), get(2), get(3)) {
                 (Some(Node::Word("assert", _)), Some(expr), Some(Node::String(msg, _)), None) => {
@@ -250,10 +287,10 @@ fn parse_body(body: Vec<Node>) -> Vec<Statement> {
                 //     }
                 // }
                 (Some(Node::Word(identifier, _)), Some(Node::Word("=", _)), Some(expr), None) => {
-                    Statement::Assign {
+                    Statement::Assign(Assign {
                         variable: identifier.to_string(),
                         value: parse_expression(expr),
-                    }
+                    })
                 }
                 (
                     Some(Node::Word("record-set-slot", _)),
@@ -465,6 +502,9 @@ fn parse_expression(node: Node<&str>) -> Expression {
                     list: Box::new(parse_expression(list)),
                     property: Box::new(parse_expression(expr)),
                 },
+                (Some(Node::Word("list-len", _)), Some(list), None) => Expression::ListLen {
+                    list: Box::new(parse_expression(list)),
+                },
                 (Some(Node::Word("get-fn-ptr", _)), Some(Node::Word(fn_name, _)), None) => {
                     Expression::GetFnPtr {
                         function_name: fn_name.to_owned(),
@@ -565,10 +605,10 @@ fn parses_statement() {
 
     check(
         "(y = :x)",
-        Statement::Assign {
+        Statement::Assign(Assign {
             variable: "y".into(),
             value: x(),
-        },
+        }),
     );
 
     check(
@@ -694,17 +734,17 @@ fn parses_expression() {
         Expression::If {
             condition: x(),
             then: (
-                vec![Statement::Assign {
+                vec![Statement::Assign(Assign {
                     variable: "z".into(),
                     value: *x(),
-                }],
+                })],
                 y()
             ),
             r#else: (
-                vec![Statement::Assign {
+                vec![Statement::Assign(Assign {
                     variable: "z".into(),
                     value: *y(),
-                }],
+                })],
                 z()
             ),
         }
@@ -867,10 +907,10 @@ fn parses_expression() {
             variable: "x".into(),
             be_bound_to: y(),
             r#in: (
-                vec![Statement::Assign {
+                vec![Statement::Assign(Assign {
                     variable: "tmp".into(),
                     value: Expression::RecordNew
-                }],
+                })],
                 x()
             )
         }
@@ -882,10 +922,10 @@ fn parses_expression() {
             variable: "x".into(),
             be_bound_to: y(),
             r#in: (
-                vec![Statement::Assign {
+                vec![Statement::Assign(Assign {
                     variable: "tmp".into(),
                     value: Expression::RecordNew
-                }],
+                })],
                 x()
             )
         }

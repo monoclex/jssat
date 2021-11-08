@@ -575,6 +575,12 @@ impl<'c> InstExec<'c> {
                 drop(list);
                 self.registers.insert(i.result, Value::Boolean(has_key));
             }
+            ListLen(i) => {
+                let list = self.get_list(i.list)?;
+                let len = list.len();
+                drop(list);
+                self.registers.insert(i.result, Value::Number(len as i64));
+            }
         }
 
         Ok(())

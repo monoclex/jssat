@@ -95,6 +95,7 @@ pub enum Instruction<C: Tag = crate::id::IrCtx, F: Tag = crate::id::IrCtx> {
     ListGet(ListGet<C>),
     ListSet(ListSet<C>),
     ListHasKey(ListHasKey<C>),
+    ListLen(ListLen<C>),
     GetFnPtr(Make<C, crate::id::FunctionId<F>>),
     CallStatic(Call<C, crate::id::FunctionId<F>>),
     CallExtern(Call<C, crate::id::ExternalFunctionId<F>>),
@@ -169,6 +170,7 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::ListGet(inst) => Instruction::ListGet(inst.retag(retagger)),
             Instruction::ListSet(inst) => Instruction::ListSet(inst.retag(retagger)),
             Instruction::ListHasKey(inst) => Instruction::ListHasKey(inst.retag(retagger)),
+            Instruction::ListLen(inst) => Instruction::ListLen(inst.retag(retagger)),
             Instruction::GetFnPtr(inst) => Instruction::GetFnPtr(inst.retag(retagger, fn_retagger)),
             Instruction::CallStatic(inst) => {
                 Instruction::CallStatic(inst.retag(retagger, fn_retagger))
@@ -233,6 +235,7 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::ListGet(inst) => inst.declared_register(),
             Instruction::ListSet(inst) => inst.declared_register(),
             Instruction::ListHasKey(inst) => inst.declared_register(),
+            Instruction::ListLen(inst) => inst.declared_register(),
         }
     }
 
@@ -260,6 +263,7 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::ListGet(inst) => inst.used_registers(),
             Instruction::ListSet(inst) => inst.used_registers(),
             Instruction::ListHasKey(inst) => inst.used_registers(),
+            Instruction::ListLen(inst) => inst.used_registers(),
         }
     }
 
@@ -287,6 +291,7 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::ListGet(inst) => inst.used_registers_mut(),
             Instruction::ListSet(inst) => inst.used_registers_mut(),
             Instruction::ListHasKey(inst) => inst.used_registers_mut(),
+            Instruction::ListLen(inst) => inst.used_registers_mut(),
         }
     }
 
@@ -318,6 +323,7 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::ListGet(inst) => inst.display(w),
             Instruction::ListSet(inst) => inst.display(w),
             Instruction::ListHasKey(inst) => inst.display(w),
+            Instruction::ListLen(inst) => inst.display(w),
         }
     }
 }
