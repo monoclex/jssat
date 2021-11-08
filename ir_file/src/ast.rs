@@ -1,5 +1,3 @@
-use lexpr::datum::Span;
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AST {
     pub sections: Vec<Section>,

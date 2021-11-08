@@ -81,11 +81,12 @@ pub fn gen(name: &str, ast: AST) -> String {
 
     format!(
         "#![allow(non_snake_case)]
+#![allow(unused_variables)]
 
 use crate::{{
     frontend::{{
         builder::{{FnSignature, RegisterId, ProgramBuilder}},
-        emitter::{{ControlFlow, Emitter}},
+        emitter::{{ControlFlow, Emitter, LoopControlFlow}},
     }},
     isa::{{InternalSlot, TrivialItem, ValueType}},
 }};
@@ -207,14 +208,17 @@ fn emit_stmts(
     stmts: &[Statement],
     emit_fallthrough: bool,
     emit_loop: bool,
-) {
+) -> bool {
     let varname = |x: &str| format!("r#var_{}", x.replace("-", "_"));
 
     // emit statements
     let mut returned = false;
     for stmt in stmts.iter() {
         if returned {
-            panic!("already returned yet more instructions?");
+            panic!(
+                "already returned yet more instructions?, {:#?} at {:#?}",
+                stmts, stmt
+            );
         }
 
         match stmt {
@@ -408,10 +412,11 @@ fn emit_stmts(
                     .iter()
                     .map(|(_, init, _)| {
                         let mut block = Block::new("");
-                        emit_expr(counter, &mut block, *init);
+                        let name = emit_expr(counter, &mut block, *init);
+                        block.line(name);
                         blk_to_s(block)
                     })
-                    .map(|s| format!("Box::new(|e| {})", s))
+                    .map(|s| format!("Box::new(move |e| {})", s))
                     .collect::<Vec<_>>()
                     .join(", ");
 
@@ -423,21 +428,25 @@ fn emit_stmts(
 
                 let cond_expr = {
                     let mut block = Block::new("");
-                    emit_expr(counter, &mut block, cond);
+                    let expr_name = emit_expr(counter, &mut block, cond);
+                    block.line(expr_name);
                     blk_to_s(block)
                 };
 
                 let body_stmts = {
                     let mut block = Block::new("");
-                    emit_stmts(counter, &mut block, body, false, true);
+                    let exited = emit_stmts(counter, &mut block, body, false, true);
 
-                    let names = vars
-                        .iter()
-                        .map(|(_, _, next)| emit_expr(counter, &mut block, *next))
-                        .collect::<Vec<_>>()
-                        .join(", ");
+                    if !exited {
+                        let names = vars
+                            .iter()
+                            .map(|(_, _, next)| emit_expr(counter, &mut block, *next))
+                            .collect::<Vec<_>>()
+                            .join(", ");
 
-                    block.line(format!("LoopControlFlow::Next([{}])", names));
+                        block.line(format!("LoopControlFlow::Next([{}])", names));
+                    }
+
                     blk_to_s(block)
                 };
 
@@ -454,6 +463,8 @@ fn emit_stmts(
     if !returned && emit_fallthrough {
         block.line("ControlFlow::Fallthrough");
     }
+
+    returned
 }
 
 /// Emits an expression to the block, and a string identifier used to refer to
@@ -481,14 +492,18 @@ fn emit_expr(counter: &mut usize, block: &mut Block, expr: &Expression) -> Strin
             cond_scope.line(condition);
 
             let mut then_scope = Block::new("");
-            emit_stmts(counter, &mut then_scope, then, false, false);
-            let then_expr = emit_expr(counter, &mut then_scope, thene);
-            then_scope.line(format!("ControlFlow::Carry({})", then_expr));
+            let retd = emit_stmts(counter, &mut then_scope, then, false, false);
+            if !retd {
+                let then_expr = emit_expr(counter, &mut then_scope, thene);
+                then_scope.line(format!("ControlFlow::Carry({})", then_expr));
+            }
 
             let mut else_scope = Block::new("");
-            emit_stmts(counter, &mut else_scope, els, false, false);
-            let else_expr = emit_expr(counter, &mut else_scope, els_e);
-            else_scope.line(format!("ControlFlow::Carry({})", else_expr));
+            let retd = emit_stmts(counter, &mut else_scope, els, false, false);
+            if !retd {
+                let else_expr = emit_expr(counter, &mut else_scope, els_e);
+                else_scope.line(format!("ControlFlow::Carry({})", else_expr));
+            }
 
             block.line(format!(
                 "let {} = e.if_then(|e| {}, |e| {}).else_then(|e| {}).end().unwrap();",
@@ -598,7 +613,7 @@ fn emit_expr(counter: &mut usize, block: &mut Block, expr: &Expression) -> Strin
         }
         Expression::MakeBytes { bytes } => {
             block.line(format!(
-                "let {} = e.load_constant(&{:?});",
+                "let {} = e.load_constant((&{:?}).to_vec());",
                 result,
                 bytes.as_slice()
             ));

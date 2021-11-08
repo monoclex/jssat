@@ -27,6 +27,8 @@
 (def (both :1 :2 :f) (and (:f :1) (:f :2)))
 (def (either :a :b (:x :y)) (or (:a :x :y) (:b :x :y)))
 (def (todo) (assert false "TODO"))
+(def (:a - :b) (:a + (not :b)))
+(def (throw :x) (return (ThrowCompletion :x)))
 
 (def
   (elif :condition :then-expr :end-expr)
@@ -44,11 +46,12 @@
             (elif :cond2 :then2 :else))))
 
 (def for-item (list-get :jssat_list :jssat_i))
+(def for-item-rev (list-get :jssat_list (:jssat_len - (:jssat_i + 1))))
 
 (def
   (for :list :body)
   (loop
-        ((jssat_list = :list) (jssat_i = 0) (jssat_len = (list-len :jssat_list)))
+        ((jssat_list = :list) (jssat_i = 0) (jssat_len = (list-len :list)))
         (:jssat_i < :jssat_len)
         ((jssat_list = :jssat_list) (jssat_i = (:jssat_i + 1)) (jssat_len = :jssat_len))
         :body))
@@ -140,6 +143,24 @@
    (record-has-slot :x Value)
    (record-has-slot :x Target)))
 
+; TODO: somehow use `env` to load the `SyntaxError` object and construct it
+(def (SyntaxError :env :msg)
+  (:msg))
+
+; "Let <thing> be the sole element of <list>"
+(def
+  (sole-element :x)
+  ((let
+     jssat_list
+     =
+     :x
+     in
+     (; assert that the list is a list with a singular element
+      (assert ((list-len :jssat_list) == 1) "to get the 'sole element' of a list, it must be a singleton list")
+      (assert (list-has :jssat_list 1) "sanity check")
+      (list-get :jssat_list 0)))))
+
+
 ; 5.2.3.4 ReturnIfAbrupt Shorthands
 (def
   (! :OperationName)
@@ -161,11 +182,11 @@
     (;;; 1. If argument is an abrupt completion, return argument.
      (if (is-abrupt-completion :jssat_arg)
          ((return :jssat_arg)
-          (unreachable)))
-     ;;; 2. Else if argument is a Completion Record, set argument to argument.[[Value]].
-     (elif (is-completion-record :jssat_arg)
-           ((record-get-slot :jssat_arg Value))
-           (:jssat_arg))))))
+          (unreachable))
+         ;;; 2. Else if argument is a Completion Record, set argument to argument.[[Value]].
+         (elif (is-completion-record :jssat_arg)
+               ((record-get-slot :jssat_arg Value))
+               (:jssat_arg)))))))
 
 ; 6.2.3.2  NormalCompletion
 (def
@@ -187,6 +208,15 @@
     (:jssat_throw_completion Target <- empty)
     (:jssat_throw_completion))))
 
+;;;;;;;
+; virt calls
+;;;;;;;
+
+; we use `..` instead of `.` because `.` is a cons cell :v
+(def (:env .. HasVarDeclaration :N) (call-virt (:env -> JSSATHasVarDeclaration) :env :N))
+(def (:env .. HasLexicalDeclaration :N) (call-virt (:env -> JSSATHasLexicalDeclaration) :env :N))
+(def (:env .. HasRestrictedGlobalProperty :N) (call-virt (:env -> JSSATHasRestrictedGlobalProperty) :env :N))
+
 ;;;;;;;;;;;;;;;;;;
 ; something ; (STATIC SEMANTICS AND RUNTIME SEMANTICS WIP SECTION)
 ;;;;;;;;;;;;;;;;;;
@@ -200,26 +230,26 @@
 ; generates js objects from ecmascript spec
 
 ;; TODO(isa): we need to auto generate these internal slots
-(def (evaluating :x) (call-virt (:x -> JSSATCode)))
-(def (BoundNames :x) (call-virt (:x -> JSSATBoundNames)))
-(def (DeclarationPart :x) (call-virt (:x -> JSSATDeclarationPart)))
-(def (IsConstantDeclaration :x) (call-virt (:x -> JSSATIsConstantDeclaration)))
-(def (LexicallyDeclaredNames :x) (call-virt (:x -> JSSATLexicallyDeclaredNames)))
-(def (LexicallyScopedDeclarations :x) (call-virt (:x -> JSSATLexicallyScopedDeclarations)))
-(def (VarDeclaredNames :x) (call-virt (:x -> JSSATVarDeclaredNames)))
-(def (VarScopedDeclarations :x) (call-virt (:x -> JSSATVarScopedDeclarations)))
-(def (TopLevelLexicallyDeclaredNames :x) (call-virt (:x -> JSSATTopLevelLexicallyDeclaredNames)))
-(def (TopLevelLexicallyScopedDeclarations :x) (call-virt (:x -> JSSATTopLevelLexicallyScopedDeclarations)))
-(def (TopLevelVarDeclaredNames :x) (call-virt (:x -> JSSATTopLevelVarDeclaredNames)))
-(def (TopLevelVarScopedDeclarations :x) (call-virt (:x -> JSSATTopLevelVarScopedDeclarations)))
-(def (ContainsDuplicateLabels :x) (call-virt (:x -> JSSATContainsDuplicateLabels)))
-(def (ContainsUndefinedBreakTarget :x) (call-virt (:x -> JSSATContainsUndefinedBreakTarget)))
-(def (ContainsUndefinedContinueTarget :x) (call-virt (:x -> JSSATContainsUndefinedContinueTarget)))
-(def (HasName :x) (call-virt (:x -> JSSATHasName)))
-(def (IsFunctionDefinition :x) (call-virt (:x -> JSSATIsFunctionDefinition)))
+(def (evaluating :x) (call-virt (:x -> JSSATCode) :x))
+(def (BoundNames :x) (call-virt (:x -> JSSATBoundNames) :x))
+(def (DeclarationPart :x) (call-virt (:x -> JSSATDeclarationPart) :x))
+(def (IsConstantDeclaration :x) (call-virt (:x -> JSSATIsConstantDeclaration) :x))
+(def (LexicallyDeclaredNames :x) (call-virt (:x -> JSSATLexicallyDeclaredNames) :x))
+(def (LexicallyScopedDeclarations :x) (call-virt (:x -> JSSATLexicallyScopedDeclarations) :x))
+(def (VarDeclaredNames :x) (call-virt (:x -> JSSATVarDeclaredNames) :x))
+(def (VarScopedDeclarations :x) (call-virt (:x -> JSSATVarScopedDeclarations) :x))
+(def (TopLevelLexicallyDeclaredNames :x) (call-virt (:x -> JSSATTopLevelLexicallyDeclaredNames) :x))
+(def (TopLevelLexicallyScopedDeclarations :x) (call-virt (:x -> JSSATTopLevelLexicallyScopedDeclarations) :x))
+(def (TopLevelVarDeclaredNames :x) (call-virt (:x -> JSSATTopLevelVarDeclaredNames) :x))
+(def (TopLevelVarScopedDeclarations :x) (call-virt (:x -> JSSATTopLevelVarScopedDeclarations) :x))
+(def (ContainsDuplicateLabels :x) (call-virt (:x -> JSSATContainsDuplicateLabels) :x))
+(def (ContainsUndefinedBreakTarget :x) (call-virt (:x -> JSSATContainsUndefinedBreakTarget) :x))
+(def (ContainsUndefinedContinueTarget :x) (call-virt (:x -> JSSATContainsUndefinedContinueTarget) :x))
+(def (HasName :x) (call-virt (:x -> JSSATHasName) :x))
+(def (IsFunctionDefinition :x) (call-virt (:x -> JSSATIsFunctionDefinition) :x))
 
 ; TODO: actually an algorithm we can write
-(def (IsAnonymousFunctionDefinition :x :expr) (call-virt (:x -> JSSATIsAnonymousFunctionDefinition) :expr))
+(def (IsAnonymousFunctionDefinition :x :expr) (call-virt (:x -> JSSATIsAnonymousFunctionDefinition) :x :expr))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; METHOD IMPLEMENTATIONS ;
@@ -500,52 +530,88 @@
    (for :varNames
         ((name = for-item)
          ;;; a. If env.HasVarDeclaration(name) is true, throw a SyntaxError exception.
+         (if (:env .. HasVarDeclaration :name)
+             ((throw (SyntaxError :env "env.HasVarDeclaration(name) is true"))))
          ;;; b. If env.HasLexicalDeclaration(name) is true, throw a SyntaxError exception.
+         (if (:env .. HasLexicalDeclaration :name)
+             ((throw (SyntaxError :env "env.HasLexicalDeclaration(name) is true"))))
          ;;; c. Let hasRestrictedGlobal be ? env.HasRestrictedGlobalProperty(name).
+         (hasRestrictedGlobal = (? (:env .. HasRestrictedGlobalProperty :name)))
          ;;; d. If hasRestrictedGlobal is true, throw a SyntaxError exception.
-        ))
+         (if (is-true :hasRestrictedGlobal)
+             ((throw (SyntaxError :env "If hasRestrictedGlobal is true"))))))
    ;;; 5. For each element name of varNames, do
    (for :varNames
         ((name = for-item)
          ;;; a. If env.HasLexicalDeclaration(name) is true, throw a SyntaxError exception.
-        ))
+         (hasLexicalDeclaration = (:env .. HasLexicalDeclaration :name))
+         (if (is-true :hasLexicalDeclaration)
+             ((throw (SyntaxError :env "If env.HasLexicalDeclaration(name) is true"))))))
    ;;; 6. Let varDeclarations be the VarScopedDeclarations of script.
+   (varDeclarations = (VarScopedDeclarations :script))
    ;;; 7. Let functionsToInitialize be a new empty List.
+   (functionsToInitialize = list-new)
    ;;; 8. Let declaredFunctionNames be a new empty List.
+   (declaredFunctionNames = list-new)
    ;;; 9. For each element d of varDeclarations, in reverse List order, do
-   ;;; a. If d is neither a VariableDeclaration nor a ForBinding nor a BindingIdentifier, then
-   ;;; i. Assert: d is either a FunctionDeclaration, a GeneratorDeclaration, an AsyncFunctionDeclaration, or an AsyncGeneratorDeclaration.
-   ;;; ii. NOTE: If there are multiple function declarations for the same name, the last declaration is used.
-   ;;; iii. Let fn be the sole element of the BoundNames of d.
-   ;;; iv. If fn is not an element of declaredFunctionNames, then
-   ;;; 1. Let fnDefinable be ? env.CanDeclareGlobalFunction(fn).
-   ;;; 2. If fnDefinable is false, throw a TypeError exception.
-   ;;; 3. Append fn to declaredFunctionNames.
-   ;;; 4. Insert d as the first element of functionsToInitialize.
+   (for :varDeclarations
+        ((d = for-item-rev)
+         ;;; a. If d is neither a VariableDeclaration nor a ForBinding nor a BindingIdentifier, then
+         ;;; i. Assert: d is either a FunctionDeclaration, a GeneratorDeclaration, an AsyncFunctionDeclaration, or an AsyncGeneratorDeclaration.
+         ;;; ii. NOTE: If there are multiple function declarations for the same name, the last declaration is used.
+         ;;; iii. Let fn be the sole element of the BoundNames of d.
+         (fn = (sole-element (BoundNames :d)))
+         ;;; iv. If fn is not an element of declaredFunctionNames, then
+         ;;; 1. Let fnDefinable be ? env.CanDeclareGlobalFunction(fn).
+         ;;; 2. If fnDefinable is false, throw a TypeError exception.
+         ;;; 3. Append fn to declaredFunctionNames.
+         ;;; 4. Insert d as the first element of functionsToInitialize.
+        ))
    ;;; 10. Let declaredVarNames be a new empty List.
+   (declaredVarNames = list-new)
    ;;; 11. For each element d of varDeclarations, do
-   ;;; a. If d is a VariableDeclaration, a ForBinding, or a BindingIdentifier, then
-   ;;; i. For each String vn of the BoundNames of d, do
-   ;;; 1. If vn is not an element of declaredFunctionNames, then
-   ;;; a. Let vnDefinable be ? env.CanDeclareGlobalVar(vn).
-   ;;; b. If vnDefinable is false, throw a TypeError exception.
-   ;;; c. If vn is not an element of declaredVarNames, then
-   ;;; i. Append vn to declaredVarNames.
+   (for :varDeclarations
+        ((d = for-item)
+         ;;; a. If d is a VariableDeclaration, a ForBinding, or a BindingIdentifier, then
+         ;;; i. For each String vn of the BoundNames of d, do
+         (boundNamesOfD = (BoundNames :d))
+         (for :boundNamesOfD
+              ((vn = for-item)
+               ;;; 1. If vn is not an element of declaredFunctionNames, then
+               ;;; a. Let vnDefinable be ? env.CanDeclareGlobalVar(vn).
+               ;;; b. If vnDefinable is false, throw a TypeError exception.
+               ;;; c. If vn is not an element of declaredVarNames, then
+               ;;; i. Append vn to declaredVarNames.
+              ))))
    ;;; 12. NOTE: No abnormal terminations occur after this algorithm step if the global object is an ordinary object.However, if the global object is a Proxy exotic object it may exhibit behaviours that cause abnormalterminations in some of the following steps.
    ;;; 13. NOTE: Annex B.3.3.2 adds additional steps at this point.
    ;;; 14. Let lexDeclarations be the LexicallyScopedDeclarations of script.
+   (lexDeclarations = (LexicallyScopedDeclarations :script))
    ;;; 15. For each element d of lexDeclarations, do
-   ;;; a. NOTE: Lexically declared names are only instantiated here but not initialized.
-   ;;; b. For each element dn of the BoundNames of d, do
-   ;;; i. If IsConstantDeclaration of d is true, then
-   ;;; 1. Perform ? env.CreateImmutableBinding(dn, true).
-   ;;; ii. Else,
-   ;;; 1. Perform ? env.CreateMutableBinding(dn, false).
+   (for :lexDeclarations
+        ((d = for-item)
+         ;;; a. NOTE: Lexically declared names are only instantiated here but not initialized.
+         ;;; b. For each element dn of the BoundNames of d, do
+         (boundNamesOfD = (BoundNames :d))
+         (for :boundNamesOfD
+              ((dn = for-item)
+               ;;; i. If IsConstantDeclaration of d is true, then
+               ;;; 1. Perform ? env.CreateImmutableBinding(dn, true).
+               ;;; ii. Else,
+               ;;; 1. Perform ? env.CreateMutableBinding(dn, false).
+              ))))
    ;;; 16. For each Parse Node f of functionsToInitialize, do
-   ;;; a. Let fn be the sole element of the BoundNames of f.
-   ;;; b. Let fo be InstantiateFunctionObject of f with argument env.
-   ;;; c. Perform ? env.CreateGlobalFunctionBinding(fn, fo, false).
+   (for :functionsToInitialize
+        ((f = for-item)
+         ;;; a. Let fn be the sole element of the BoundNames of f.
+         (fn = (sole-element (BoundNames :f)))
+         ;;; b. Let fo be InstantiateFunctionObject of f with argument env.
+         ;;; c. Perform ? env.CreateGlobalFunctionBinding(fn, fo, false).
+        ))
    ;;; 17. For each String vn of declaredVarNames, do
-   ;;; a. Perform ? env.CreateGlobalVarBinding(vn, false).
+   (for :declaredVarNames
+        ((vn = for-item)
+         ;;; a. Perform ? env.CreateGlobalVarBinding(vn, false).
+        ))
    ;;; 18. Return NormalCompletion(empty).
    (return)))

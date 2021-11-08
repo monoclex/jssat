@@ -216,6 +216,7 @@ impl SymbWorker<'_> {
             ir::Instruction::ListGet(_) => todo!(),
             ir::Instruction::ListSet(_) => todo!(),
             ir::Instruction::ListHasKey(_) => todo!(),
+            ir::Instruction::ListLen(_) => todo!(),
         };
     }
 
