@@ -4,6 +4,7 @@ mod frontend_pseudo;
 pub use frontend_pseudo::traverse;
 
 pub mod ecmascript;
+pub mod parse_nodes;
 
 /*
 use swc_common::{

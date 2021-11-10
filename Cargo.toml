@@ -1,7 +1,7 @@
 [workspace]
 members = [
     "compiler",
-    "method_syntax",
+    "grammar_notation_helper",
     "runtime",
     "ir_file",
 ]

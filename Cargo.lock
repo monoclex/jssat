@@ -95,9 +95,9 @@ checksum = "cf1de2fe8c75bc145a2f577add951f8134889b4795d47466a54a5c846d691693"
 
 [[package]]
 name = "bumpalo"
-version = "3.7.1"
+version = "3.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d9df67f7bf9ef8498769f994239c45613ef0c5899415fb58e9add412d2c1a538"
+checksum = "8f1e260c3a9040a7c19a12468758f4c16f31a81a1fe087482be9570ec864bb6c"
 
 [[package]]
 name = "byteorder"
@@ -302,6 +302,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "grammar_notation_helper"
+version = "0.1.0"
+
+[[package]]
 name = "hashbrown"
 version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -407,11 +411,11 @@ dependencies = [
  "derive_more",
  "enum-kinds",
  "gc",
+ "grammar_notation_helper",
  "inkwell",
  "ir_file",
  "lasso",
  "lazy_static",
- "method_syntax",
  "ntest",
  "ordered-float",
  "ouroboros",
@@ -551,10 +555,6 @@ name = "memchr"
 version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b16bd47d9e329435e309c58469fe0791c2d0d1ba96ec0954152a5ae2b04387dc"
-
-[[package]]
-name = "method_syntax"
-version = "0.1.0"
 
 [[package]]
 name = "mimalloc"

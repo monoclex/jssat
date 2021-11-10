@@ -5,7 +5,7 @@ authors = ["SirJosh3917 <SirJosh3917@users.noreply.github.com>"]
 edition = "2018"
 
 [features]
-# default = ["link-swc"]
+default = ["link-swc"]
 # default = ["link-swc", "link-llvm"]
 
 # Linking LLVM can take a minute or more. This feature is made optional so that
@@ -36,9 +36,9 @@ thiserror = "1.0.26"
 lazy_static = "1.4.0"
 enum-kinds = "0.5.1"
 ouroboros = "0.10.1"
-bumpalo = { version = "3.7.1", features = ["allocator_api", "boxed", "collections"] }
+bumpalo = { version = "3.8.0", features = ["allocator_api", "boxed", "collections"] }
 gc = { version = "0.4.1", features = ["derive"] }
-method_syntax = { path = "../method_syntax" }
+grammar_notation_helper = { path = "../grammar_notation_helper" }
 serial_test = "0.5.1"
 with_builtin_macros = "0.0.3"
 
