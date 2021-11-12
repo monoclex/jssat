@@ -1,13 +1,20 @@
 //! A macro crate the parses ECMAScript Grammar Notation, and generates
 //! structures.
 
-#![feature(proc_macro_span)]
-#![feature(extend_one)]
-#![feature(proc_macro_diagnostic)]
+mod ast;
+use ast::*;
 
-use proc_macro::*;
+pub fn generate(code: &str) -> String {
+    let production = Production::from_json(code);
+    format!(
+        "
+pub struct HelloWorld;
 
-#[proc_macro]
-pub fn grammar_notation_helper(tokens: TokenStream) -> TokenStream {
-    tokens
+/*
+{:#?}
+*/
+
+",
+        production
+    )
 }

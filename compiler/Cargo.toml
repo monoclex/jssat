@@ -38,12 +38,12 @@ enum-kinds = "0.5.1"
 ouroboros = "0.10.1"
 bumpalo = { version = "3.8.0", features = ["allocator_api", "boxed", "collections"] }
 gc = { version = "0.4.1", features = ["derive"] }
-grammar_notation_helper = { path = "../grammar_notation_helper" }
 serial_test = "0.5.1"
 with_builtin_macros = "0.0.3"
 
 [build-dependencies]
 ir_file = { path = "../ir_file" }
+grammar_notation_helper = { path = "../grammar_notation_helper" }
 walkdir = "2.3.2"
 
 [dev-dependencies]

@@ -12,6 +12,11 @@ fn main() {
     link_jssatrt();
 }
 
+enum GenKind {
+    ParseNodes,
+    IrFile,
+}
+
 fn compile_irfiles() {
     let out_dir = std::env::var("OUT_DIR").unwrap();
 
@@ -19,26 +24,38 @@ fn compile_irfiles() {
         let entry = entry.unwrap();
         let name = entry.file_name().to_str().unwrap();
 
-        if !name.ends_with(".lisp") {
-            continue;
+        let mut dest = None;
+        if name == "parse_nodes.json" {
+            let dest_path = Path::new(&out_dir).join("parse_nodes.rs");
+            dest = Some((dest_path, GenKind::ParseNodes, "parse_nodes".to_string()));
         }
 
-        let name = name.split('.').next().unwrap();
-        let dest_path = Path::new(&out_dir).join(format!("{}_irfile.rs", name));
-        let mut output = BufWriter::new(
-            std::fs::File::with_options()
-                .write(true)
-                .create(true)
-                .truncate(true)
-                .open(dest_path)
-                .unwrap(),
-        );
+        if name.ends_with(".lisp") {
+            let name = name.split('.').next().unwrap().to_string();
+            let dest_path = Path::new(&out_dir).join(format!("{}_irfile.rs", name));
+            dest = Some((dest_path, GenKind::IrFile, name));
+        }
 
-        let src = std::fs::read_to_string(entry.path()).unwrap();
-        // println!("cargo:rerun-if-changed={}", entry.path().to_str().unwrap());
+        if let Some((dest_path, kind, name)) = dest {
+            let mut output = BufWriter::new(
+                std::fs::File::with_options()
+                    .write(true)
+                    .create(true)
+                    .truncate(true)
+                    .open(dest_path)
+                    .unwrap(),
+            );
 
-        let code = ir_file::generate(name, &src);
-        output.write_all(code.as_bytes()).unwrap();
+            let src = std::fs::read_to_string(entry.path()).unwrap();
+            // println!("cargo:rerun-if-changed={}", entry.path().to_str().unwrap());
+
+            let code = match kind {
+                GenKind::IrFile => ir_file::generate(&name, &src),
+                GenKind::ParseNodes => grammar_notation_helper::generate(&src),
+            };
+
+            output.write_all(code.as_bytes()).unwrap();
+        }
     }
 }
 

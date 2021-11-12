@@ -6,6 +6,14 @@
 //! Rust, and is also responsible for the code that maps these parse nodes to
 //! ECMAScript instructions.
 
-grammar_notation_helper::grammar_notation_helper! {"
-TODO: fill this with some kind of data
-"}
+pub fn x() -> HelloWorld {
+    HelloWorld
+}
+
+with_builtin_macros::with_builtin! {
+    let $path = concat!(env!("OUT_DIR"), "/parse_nodes.rs") in {
+        #[path = $path]
+        mod generated_code;
+        pub use generated_code::*;
+    }
+}
