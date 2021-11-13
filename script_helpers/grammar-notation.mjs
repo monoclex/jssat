@@ -10,7 +10,9 @@ import {
   SymbolSpan,
   SymbolSet,
   SyntaxKind,
+  OneOfList,
 } from "grammarkdown";
+import { decode } from "html-entities";
 
 try {
   fs.mkdirSync("workdir");
@@ -47,12 +49,28 @@ const grammarSections = parse(spec)
       element.parentNode.id === "sec-regular-expressions-patterns";
     return !isRegexSection;
   })
+  .filter((element) => {
+    const isForWeb =
+      element.parentNode.parentNode.parentNode.id ===
+      "sec-additional-ecmascript-features-for-web-browsers";
+    return !isForWeb;
+  })
+  .filter((element) => {
+    const isNativeFn =
+      element.parentNode.id === "sec-function.prototype.tostring";
+    return !isNativeFn;
+  })
+  .filter((element) => {
+    const isUriHandling =
+      element.parentNode.parentNode.id === "sec-uri-handling-functions";
+    return !isUriHandling;
+  })
   .map((element) => element.innerText);
 
 // 3. parse all language grammar sections
 const parser = new Parser();
 
-/** @type {Production[]} */
+/** @type {[string, Production][]} */
 const productions = grammarSections
   .map((grammar) => [grammar, parser.parseSourceFile("...", grammar)])
   .flatMap(([grammar, file]) =>
@@ -88,6 +106,21 @@ const ast = productions
           throw err;
         }
       }),
+    };
+  });
+
+const oneOfAst = productions
+  .filter(([grammar, { body }]) => body instanceof OneOfList)
+  .map(([grammar, { name, body: body2 }]) => {
+    /** @type {OneOfList} */
+    const body = body2;
+    const terminals = body.terminals ?? [];
+
+    console.log("terms", terminals);
+
+    return {
+      name: name.text,
+      terminals: terminals.map((terminal) => decode(terminal.text)),
     };
   });
 
@@ -132,7 +165,24 @@ function handleSymbol(symbol, array) {
     //   handleSymbol(lookahead, array);
     // }
   } else if ("symbols" in symbol && symbol.symbols) {
-    handleSymbol(symbol.symbols, array);
+    let oneOfItems = [];
+    let emitSymbol = true;
+
+    for (const subSymbol of symbol.symbols) {
+      if ("literal" in subSymbol) {
+        oneOfItems.push(subSymbol.literal.text);
+      } else if (
+        "name" in subSymbol &&
+        subSymbol.name.text === "LineTerminator"
+      ) {
+        emitSymbol = false;
+      } else {
+        console.warn("sub", subSymbol);
+        throw new Error("unknown subsymbol");
+      }
+    }
+
+    if (emitSymbol) array.push({ oneOf: oneOfItems });
   } else if ("butKeyword" in symbol && "notKeyword" in symbol) {
     // do nothing
   } else if ("emptyKeyword" in symbol) {
@@ -159,9 +209,11 @@ function handleArgumentOp(op) {
   throw new Error("impossible");
 }
 
+const totalAst = { ast, oneOfAst };
+
 // 4. save AST to JSON to then give to rust code for code generation
 const grammarNotation = "workdir/grammar-notation.json";
-fs.writeFileSync(grammarNotation, JSON.stringify(ast));
+fs.writeFileSync(grammarNotation, JSON.stringify(totalAst));
 
 // 5. update `parse_nodes`
 const parseNodes = "../compiler/src/frontend/js/parse_nodes/parse_nodes.json";

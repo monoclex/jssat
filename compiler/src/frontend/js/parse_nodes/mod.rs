@@ -6,8 +6,8 @@
 //! Rust, and is also responsible for the code that maps these parse nodes to
 //! ECMAScript instructions.
 
-pub fn x() -> HelloWorld {
-    HelloWorld
+pub fn x() -> StatementList {
+    todo!()
 }
 
 with_builtin_macros::with_builtin! {
