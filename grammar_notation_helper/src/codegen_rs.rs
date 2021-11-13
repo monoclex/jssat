@@ -6,9 +6,23 @@ pub fn generate_production(production: &Production) -> String {
     parse_node.vis("pub");
 
     for (idx, body) in production.body.iter().enumerate() {
-        let mut variant = Variant::new(format!("Variant{}", idx).as_str());
+        // as a hack, we shove the documentation in the same spot that the name goes
+        // this is because there is no .doc method
+        // TODO(refactor): submit a PR to codegen to add a `.doc()` method to
+        //   variants on enums
 
-        let inner_parse_nodes = body.iter().filter_map(|r| match r {
+        let name = format!(
+            "
+/// ```ignore
+/// {}
+/// ```
+Variant{}",
+            body.source, idx
+        );
+        let name = name.trim();
+        let mut variant = Variant::new(name);
+
+        let inner_parse_nodes = body.sequence.iter().filter_map(|r| match r {
             Rule::Name(name) => Some(name),
             _ => None,
         });

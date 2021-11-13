@@ -11,7 +11,6 @@ pub struct Productions {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Production {
     pub name: String,
-    pub parameters: Vec<String>,
     pub body: Vec<Body>,
 }
 
@@ -27,8 +26,11 @@ impl Production {
     }
 }
 
-#[derive(Serialize, Deserialize, Deref, DerefMut, Debug, Clone)]
-pub struct Body(#[deref] pub Vec<Rule>);
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Body {
+    pub source: String,
+    pub sequence: Vec<Rule>,
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Rule {
@@ -54,21 +56,4 @@ impl Rule {
 pub struct Name {
     pub name: String,
     pub optional: Option<bool>,
-    pub parameters: Option<Vec<Parameter>>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Parameter {
-    pub parameter: String,
-    pub kind: ParameterKind,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum ParameterKind {
-    #[serde(rename = "?")]
-    Question,
-    #[serde(rename = "~")]
-    Tilde,
-    #[serde(rename = "+")]
-    Plus,
 }

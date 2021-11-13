@@ -74,33 +74,29 @@ const parser = new Parser();
 const productions = grammarSections
   .map((grammar) => [grammar, parser.parseSourceFile("...", grammar)])
   .flatMap(([grammar, file]) =>
-    file.elements.map((element) => [grammar, element])
+    file.elements.map((element) => [[grammar, file], element])
   )
-  .filter(([grammar, sourceElement]) => sourceElement instanceof Production);
+  .filter(([_, sourceElement]) => sourceElement instanceof Production);
 
 const ast = productions
-  .filter(([grammar, { body }]) => body instanceof RightHandSideList)
-  .map(([grammar, { name, parameterList: prodParamList, body: prodBody }]) => {
-    /** @type {import("grammarkdown").Parameter[]} */
-    const parameters = (prodParamList && prodParamList.elements) ?? [];
-
+  .filter(([_, { body }]) => body instanceof RightHandSideList)
+  .map(([[grammar, sourceFile], { name, body: prodBody }]) => {
     /** @type {RightHandSide[]} */
     const body = (prodBody && prodBody.elements) ?? [];
 
     return {
       name: name.text,
-      parameters: parameters.map((parameter) => parameter.name.text),
       body: body.map((rhs) => {
         try {
-          return mapRhs(rhs.head);
+          return {
+            source: rhs.getText(sourceFile),
+            sequence: mapRhs(rhs.head),
+          };
         } catch (err) {
           console.log(
             "error while parsing",
             grammar,
-            {
-              name: name.text,
-              parameters: parameters.map((p) => p.name.text),
-            },
+            { name: name.text },
             rhs.head
           );
           throw err;
@@ -115,8 +111,6 @@ const oneOfAst = productions
     /** @type {OneOfList} */
     const body = body2;
     const terminals = body.terminals ?? [];
-
-    console.log("terms", terminals);
 
     return {
       name: name.text,
@@ -147,10 +141,6 @@ function handleSymbol(symbol, array) {
     const element = {
       name: symbol.name.text,
     };
-
-    if (symbol.argumentList) {
-      element.parameters = handleArgumentList(symbol.argumentList);
-    }
 
     if (symbol.questionToken !== undefined) {
       element.optional = true;
@@ -191,22 +181,6 @@ function handleSymbol(symbol, array) {
     console.warn("unhandled", symbol);
     throw new Error("unhandled symbol");
   }
-}
-
-/** @param {import("grammarkdown").ArgumentList} args */
-function handleArgumentList(args) {
-  return args.elements.map((element) => ({
-    parameter: element.name.text,
-    kind: handleArgumentOp(element.operatorToken.kind),
-  }));
-}
-
-/** @param {import("grammarkdown").ArgumentOperatorKind} op */
-function handleArgumentOp(op) {
-  if (op === SyntaxKind.QuestionToken) return "?";
-  if (op === SyntaxKind.PlusToken) return "+";
-  if (op === SyntaxKind.TildeToken) return "~";
-  throw new Error("impossible");
 }
 
 const totalAst = { ast, oneOfAst };
