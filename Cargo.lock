@@ -305,6 +305,7 @@ dependencies = [
 name = "grammar_notation_helper"
 version = "0.1.0"
 dependencies = [
+ "derive_more",
  "serde",
  "serde_json",
 ]
