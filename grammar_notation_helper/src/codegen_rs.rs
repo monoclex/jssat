@@ -28,14 +28,16 @@ Variant{}",
         });
 
         inner_parse_nodes.for_each(|name| {
-            let name = match name.optional.is_some() {
-                true => format!("Option<{}>", name.name),
-                false => name.name.clone(),
+            let ident = format!("Box<{}>", name.name);
+
+            let ident = match name.optional.is_some() {
+                true => format!("Option<{}>", ident),
+                false => ident,
             };
 
             // TODO(performance): use cool graphs to figure out when enums are
             //   recursive and automatically insert `Box<>`s when necessary
-            variant.tuple(format!("Box<{}>", name).as_str());
+            variant.tuple(ident.as_str());
         });
 
         parse_node.push_variant(variant);
