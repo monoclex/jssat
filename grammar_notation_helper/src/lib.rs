@@ -18,24 +18,41 @@ pub fn generate(code: &str) -> String {
 
     std::iter::once(
         "
+#[derive(Debug, Clone)]
 pub struct LineTerminator;
+
+#[derive(Debug, Clone)]
 pub struct IdentifierName(pub String);
+
+#[derive(Debug, Clone)]
 pub struct RegularExpressionLiteral(pub String);
+
+#[derive(Debug, Clone)]
 pub struct NullLiteral;
+
+#[derive(Debug, Clone)]
 pub struct StringLiteral(pub String);
+
+#[derive(Debug, Clone)]
 pub struct NumericLiteral(pub f64);
+
+#[derive(Debug, Clone)]
 pub struct BooleanLiteral(pub bool);
 
 /// NoSubstitutionTemplate :: ` TemplateCharacters opt `
+#[derive(Debug, Clone)]
 pub struct NoSubstitutionTemplate(pub String);
 
 /// TemplateHead :: ` TemplateCharacters opt ${
+#[derive(Debug, Clone)]
 pub struct TemplateHead(pub String);
 
 /// TemplateMiddle :: } TemplateCharacters opt $ {
+#[derive(Debug, Clone)]
 pub struct TemplateMiddle(pub String);
 
 /// TemplateTail :: } TemplateCharacters opt
+#[derive(Debug, Clone)]
 pub struct TemplateTail(pub String);
 "
         .to_string(),

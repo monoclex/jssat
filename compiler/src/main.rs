@@ -166,6 +166,10 @@ print('Hello, World!');
 "#
     .to_owned();
 
+    println!("converting script to parse nodes");
+    let script = time(|| frontend::js::ast::parse_script(&content));
+    println!("traversed script: {:#?}", script);
+
     println!("traversing javascript");
     let ir = time(move || frontend::js::traverse(content));
     // println!("{}", display_jssatir::display(&ir));
