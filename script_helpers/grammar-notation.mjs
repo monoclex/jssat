@@ -174,7 +174,8 @@ function handleSymbol(symbol, array) {
 
     if (emitSymbol) array.push({ oneOf: oneOfItems });
   } else if ("butKeyword" in symbol && "notKeyword" in symbol) {
-    // do nothing
+    // ignore the "but not" part
+    handleSymbol(symbol.left, array);
   } else if ("emptyKeyword" in symbol) {
     // push nothing into `array`, as it should be empty
   } else {
@@ -190,6 +191,6 @@ const grammarNotation = "workdir/grammar-notation.json";
 fs.writeFileSync(grammarNotation, JSON.stringify(totalAst));
 
 // 5. update `parse_nodes`
-const parseNodes = "../compiler/src/frontend/js/parse_nodes/parse_nodes.json";
+const parseNodes = "../compiler/src/frontend/js/ast/parse_nodes.json";
 fs.rmSync(parseNodes);
 fs.copyFileSync(grammarNotation, parseNodes);

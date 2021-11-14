@@ -6,14 +6,9 @@
 //! Rust, and is also responsible for the code that maps these parse nodes to
 //! ECMAScript instructions.
 
-pub fn x() -> StatementList {
-    todo!()
-}
+pub mod parse_nodes;
+mod parser;
 
-with_builtin_macros::with_builtin! {
-    let $path = concat!(env!("OUT_DIR"), "/parse_nodes.rs") in {
-        #[path = $path]
-        mod generated_code;
-        pub use generated_code::*;
-    }
+pub fn parse_script(script: &str) -> parse_nodes::Script {
+    parser::parse_script(script)
 }
