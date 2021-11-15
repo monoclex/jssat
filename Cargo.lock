@@ -306,6 +306,7 @@ name = "grammar_notation_helper"
 version = "0.1.0"
 dependencies = [
  "codegen",
+ "convert_case",
  "derive_more",
  "rustc-hash",
  "serde",
