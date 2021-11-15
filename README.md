@@ -10,8 +10,9 @@ the corresponding LLVM IR.
 
 ### ⚠️ JSSAT is in an early stage of development.
 
-Currently, we can compile a simple `print("Hello, World!")` but there is much
-that needs to be done.
+The infrastructure is being reworked, but there is a substantial amount of work
+that has already been done. There have been prototypes of this project compiling
+simple `print("Hello, World");` programs.
 
 ## Usage
 
