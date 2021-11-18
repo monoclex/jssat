@@ -6,7 +6,7 @@
 //! Rust, and is also responsible for the code that maps these parse nodes to
 //! ECMAScript instructions.
 
-use crate::frontend::builder::{DynBlockBuilder, RegisterId};
+use crate::frontend::builder::{DynBlockBuilder, ProgramBuilder, RegisterId};
 
 pub mod emit_nodes;
 pub mod parse_nodes;
@@ -17,10 +17,11 @@ pub fn parse_script(script: &str) -> parse_nodes::Script {
 }
 
 pub fn emit_nodes(
+    program: &mut ProgramBuilder,
     block: &mut DynBlockBuilder,
     visit_initial_node: impl FnOnce(&mut emit_nodes::NodeEmitter),
 ) -> RegisterId {
-    let mut node_emitter = emit_nodes::NodeEmitter::new(block);
+    let mut node_emitter = emit_nodes::NodeEmitter::new(block, program);
     visit_initial_node(&mut node_emitter);
 
     let last_visited = node_emitter

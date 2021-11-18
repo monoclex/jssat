@@ -17,7 +17,7 @@
 
 use std::{io::Write, process::Command, time::Instant};
 
-use crate::frontend::{builder::ProgramBuilder, display_jssatir, js::ast::parse_nodes::Visitor};
+use crate::frontend::{builder::ProgramBuilder, js::ast::parse_nodes::Visitor};
 
 pub mod backend;
 pub mod codegen;
@@ -174,7 +174,18 @@ print('Hello, World!');
     let mut f = builder.start_function_main();
     let mut b = f.start_block_main();
     println!("visiting parse nodes of script");
-    time(|| frontend::js::ast::emit_nodes(&mut b, |visitor| visitor.visit_script(&script)));
+    time(|| {
+        frontend::js::ast::emit_nodes(&mut builder, &mut b, |visitor| {
+            visitor.visit_script(&script)
+        })
+    });
+
+    f.end_block(b.ret(None));
+    builder.end_function(f);
+    let ir = builder.finish();
+
+    println!("visited:");
+    println!("{}", crate::frontend::display_jssatir::display(&ir));
 
     println!("traversing javascript");
     let ir = time(move || frontend::js::traverse(content));

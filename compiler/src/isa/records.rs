@@ -23,6 +23,11 @@ impl<C: Tag> RecordKey<C> {
     }
 }
 
+// TODO(refactor): internal slots should be able to be dynamically created by
+//   some provider, and then get assigned a numeric number (so they're cheap
+//   to copy around and such). for now, i'm just gonna keep sticking stuff here
+//   (this will not come back to bite me as internal slots are pervasively used
+//   throughout the codebase at all :DDD)
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Display)]
 pub enum InternalSlot {
     JSSATRandomDebugSlot,
@@ -95,6 +100,12 @@ pub enum InternalSlot {
     JSSATContainsUndefinedContinueTarget,
     JSSATHasName,
     JSSATIsFunctionDefinition,
+    JSSATParseNodeSlot1,
+    JSSATParseNodeSlot2,
+    JSSATParseNodeSlot3,
+    JSSATParseNodeSlot4,
+    JSSATParseNodeSlot5,
+    JSSATParseNodeSlot6,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
