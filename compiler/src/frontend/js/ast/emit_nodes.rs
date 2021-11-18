@@ -3,7 +3,10 @@ use std::array::IntoIter;
 use rustc_hash::FxHashMap;
 
 use crate::{
-    frontend::builder::{DynBlockBuilder, FnSignature, ProgramBuilder, RegisterId},
+    frontend::{
+        builder::{DynBlockBuilder, FnSignature, ProgramBuilder, RegisterId},
+        js::ecmascript::ECMA262Methods,
+    },
     isa::InternalSlot,
     UnwrapNone,
 };
@@ -13,34 +16,52 @@ use super::parse_nodes::{self as js, Visitor};
 // TODO(refactor): maybe separate this out somewhere else? it's simpler being
 //   in one place though
 fn emit_virt_overrides(
+    parse_node: RegisterId,
     kind: js::ParseNodeKind,
     idx: usize,
     block: &mut DynBlockBuilder,
     slot: InternalSlot,
+    ecma_methods: &ECMA262Methods,
 ) -> bool {
-    match (kind, idx) {
+    use js::ParseNodeKind::*;
+    use InternalSlot::*;
+
+    #[rustfmt::skip]
+    let function = match (slot, kind, idx) {
+        (JSSATBoundNames, IdentifierName, 0) => ecma_methods.BoundNames_BindingIdentifier_Identifier.id,
+        (JSSATBoundNames, IdentifierName, 1) => ecma_methods.BoundNames_BindingIdentifier_Yield.id,
+        (JSSATBoundNames, IdentifierName, 2) => ecma_methods.BoundNames_BindingIdentifier_Await.id,
         _ => return false,
     };
+
+    let fn_ptr = block.make_fnptr(function);
+    block.record_set_slot(parse_node, slot, fn_ptr);
 
     true
 }
 
 pub struct NodeEmitter<'block> {
     block: &'block mut DynBlockBuilder,
+    program: &'block mut ProgramBuilder,
     stack: Vec<ParseNode>,
     pub last_completed: Option<ParseNode>,
     simple_fns: FxHashMap<InternalSlot, FnSignature<1>>,
+    ecma_methods: ECMA262Methods,
 }
 
 impl<'b> NodeEmitter<'b> {
-    pub fn new(block: &'b mut DynBlockBuilder, program: &mut ProgramBuilder) -> Self {
+    pub fn new(block: &'b mut DynBlockBuilder, program: &'b mut ProgramBuilder) -> Self {
         let simple_fns = Self::generate_simple_fns(program);
+
+        let ecma_methods = ECMA262Methods::new(program);
 
         Self {
             block,
+            program,
             stack: Vec::new(),
             last_completed: None,
             simple_fns,
+            ecma_methods,
         }
     }
 
@@ -98,9 +119,12 @@ const PARSE_NODE_SLOTS: [InternalSlot; 6] = [
     InternalSlot::JSSATParseNodeSlot6,
 ];
 
-const RUNTIME_SEMANTICS: [InternalSlot; 2] = [
+const RUNTIME_SEMANTICS: [InternalSlot; 5] = [
     InternalSlot::JSSATLexicallyDeclaredNames,
     InternalSlot::JSSATVarDeclaredNames,
+    InternalSlot::JSSATVarScopedDeclarations,
+    InternalSlot::JSSATLexicallyScopedDeclarations,
+    InternalSlot::JSSATBoundNames,
 ];
 
 pub struct ParseNode {
@@ -137,13 +161,21 @@ impl ParseNode {
         self,
         block: &mut DynBlockBuilder,
         simple_fns: &FxHashMap<InternalSlot, FnSignature<1>>,
+        ecma_methods: &ECMA262Methods,
     ) -> Self {
         debug_assert!({
             IntoIter::new(RUNTIME_SEMANTICS).all(|slot| simple_fns.contains_key(&slot))
         });
 
         for (slot, fn_id) in simple_fns {
-            let did_emit_overrides = emit_virt_overrides(self.kind, self.variant_idx, block, *slot);
+            let did_emit_overrides = emit_virt_overrides(
+                self.parse_node,
+                self.kind,
+                self.variant_idx,
+                block,
+                *slot,
+                ecma_methods,
+            );
 
             // if we don't have a custom implementation of a runtime semantic,
             // emit the default function
@@ -171,12 +203,27 @@ impl<'b> Visitor for NodeEmitter<'b> {
 
         println!("<- {:?}", node.kind);
 
-        let node = node.finish(self.block, &self.simple_fns);
+        let node = node.finish(self.block, &self.simple_fns, &self.ecma_methods);
 
         if let Some(parent) = self.stack.last_mut() {
             parent.on_child_created(self.block, &node);
         }
 
         self.last_completed = Some(node);
+    }
+
+    fn visit_identifier_name(&mut self, node: &js::IdentifierName) {
+        let parse_node = self.stack.last_mut().expect("it");
+
+        let string = node.0.clone();
+
+        let constant = self.program.constant_str_utf16(string);
+        let string = self.block.make_string(constant);
+
+        self.block.record_set_slot(
+            parse_node.parse_node,
+            InternalSlot::JSSATParseNode_Identifier_StringValue,
+            string,
+        );
     }
 }

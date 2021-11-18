@@ -56,6 +56,15 @@
         ((jssat_list = :jssat_list) (jssat_i = (:jssat_i + 1)) (jssat_len = :jssat_len))
         :body))
 
+(def (list-push :list :x) (list-set :list ((list-len :list) - 1) :x))
+
+(def
+  (list-new-1 :1)
+  (expr-block
+   ((jssat_list_temp = list-new)
+    (list-push :jssat_list_temp :1)
+    (:jssat_list_temp))))
+
 ; i'm too lazy to change let exprs to expr blocks atm
 (def (expr-block :x) (let
                        _discard
@@ -127,8 +136,6 @@
         (record-absent-slot :r :s3) (record-absent-slot :r :s4)
         (record-absent-slot :r :s5) (record-absent-slot :r :s6)))
 
-(def (list-push :list :x) (list-set :list ((list-len :list) - 1) :x))
-
 (def (isnt-abrupt-completion :x) (not (is-abrupt-completion :x)))
 (def
   (is-abrupt-completion :x)
@@ -159,7 +166,6 @@
       (assert ((list-len :jssat_list) == 1) "to get the 'sole element' of a list, it must be a singleton list")
       (assert (list-has :jssat_list 1) "sanity check")
       (list-get :jssat_list 0)))))
-
 
 ; 5.2.3.4 ReturnIfAbrupt Shorthands
 (def
@@ -346,6 +352,21 @@
         (return (:x == :y))))
    ;;; 7. If x and y are the same Object value, return true. Otherwise, return false.
    (return (:x == :y))))
+
+(section
+  (:8.1.1 BoundNames_BindingIdentifier_Identifier (identifier))
+  (;;; 1. Return a List whose sole element is the StringValue of Identifier.
+   (return (list-new-1 (:identifier -> JSSATParseNode_Identifier_StringValue)))))
+
+(section
+  (:8.1.1 BoundNames_BindingIdentifier_Yield (identifier))
+  (;;; 1. Return a List whose sole element "yield".
+   (return (list-new-1 "yield"))))
+
+(section
+  (:8.1.1 BoundNames_BindingIdentifier_Await (identifier))
+  (;;; 1. Return a List whose sole element "await".
+   (return (list-new-1 "await"))))
 
 (section
   (:10.1.6.3 ValidateAndApplyPropertyDescriptor (O, P, extensible, Desc, current))

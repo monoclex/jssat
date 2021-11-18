@@ -106,6 +106,7 @@ pub enum InternalSlot {
     JSSATParseNodeSlot4,
     JSSATParseNodeSlot5,
     JSSATParseNodeSlot6,
+    JSSATParseNode_Identifier_StringValue,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
