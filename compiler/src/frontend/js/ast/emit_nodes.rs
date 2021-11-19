@@ -21,20 +21,35 @@ fn emit_virt_overrides(
     idx: usize,
     block: &mut DynBlockBuilder,
     slot: InternalSlot,
-    ecma_methods: &ECMA262Methods,
+    m: &ECMA262Methods,
 ) -> bool {
     use js::ParseNodeKind::*;
     use InternalSlot::*;
 
     #[rustfmt::skip]
     let function = match (slot, kind, idx) {
-        (JSSATBoundNames, IdentifierName, 0) => ecma_methods.BoundNames_BindingIdentifier_Identifier.id,
-        (JSSATBoundNames, IdentifierName, 1) => ecma_methods.BoundNames_BindingIdentifier_Yield.id,
-        (JSSATBoundNames, IdentifierName, 2) => ecma_methods.BoundNames_BindingIdentifier_Await.id,
+        (JSSATBoundNames, IdentifierName, 0) => m.BoundNames_BindingIdentifier_Identifier,
+        (JSSATBoundNames, IdentifierName, 1) => m.BoundNames_BindingIdentifier_Yield,
+        (JSSATBoundNames, IdentifierName, 2) => m.BoundNames_BindingIdentifier_Await,
+        (JSSATVarScopedDeclarations, Statement, 2)
+        | (JSSATVarScopedDeclarations, Statement, 3)
+        | (JSSATVarScopedDeclarations, Statement, 6)
+        | (JSSATVarScopedDeclarations, Statement, 7)
+        | (JSSATVarScopedDeclarations, Statement, 8)
+        | (JSSATVarScopedDeclarations, Statement, 11)
+        | (JSSATVarScopedDeclarations, Statement, 13) => m.VarScopedDeclarations_Statement_EmExCoBrReThDe,
+        (JSSATVarScopedDeclarations, Block, 0) => todo!("correct ir file"),
+        (JSSATVarScopedDeclarations, StatementList, 1) => m.VarScopedDeclarations_StatementList_ListListItem,
+        (JSSATVarScopedDeclarations, StatementListItem, 1) => m.VarScopedDeclarations_StatementListItem_Declaration,
+        (JSSATVarScopedDeclarations, VariableDeclarationList, 0) => m.VarScopedDeclarations_VariableDeclarationList_Decl,
+        (JSSATVarScopedDeclarations, VariableDeclarationList, 1) => m.VarScopedDeclarations_VariableDeclarationList_List_Decl,
+        (JSSATVarScopedDeclarations, ScriptBody, 0) => m.VarScopedDeclarations_ScriptBody_List,
+        (JSSATTopLevelVarScopedDeclarations, StatementList, 1) => m.TopLevelVarScopedDeclarations_StatementList_List_Item,
+        (JSSATTopLevelVarScopedDeclarations, StatementListItem, 0) => m.TopLevelVarScopedDeclarations_StatementListItem_Stmt,
         _ => return false,
     };
 
-    let fn_ptr = block.make_fnptr(function);
+    let fn_ptr = block.make_fnptr(function.id);
     block.record_set_slot(parse_node, slot, fn_ptr);
 
     true

@@ -68,6 +68,12 @@
     (list-push :jssat_list_temp :1)
     (:jssat_list_temp))))
 
+(def
+  (list-concat :a :b)
+  (expr-block
+   ((for :b ((list-push :a for-item)))
+    (:a))))
+
 ; i'm too lazy to change let exprs to expr blocks atm
 (def (expr-block :x) (let
                        _discard
@@ -377,6 +383,78 @@
   (:8.1.1 BoundNames_BindingIdentifier_Await (identifier))
   (;;; 1. Return a List whose sole element "await".
    (return (list-new-1 "await"))))
+
+; Statement :
+;     EmptyStatement
+;     ExpressionStatement
+;     ContinueStatement
+;     BreakStatement
+;     ReturnStatement
+;     ThrowStatement
+;     DebuggerStatement
+(section
+  (:8.1.7 VarScopedDeclarations_Statement_EmExCoBrReThDe (parseNode))
+  (;;; 1. Return a new empty List.
+   (return list-new)))
+
+; Block : { }
+(section
+  (:8.1.7 VarScopedDeclarations_Block_Empty (parseNode))
+  (;;; 1. Return a new empty List.
+   (return list-new)))
+
+; StatementList : StatementList StatementListItem
+(section
+  (:8.1.7 VarScopedDeclarations_StatementList_ListListItem (parseNode))
+  (;;; 1. Let declarations1 be VarScopedDeclarations of StatementList.
+   (declarations1 = (VarScopedDeclarations (:parseNode -> JSSATParseNodeSlot1)))
+   ;;; 2. Let declarations2 be VarScopedDeclarations of StatementListItem.
+   (declarations2 = (VarScopedDeclarations (:parseNode -> JSSATParseNodeSlot2)))
+   ;;; 3. Return the list-concatenation of declarations1 and declarations2.
+   (return (list-concat :declarations1 :declarations2))))
+
+; StatementListItem : Declaration
+(section
+  (:8.1.7 VarScopedDeclarations_StatementListItem_Declaration (parseNode))
+  (;;; 1. Return a new empty List.
+   (return list-new)))
+
+; VariableDeclarationList : VariableDeclaration
+(section
+  (:8.1.7 VarScopedDeclarations_VariableDeclarationList_Decl (parseNode))
+  (;;; 1. Return a List whose sole element is VariableDeclaration.
+   (return (list-new-1 (:parseNode -> JSSATParseNodeSlot1)))))
+
+; VariableDeclarationList : VariableDeclarationList , VariableDeclaration
+(section
+  (:8.1.7 VarScopedDeclarations_VariableDeclarationList_List_Decl (parseNode))
+  (;;; 1. Let declarations1 be VarScopedDeclarations of VariableDeclarationList.
+   (declarations1 = (VarScopedDeclarations (:parseNode -> JSSATParseNodeSlot1)))
+   ;;; 2. Return the list-concatenation of declarations1 and « VariableDeclaration ».
+   (return (list-concat :declarations1 (list-new-1 (:parseNode -> JSSATParseNodeSlot2))))))
+
+; ScriptBody : StatementList
+(section
+  (:8.1.7 VarScopedDeclarations_ScriptBody_List (parseNode))
+  (;;; 1. Return TopLevelVarScopedDeclarations of StatementList.
+   (return (TopLevelVarScopedDeclarations (:parseNode -> JSSATParseNodeSlot1)))))
+
+; StatementList : StatementList StatementListItem
+(section
+  (:8.1.11 TopLevelVarScopedDeclarations_StatementList_List_Item (parseNode))
+  (;;; 1. Let declarations1 be TopLevelVarScopedDeclarations of StatementList.
+   (declarations1 = (VarScopedDeclarations (:parseNode -> JSSATParseNodeSlot1)))
+   ;;; 2. Let declarations2 be TopLevelVarScopedDeclarations of StatementListItem.
+   (declarations2 = (VarScopedDeclarations (:parseNode -> JSSATParseNodeSlot2)))
+   ;;; 3. Return the list-concatenation of declarations1 and declarations2.
+   (return (list-concat :declarations1 :declarations2))))
+
+; StatementListItem : Statement
+(section
+  (:8.1.11 TopLevelVarScopedDeclarations_StatementListItem_Stmt (parseNode))
+  (;;; 1. If Statement is Statement : LabelledStatement , return TopLevelVarScopedDeclarations of Statement.
+   ;;; 2. Return VarScopedDeclarations of Statement.
+   (return (VarScopedDeclarations (:parseNode -> JSSATParseNodeSlot1)))))
 
 (section
   (:9.1.2.3 NewObjectEnvironment (O, W, E))
