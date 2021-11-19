@@ -2,7 +2,7 @@ use derive_more::Display;
 use std::fmt::{Display, Write};
 use tinyvec::TinyVec;
 
-use super::ISAInstruction;
+use super::{ISAInstruction, InternalSlot};
 use crate::{
     id::*,
     retag::{CnstRetagger, FnRetagger, RegRetagger},
@@ -52,6 +52,8 @@ pub enum TrivialItem {
     Normal,
     /// The kind of a parse node
     ParseNodeKind(crate::frontend::js::ast::parse_nodes::ParseNodeKind),
+    /// An internal slot (needed for OrdinaryObjectCreate)
+    InternalSlot(InternalSlot),
 }
 
 impl<T: Tag> Make<T, TrivialItem> {

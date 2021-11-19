@@ -71,6 +71,14 @@
     (:jssat_list_temp))))
 
 (def
+  (list-new-2 :1 :2)
+  (expr-block
+   ((jssat_list_temp = list-new)
+    (list-push :jssat_list_temp :1)
+    (list-push :jssat_list_temp :2)
+    (:jssat_list_temp))))
+
+(def
   (list-concat :a :b)
   (expr-block
    ((for :b ((list-push :a for-item)))
@@ -114,6 +122,10 @@
 (def (is-bool :x) (is-type-of Boolean :x))
 (def (is-object :x) (is-type-of Record :x))
 
+(def
+  (match-pn :parseNode :kind :variant_idx)
+  (and (:parseNode -> JSSATParseNodeKind == :kind) (:parseNode -> JSSATParseNodeVariant == :variant_idx)))
+
 (def (isnt-type-as :x :y) (not (is-type-as :x :y)))
 
 (def
@@ -124,6 +136,8 @@
         ((:y))))))
 
 (def (:1 -> :2) (record-get-slot :1 :2))
+(def (:1 -> :2 == :3) ((:1 -> :2) == :3))
+(def (:1 -> :2 -> :3) ((:1 -> :2) -> :3))
 (def (:1 => :2) (record-get-prop :1 :2))
 (def (:record :slot <- :expr) (record-set-slot :record :slot :expr))
 (def (:record :slot <-) (record-del-slot :record :slot))
@@ -256,7 +270,6 @@
 
 ;; TODO(isa): we need to auto generate these internal slots
 (def (evaluating :x) (call-virt (:x -> JSSATCode) :x))
-(def (BoundNames :x) (call-virt (:x -> JSSATBoundNames) :x))
 (def (DeclarationPart :x) (call-virt (:x -> JSSATDeclarationPart) :x))
 (def (IsConstantDeclaration :x) (call-virt (:x -> JSSATIsConstantDeclaration) :x))
 (def (LexicallyDeclaredNames :x) (call-virt (:x -> JSSATLexicallyDeclaredNames) :x))
@@ -379,19 +392,33 @@
    (return (:x == :y))))
 
 (section
-  (:8.1.1 BoundNames_BindingIdentifier_Identifier (identifier))
-  (;;; 1. Return a List whose sole element is the StringValue of Identifier.
-   (return (list-new-1 (:identifier -> JSSATParseNode_Identifier_StringValue)))))
+  (:7.3.1 MakeBasicObject (internalSlotsList))
+  (;;; 1. Let obj be a newly created object with an internal slot for each name in internalSlotsList.
+   (obj = record-new)
+   ;;; 2. Set obj's essential internal methods to the default ordinary object definitions specified in 10.1.
+   ;;; 3. Assert: If the caller will not be overriding both obj's [[GetPrototypeOf]] and [[SetPrototypeOf]] essential internal
+   ;;;    methods, then internalSlotsList contains [[Prototype]].
+   ;;; 4. Assert: If the caller will not be overriding all of obj's [[SetPrototypeOf]], [[IsExtensible]], and [[PreventExtensions]]
+   ;;;    essential internal methods, then internalSlotsList contains [[Extensible]].
+   ;;; 5. If internalSlotsList contains [[Extensible]], set obj.[[Extensible]] to true.
+   ;;; 6. Return obj.
+   (return :obj)))
 
 (section
-  (:8.1.1 BoundNames_BindingIdentifier_Yield (identifier))
-  (;;; 1. Return a List whose sole element "yield".
-   (return (list-new-1 "yield"))))
-
-(section
-  (:8.1.1 BoundNames_BindingIdentifier_Await (identifier))
-  (;;; 1. Return a List whose sole element "await".
-   (return (list-new-1 "await"))))
+  (:8.1.1 BoundNames (parseNode))
+  (; BindingIdentifier : Identifier
+   (if (match-pn :parseNode (trivial-node BindingIdentifier) 0)
+       (;;; 1. Return a List whose sole element is the StringValue of Identifier.
+        (return (list-new-1 (:parseNode -> JSSATParseNodeSlot1 -> JSSATParseNode_Identifier_StringValue)))))
+   ; BindingIdentifier : yield
+   (if (match-pn :parseNode (trivial-node BindingIdentifier) 1)
+       (;;; 1. Return a List whose sole element "yield".
+        (return (list-new-1 "yield"))))
+   ; BindingIdentifier : await
+   (if (match-pn :parseNode (trivial-node BindingIdentifier) 2)
+       (;;; 1. Return a List whose sole element "await".
+        (return (list-new-1 "await"))))
+   (return)))
 
 ; Statement :
 ;     EmptyStatement
@@ -537,8 +564,7 @@
                     (;;; a. Let intrinsics be realmRec.[[Intrinsics]].
                      (intrinsics = (:realmRec -> Intrinsics))
                      ;;; b. Set globalObj to ! OrdinaryObjectCreate(intrinsics.[[%Object.prototype%]]).
-                     ;  (! (call OrdinaryObjectCreate (:intrinsics -> %Object.prototype%))))
-                     (unreachable))
+                     (! (call OrdinaryObjectCreate record-new list-new)))
                     ((:globalObj))))))
    ;;; 2. Assert: Type(globalObj) is Object.
    (assert (is-object :globalObj) "Type(globalObj) is Object")
@@ -727,6 +753,20 @@
    (return true)))
 
 (section
+  (:10.1.12 OrdinaryObjectCreate (proto, additionalInternalSlotsList))
+  (;;; 1. Let internalSlotsList be « [[Prototype]], [[Extensible]] ».
+   (internalSlotsList = (list-new-2 (trivial-slot Prototype) (trivial-slot Extensible)))
+   ;;; 2. If additionalInternalSlotsList is present, append each of its elements to internalSlotsList.
+   (for :additionalInternalSlotsList
+        ((list-push :internalSlotsList for-item)))
+   ;;; 3. Let O be ! MakeBasicObject(internalSlotsList).
+   (O = (! (call MakeBasicObject :internalSlotsList)))
+   ;;; 4. Set O.[[Prototype]] to proto.
+   (:O Prototype <- :proto)
+   ;;; 5. Return O.
+   (return :O)))
+
+(section
   (:16.1.6 ScriptEvaluation (scriptRecord))
   (;;; 1. Let globalEnv be scriptRecord.[[Realm]].[[GlobalEnv]].
    (globalEnv = ((:scriptRecord -> Realm) -> GlobalEnv))
@@ -743,7 +783,7 @@
    ;;; 7. Set the LexicalEnvironment of scriptContext to globalEnv.
    (:scriptContext LexicalEnvironment <- :globalEnv)
    ;;; 8. Suspend the currently running execution context.
-   (todo)
+   ; (todo)
    ;;; 9. Push scriptContext onto the execution context stack; scriptContext is now the running execution context.
    (exec-ctx-stack-push :scriptContext)
    ;;; 10. Let scriptBody be scriptRecord.[[ECMAScriptCode]].
@@ -761,18 +801,30 @@
                   (NormalCompletion undefined))
                  (:result)))
    ;;; 14. Suspend scriptContext and remove it from the execution context stack.
-   (todo)
+   ; (todo)
    ;;; 15. Assert: The execution context stack is not empty.
-   (todo)
+   (assert (0 != (list-len (get-global -> JSSATExecutionContextStack))) "The execution context stack is not empty.")
    ;;; 16. Resume the context that is now on the top of the execution context stack as the running execution context.
-   (todo)
+   ; (todo)
    ;;; 17. Return Completion(result).
    (return :result)))
 
 (section
+  (:16.1.5 ParseScript (sourceText, realm, hostDefined, body))
+  (;;; 1. Let body be ParseText(sourceText, Script).
+   ; we have already parsed the script
+   ;;; 2. If body is a List of errors, return body.
+   ;;; 3. Return Script Record { [[Realm]]: realm, [[ECMAScriptCode]]: body, [[HostDefined]]: hostDefined }.
+   (scriptRecord = record-new)
+   (:scriptRecord Realm <- :realm)
+   (:scriptRecord ECMAScriptCode <- :body)
+   (:scriptRecord HostDefined <- :hostDefined)
+   (return :scriptRecord)))
+
+(section
   (:16.1.7 GlobalDeclarationInstantiation (script, env))
   (;;; 1. Assert: env is a global Environment Record.
-   (todo)
+   ; (todo)
    ;;; 2. Let lexNames be the LexicallyDeclaredNames of script.
    (lexNames = (LexicallyDeclaredNames :script))
    ;;; 3. Let varNames be the VarDeclaredNames of script.
@@ -811,7 +863,7 @@
          ;;; i. Assert: d is either a FunctionDeclaration, a GeneratorDeclaration, an AsyncFunctionDeclaration, or an AsyncGeneratorDeclaration.
          ;;; ii. NOTE: If there are multiple function declarations for the same name, the last declaration is used.
          ;;; iii. Let fn be the sole element of the BoundNames of d.
-         (fn = (sole-element (BoundNames :d)))
+         (fn = (sole-element (call BoundNames :d)))
          ;;; iv. If fn is not an element of declaredFunctionNames, then
          ;;; 1. Let fnDefinable be ? env.CanDeclareGlobalFunction(fn).
          ;;; 2. If fnDefinable is false, throw a TypeError exception.
@@ -825,7 +877,7 @@
         ((d = for-item)
          ;;; a. If d is a VariableDeclaration, a ForBinding, or a BindingIdentifier, then
          ;;; i. For each String vn of the BoundNames of d, do
-         (boundNamesOfD = (BoundNames :d))
+         (boundNamesOfD = (call BoundNames :d))
          (for :boundNamesOfD
               ((vn = for-item)
                ;;; 1. If vn is not an element of declaredFunctionNames, then
@@ -843,7 +895,7 @@
         ((d = for-item)
          ;;; a. NOTE: Lexically declared names are only instantiated here but not initialized.
          ;;; b. For each element dn of the BoundNames of d, do
-         (boundNamesOfD = (BoundNames :d))
+         (boundNamesOfD = (call BoundNames :d))
          (for :boundNamesOfD
               ((dn = for-item)
                ;;; i. If IsConstantDeclaration of d is true, then
@@ -855,7 +907,7 @@
    (for :functionsToInitialize
         ((f = for-item)
          ;;; a. Let fn be the sole element of the BoundNames of f.
-         (fn = (sole-element (BoundNames :f)))
+         (fn = (sole-element (call BoundNames :f)))
          ;;; b. Let fo be InstantiateFunctionObject of f with argument env.
          ;;; c. Perform ? env.CreateGlobalFunctionBinding(fn, fo, false).
         ))

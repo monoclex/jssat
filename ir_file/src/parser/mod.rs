@@ -534,6 +534,16 @@ fn parse_expression(node: Node<&str>) -> Expression {
                         trivial_item: trivial_item.to_owned(),
                     }
                 }
+                (Some(Node::Word("trivial-slot", _)), Some(Node::Word(trivial_item, _)), None) => {
+                    Expression::MakeTrivial {
+                        trivial_item: format!("InternalSlot(InternalSlot::{})", trivial_item),
+                    }
+                }
+                (Some(Node::Word("trivial-node", _)), Some(Node::Word(trivial_item, _)), None) => {
+                    Expression::MakeTrivial {
+                        trivial_item: format!("ParseNodeKind(ParseNodeKind::{})", trivial_item),
+                    }
+                }
                 (
                     Some(lhs),
                     Some(Node::Word(kind @ ("+" | "and" | "==" | "<" | "or"), _)),

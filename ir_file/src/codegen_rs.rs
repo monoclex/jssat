@@ -87,6 +87,7 @@ use crate::{{
     frontend::{{
         builder::{{FnSignature, RegisterId, ProgramBuilder}},
         emitter::{{ControlFlow, Emitter, LoopControlFlow}},
+        js::ast::parse_nodes::ParseNodeKind,
     }},
     isa::{{InternalSlot, TrivialItem, ValueType}},
 }};

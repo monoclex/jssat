@@ -84,7 +84,6 @@ pub enum InternalSlot {
     ObjectPrototype,
     // TODO: auto generate these from the ecmascript IR file
     JSSATCode,
-    JSSATBoundNames,
     JSSATDeclarationPart,
     JSSATIsConstantDeclaration,
     JSSATLexicallyDeclaredNames,

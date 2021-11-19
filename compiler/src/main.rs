@@ -192,10 +192,25 @@ print('Hello, World!');
     b.call(methods.InitializeJSSATThreadedGlobal, [threaded_global]);
 
     b.call(methods.InitializeHostDefinedRealm, [threaded_global]);
-    b.call(
-        methods.ScriptEvaluation,
-        [threaded_global, entry_parse_node],
+
+    // for some reason, ecmascript spec doesn't have initializehostdefinedrealm
+    // return the realm okay?
+    let exec_ctx_stack = b.record_get_slot(
+        threaded_global,
+        isa::InternalSlot::JSSATExecutionContextStack,
     );
+    let first = b.make_number_decimal(0);
+    let context = b.list_get(exec_ctx_stack, first);
+    let realm = b.record_get_slot(context, isa::InternalSlot::Realm);
+
+    // we don't care about the parameters we pass null to for ParseScript
+    let null = b.make_null();
+    let script_context = b.call_with_result(
+        methods.ParseScript,
+        [threaded_global, null, realm, null, entry_parse_node],
+    );
+
+    b.call(methods.ScriptEvaluation, [threaded_global, script_context]);
 
     f.end_block(b.ret(None));
     builder.end_function(f);

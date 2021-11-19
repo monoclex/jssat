@@ -28,9 +28,6 @@ fn emit_virt_overrides(
 
     #[rustfmt::skip]
     let function = match (slot, kind, idx) {
-        (JSSATBoundNames, IdentifierName, 0) => m.BoundNames_BindingIdentifier_Identifier,
-        (JSSATBoundNames, IdentifierName, 1) => m.BoundNames_BindingIdentifier_Yield,
-        (JSSATBoundNames, IdentifierName, 2) => m.BoundNames_BindingIdentifier_Await,
         (JSSATVarScopedDeclarations, Statement, 2)
         | (JSSATVarScopedDeclarations, Statement, 3)
         | (JSSATVarScopedDeclarations, Statement, 6)
@@ -60,7 +57,7 @@ pub struct NodeEmitter<'scope> {
     program: &'scope mut ProgramBuilder,
     stack: Vec<ParseNode>,
     pub last_completed: Option<ParseNode>,
-    simple_fns: FxHashMap<InternalSlot, FnSignature<1>>,
+    simple_fns: FxHashMap<InternalSlot, FnSignature<2>>,
     ecma_methods: &'scope ECMA262Methods,
 }
 
@@ -107,15 +104,16 @@ impl<'s> NodeEmitter<'s> {
     /// > > 1.  Return the result of evaluating StatementList.
     fn generate_simple_fns(
         program: &mut ProgramBuilder,
-    ) -> FxHashMap<InternalSlot, FnSignature<1>> {
+    ) -> FxHashMap<InternalSlot, FnSignature<2>> {
         let mut map = FxHashMap::default();
 
         for slot in IntoIter::new(RUNTIME_SEMANTICS) {
-            let (mut f, [x]) = program.start_function();
+            let (mut f, [threaded_global, x]) = program.start_function();
 
             let mut e = f.start_block_main();
             let fn_ptr = e.record_get_slot(x, slot);
-            let result = e.call_virt_with_result(fn_ptr, [x]);
+            let next = e.record_get_slot(x, InternalSlot::JSSATParseNodeSlot1);
+            let result = e.call_virt_with_result(fn_ptr, [threaded_global, next]);
             f.end_block(e.ret(Some(result)));
 
             let signature = program.end_function(f);
@@ -136,12 +134,11 @@ const PARSE_NODE_SLOTS: [InternalSlot; 6] = [
     InternalSlot::JSSATParseNodeSlot6,
 ];
 
-const RUNTIME_SEMANTICS: [InternalSlot; 5] = [
+const RUNTIME_SEMANTICS: [InternalSlot; 4] = [
     InternalSlot::JSSATLexicallyDeclaredNames,
     InternalSlot::JSSATVarDeclaredNames,
     InternalSlot::JSSATVarScopedDeclarations,
     InternalSlot::JSSATLexicallyScopedDeclarations,
-    InternalSlot::JSSATBoundNames,
 ];
 
 pub struct ParseNode {
@@ -188,7 +185,7 @@ impl ParseNode {
     fn finish(
         self,
         block: &mut DynBlockBuilder,
-        simple_fns: &FxHashMap<InternalSlot, FnSignature<1>>,
+        simple_fns: &FxHashMap<InternalSlot, FnSignature<2>>,
         ecma_methods: &ECMA262Methods,
     ) -> Self {
         debug_assert!({
@@ -231,7 +228,7 @@ impl<'b> Visitor for NodeEmitter<'b> {
 
         println!("<- {:?}", node.kind);
 
-        let node = node.finish(self.block, &self.simple_fns, &self.ecma_methods);
+        let node = node.finish(self.block, &self.simple_fns, self.ecma_methods);
 
         if let Some(parent) = self.stack.last_mut() {
             parent.on_child_created(self.block, &node);
