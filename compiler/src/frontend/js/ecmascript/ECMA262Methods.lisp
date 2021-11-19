@@ -262,7 +262,7 @@
 (def (:env .. HasLexicalDeclaration :N) (call-virt (:env -> JSSATHasLexicalDeclaration) :env :N))
 (def (:env .. HasRestrictedGlobalProperty :N) (call-virt (:env -> JSSATHasRestrictedGlobalProperty) :env :N))
 
-(def (evaluating :x) (1 == 1))
+(def (evaluating :x) (NormalCompletion empty))
 
 ;;;;;;;;;;;;;;;;;;
 ; something ; (STATIC SEMANTICS AND RUNTIME SEMANTICS WIP SECTION)
