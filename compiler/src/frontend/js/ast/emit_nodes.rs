@@ -26,30 +26,17 @@ fn emit_virt_overrides(
     use js::ParseNodeKind::*;
     use InternalSlot::*;
 
-    #[rustfmt::skip]
-    let function = match (slot, kind, idx) {
-        (JSSATVarScopedDeclarations, Statement, 2)
-        | (JSSATVarScopedDeclarations, Statement, 3)
-        | (JSSATVarScopedDeclarations, Statement, 6)
-        | (JSSATVarScopedDeclarations, Statement, 7)
-        | (JSSATVarScopedDeclarations, Statement, 8)
-        | (JSSATVarScopedDeclarations, Statement, 11)
-        | (JSSATVarScopedDeclarations, Statement, 13) => m.VarScopedDeclarations_Statement_EmExCoBrReThDe,
-        (JSSATVarScopedDeclarations, Block, 0) => todo!("correct ir file"),
-        (JSSATVarScopedDeclarations, StatementList, 1) => m.VarScopedDeclarations_StatementList_ListListItem,
-        (JSSATVarScopedDeclarations, StatementListItem, 1) => m.VarScopedDeclarations_StatementListItem_Declaration,
-        (JSSATVarScopedDeclarations, VariableDeclarationList, 0) => m.VarScopedDeclarations_VariableDeclarationList_Decl,
-        (JSSATVarScopedDeclarations, VariableDeclarationList, 1) => m.VarScopedDeclarations_VariableDeclarationList_List_Decl,
-        (JSSATVarScopedDeclarations, ScriptBody, 0) => m.VarScopedDeclarations_ScriptBody_List,
-        (JSSATTopLevelVarScopedDeclarations, StatementList, 1) => m.TopLevelVarScopedDeclarations_StatementList_List_Item,
-        (JSSATTopLevelVarScopedDeclarations, StatementListItem, 0) => m.TopLevelVarScopedDeclarations_StatementListItem_Stmt,
-        _ => return false,
-    };
+    return false;
 
-    let fn_ptr = block.make_fnptr(function.id);
-    block.record_set_slot(parse_node, slot, fn_ptr);
+    // #[rustfmt::skip]
+    // let function = match (slot, kind, idx) {
+    //     _ => return false,
+    // };
 
-    true
+    // let fn_ptr = block.make_fnptr(function.id);
+    // block.record_set_slot(parse_node, slot, fn_ptr);
+
+    // true
 }
 
 pub struct NodeEmitter<'scope> {
@@ -134,12 +121,7 @@ const PARSE_NODE_SLOTS: [InternalSlot; 6] = [
     InternalSlot::JSSATParseNodeSlot6,
 ];
 
-const RUNTIME_SEMANTICS: [InternalSlot; 4] = [
-    InternalSlot::JSSATLexicallyDeclaredNames,
-    InternalSlot::JSSATVarDeclaredNames,
-    InternalSlot::JSSATVarScopedDeclarations,
-    InternalSlot::JSSATLexicallyScopedDeclarations,
-];
+const RUNTIME_SEMANTICS: [InternalSlot; 0] = [];
 
 pub struct ParseNode {
     pub parse_node: RegisterId,

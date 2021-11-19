@@ -23,6 +23,8 @@
 (def (and3 :a :b :c) (and (and :a :b) :c))
 (def (and4 :a :b :c :d) (and3 :a :b (and :c :d)))
 (def (and6 :1 :2 :3 :4 :5 :6) (and (and3 :1 :2 :3) (and3 :4 :5 :6)))
+(def (or3 :1 :2 :3) (or (or :1 :2) :3))
+(def (or7 :1 :2 :3 :4 :5 :6 :7) (or3 (or3 :1 :2 :3) (or3 :4 :5 :6) :7))
 (def (both :a :b (:x :y)) (and (:a :x :y) (:b :x :y)))
 (def (both :1 :2 :f) (and (:f :1) (:f :2)))
 (def (either :a :b (:x :y)) (or (:a :x :y) (:b :x :y)))
@@ -125,6 +127,10 @@
 (def
   (match-pn :parseNode :kind :variant_idx)
   (and (:parseNode -> JSSATParseNodeKind == :kind) (:parseNode -> JSSATParseNodeVariant == :variant_idx)))
+
+(def
+  (is-pn :kind :variant_idx)
+  (match-pn :parseNode (trivial-node :kind) :variant_idx))
 
 (def (isnt-type-as :x :y) (not (is-type-as :x :y)))
 
@@ -256,6 +262,8 @@
 (def (:env .. HasLexicalDeclaration :N) (call-virt (:env -> JSSATHasLexicalDeclaration) :env :N))
 (def (:env .. HasRestrictedGlobalProperty :N) (call-virt (:env -> JSSATHasRestrictedGlobalProperty) :env :N))
 
+(def (evaluating :x) (1 == 1))
+
 ;;;;;;;;;;;;;;;;;;
 ; something ; (STATIC SEMANTICS AND RUNTIME SEMANTICS WIP SECTION)
 ;;;;;;;;;;;;;;;;;;
@@ -267,27 +275,6 @@
 ; TODO: these are all ParseNode related
 ; we need to declare the algorithm steps here, then link to them in the code that
 ; generates js objects from ecmascript spec
-
-;; TODO(isa): we need to auto generate these internal slots
-(def (evaluating :x) (call-virt (:x -> JSSATCode) :x))
-(def (DeclarationPart :x) (call-virt (:x -> JSSATDeclarationPart) :x))
-(def (IsConstantDeclaration :x) (call-virt (:x -> JSSATIsConstantDeclaration) :x))
-(def (LexicallyDeclaredNames :x) (call-virt (:x -> JSSATLexicallyDeclaredNames) :x))
-(def (LexicallyScopedDeclarations :x) (call-virt (:x -> JSSATLexicallyScopedDeclarations) :x))
-(def (VarDeclaredNames :x) (call-virt (:x -> JSSATVarDeclaredNames) :x))
-(def (VarScopedDeclarations :x) (call-virt (:x -> JSSATVarScopedDeclarations) :x))
-(def (TopLevelLexicallyDeclaredNames :x) (call-virt (:x -> JSSATTopLevelLexicallyDeclaredNames) :x))
-(def (TopLevelLexicallyScopedDeclarations :x) (call-virt (:x -> JSSATTopLevelLexicallyScopedDeclarations) :x))
-(def (TopLevelVarDeclaredNames :x) (call-virt (:x -> JSSATTopLevelVarDeclaredNames) :x))
-(def (TopLevelVarScopedDeclarations :x) (call-virt (:x -> JSSATTopLevelVarScopedDeclarations) :x))
-(def (ContainsDuplicateLabels :x) (call-virt (:x -> JSSATContainsDuplicateLabels) :x))
-(def (ContainsUndefinedBreakTarget :x) (call-virt (:x -> JSSATContainsUndefinedBreakTarget) :x))
-(def (ContainsUndefinedContinueTarget :x) (call-virt (:x -> JSSATContainsUndefinedContinueTarget) :x))
-(def (HasName :x) (call-virt (:x -> JSSATHasName) :x))
-(def (IsFunctionDefinition :x) (call-virt (:x -> JSSATIsFunctionDefinition) :x))
-
-; TODO: actually an algorithm we can write
-(def (IsAnonymousFunctionDefinition :x :expr) (call-virt (:x -> JSSATIsAnonymousFunctionDefinition) :x :expr))
 
 ; helpers
 (section
@@ -418,79 +405,68 @@
    (if (match-pn :parseNode (trivial-node BindingIdentifier) 2)
        (;;; 1. Return a List whose sole element "await".
         (return (list-new-1 "await"))))
-   (return)))
-
-; Statement :
-;     EmptyStatement
-;     ExpressionStatement
-;     ContinueStatement
-;     BreakStatement
-;     ReturnStatement
-;     ThrowStatement
-;     DebuggerStatement
-(section
-  (:8.1.7 VarScopedDeclarations_Statement_EmExCoBrReThDe (parseNode))
-  (;;; 1. Return a new empty List.
    (return list-new)))
 
-; Block : { }
 (section
-  (:8.1.7 VarScopedDeclarations_Block_Empty (parseNode))
-  (;;; 1. Return a new empty List.
+  (:8.1.4 LexicallyDeclaredNames (parseNode))
+  ((return list-new)))
+
+(section
+  (:8.1.5 LexicallyScopedDeclarations (parseNode))
+  ((return list-new)))
+
+(section
+  (:8.1.6 VarDeclaredNames (parseNode))
+  ((return list-new)))
+
+(section
+  (:8.1.7 VarScopedDeclarations (parseNode))
+  (; VarScopedDeclarations is defined to "Return a new empty List" for so many
+   ; productions, that productions that do so are omitted.
+   ;
+   ; StatementList : StatementList StatementListItem
+   (if (match-pn :parseNode (trivial-node StatementList) 1)
+       (;;; 1. Let declarations1 be VarScopedDeclarations of StatementList.
+        (declarations1 = (call VarScopedDeclarations (:parseNode -> JSSATParseNodeSlot1)))
+        ;;; 2. Let declarations2 be VarScopedDeclarations of StatementListItem.
+        (declarations2 = (call VarScopedDeclarations (:parseNode -> JSSATParseNodeSlot2)))
+        ;;; 3. Return the list-concatenation of declarations1 and declarations2.
+        (return (list-concat :declarations1 :declarations2))))
+   ; VariableDeclarationList : VariableDeclaration
+   (if (match-pn :parseNode (trivial-node VariableDeclarationList) 0)
+       ((return (list-new-1 (:parseNode -> JSSATParseNodeSlot1)))))
+   ; VariableDeclarationList : VariableDeclarationList , VariableDeclaration
+   (if (is-pn VariableDeclarationList 1)
+       (;;; 1. Let declarations1 be VarScopedDeclarations of VariableDeclarationList.
+        (declarations1 = (call VarScopedDeclarations (:parseNode -> JSSATParseNodeSlot1)))
+        ;;; 2. Return the list-concatenation of declarations1 and « VariableDeclaration ».
+        (return (list-concat :declarations1 (list-new-1 (:parseNode -> JSSATParseNodeSlot2))))))
+   ; ScriptBody : StatementList
+   (if (is-pn ScriptBody 0)
+       (;;; 1. Return TopLevelVarScopedDeclarations of StatementList.
+        (return (call TopLevelVarScopedDeclarations (:parseNode -> JSSATParseNodeSlot1)))))
    (return list-new)))
 
-; StatementList : StatementList StatementListItem
 (section
-  (:8.1.7 VarScopedDeclarations_StatementList_ListListItem (parseNode))
-  (;;; 1. Let declarations1 be VarScopedDeclarations of StatementList.
-   (declarations1 = (VarScopedDeclarations (:parseNode -> JSSATParseNodeSlot1)))
-   ;;; 2. Let declarations2 be VarScopedDeclarations of StatementListItem.
-   (declarations2 = (VarScopedDeclarations (:parseNode -> JSSATParseNodeSlot2)))
-   ;;; 3. Return the list-concatenation of declarations1 and declarations2.
-   (return (list-concat :declarations1 :declarations2))))
+  (:8.1.8 TopLevelLexicallyDeclaredNames (parseNode))
+  ((return list-new)))
 
-; StatementListItem : Declaration
 (section
-  (:8.1.7 VarScopedDeclarations_StatementListItem_Declaration (parseNode))
-  (;;; 1. Return a new empty List.
+  (:8.1.11 TopLevelVarScopedDeclarations (parseNode))
+  (; StatementList : StatementList StatementListItem
+   (if (is-pn StatementList 1)
+       (;;; 1. Let declarations1 be TopLevelVarScopedDeclarations of StatementList.
+        (declarations1 = (call VarScopedDeclarations (:parseNode -> JSSATParseNodeSlot1)))
+        ;;; 2. Let declarations2 be TopLevelVarScopedDeclarations of StatementListItem.
+        (declarations2 = (call VarScopedDeclarations (:parseNode -> JSSATParseNodeSlot2)))
+        ;;; 3. Return the list-concatenation of declarations1 and declarations2.
+        (return (list-concat :declarations1 :declarations2))))
+   ; StatementListItem : Statement
+   (if (is-pn StatementListItem 0)
+       (;;; 1. If Statement is Statement : LabelledStatement , return TopLevelVarScopedDeclarations of Statement.
+        ;;; 2. Return VarScopedDeclarations of Statement.
+        (return (call VarScopedDeclarations (:parseNode -> JSSATParseNodeSlot1)))))
    (return list-new)))
-
-; VariableDeclarationList : VariableDeclaration
-(section
-  (:8.1.7 VarScopedDeclarations_VariableDeclarationList_Decl (parseNode))
-  (;;; 1. Return a List whose sole element is VariableDeclaration.
-   (return (list-new-1 (:parseNode -> JSSATParseNodeSlot1)))))
-
-; VariableDeclarationList : VariableDeclarationList , VariableDeclaration
-(section
-  (:8.1.7 VarScopedDeclarations_VariableDeclarationList_List_Decl (parseNode))
-  (;;; 1. Let declarations1 be VarScopedDeclarations of VariableDeclarationList.
-   (declarations1 = (VarScopedDeclarations (:parseNode -> JSSATParseNodeSlot1)))
-   ;;; 2. Return the list-concatenation of declarations1 and « VariableDeclaration ».
-   (return (list-concat :declarations1 (list-new-1 (:parseNode -> JSSATParseNodeSlot2))))))
-
-; ScriptBody : StatementList
-(section
-  (:8.1.7 VarScopedDeclarations_ScriptBody_List (parseNode))
-  (;;; 1. Return TopLevelVarScopedDeclarations of StatementList.
-   (return (TopLevelVarScopedDeclarations (:parseNode -> JSSATParseNodeSlot1)))))
-
-; StatementList : StatementList StatementListItem
-(section
-  (:8.1.11 TopLevelVarScopedDeclarations_StatementList_List_Item (parseNode))
-  (;;; 1. Let declarations1 be TopLevelVarScopedDeclarations of StatementList.
-   (declarations1 = (VarScopedDeclarations (:parseNode -> JSSATParseNodeSlot1)))
-   ;;; 2. Let declarations2 be TopLevelVarScopedDeclarations of StatementListItem.
-   (declarations2 = (VarScopedDeclarations (:parseNode -> JSSATParseNodeSlot2)))
-   ;;; 3. Return the list-concatenation of declarations1 and declarations2.
-   (return (list-concat :declarations1 :declarations2))))
-
-; StatementListItem : Statement
-(section
-  (:8.1.11 TopLevelVarScopedDeclarations_StatementListItem_Stmt (parseNode))
-  (;;; 1. If Statement is Statement : LabelledStatement , return TopLevelVarScopedDeclarations of Statement.
-   ;;; 2. Return VarScopedDeclarations of Statement.
-   (return (VarScopedDeclarations (:parseNode -> JSSATParseNodeSlot1)))))
 
 (section
   (:9.1.2.3 NewObjectEnvironment (O, W, E))
@@ -826,9 +802,9 @@
   (;;; 1. Assert: env is a global Environment Record.
    ; (todo)
    ;;; 2. Let lexNames be the LexicallyDeclaredNames of script.
-   (lexNames = (LexicallyDeclaredNames :script))
+   (lexNames = (call LexicallyDeclaredNames :script))
    ;;; 3. Let varNames be the VarDeclaredNames of script.
-   (varNames = (VarDeclaredNames :script))
+   (varNames = (call VarDeclaredNames :script))
    ;;; 4. For each element name of lexNames, do
    (for :varNames
         ((name = for-item)
@@ -851,7 +827,7 @@
          (if (is-true :hasLexicalDeclaration)
              ((throw (SyntaxError :env "If env.HasLexicalDeclaration(name) is true"))))))
    ;;; 6. Let varDeclarations be the VarScopedDeclarations of script.
-   (varDeclarations = (VarScopedDeclarations :script))
+   (varDeclarations = (call VarScopedDeclarations :script))
    ;;; 7. Let functionsToInitialize be a new empty List.
    (functionsToInitialize = list-new)
    ;;; 8. Let declaredFunctionNames be a new empty List.
@@ -889,7 +865,7 @@
    ;;; 12. NOTE: No abnormal terminations occur after this algorithm step if the global object is an ordinary object.However, if the global object is a Proxy exotic object it may exhibit behaviours that cause abnormalterminations in some of the following steps.
    ;;; 13. NOTE: Annex B.3.3.2 adds additional steps at this point.
    ;;; 14. Let lexDeclarations be the LexicallyScopedDeclarations of script.
-   (lexDeclarations = (LexicallyScopedDeclarations :script))
+   (lexDeclarations = (call LexicallyScopedDeclarations :script))
    ;;; 15. For each element d of lexDeclarations, do
    (for :lexDeclarations
         ((d = for-item)
