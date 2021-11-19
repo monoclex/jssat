@@ -175,7 +175,10 @@ print('Hello, World!');
 
     let mut builder = ProgramBuilder::new();
     let mut f = builder.start_function_main();
+    let main_id = f.id;
     let mut b = f.start_block_main();
+
+    let threaded_global = b.record_new();
 
     let methods = ECMA262Methods::new(&mut builder);
 
@@ -186,21 +189,42 @@ print('Hello, World!');
         })
     });
 
+    b.call(methods.InitializeJSSATThreadedGlobal, [threaded_global]);
+
+    b.call(methods.InitializeHostDefinedRealm, [threaded_global]);
+    b.call(
+        methods.ScriptEvaluation,
+        [threaded_global, entry_parse_node],
+    );
+
     f.end_block(b.ret(None));
     builder.end_function(f);
     let ir = builder.finish();
 
-    println!("visited:");
-    println!("{}", crate::frontend::display_jssatir::display(&ir));
-
-    println!("traversing javascript");
-    let ir = time(move || frontend::js::traverse(content));
-    // println!("{}", display_jssatir::display(&ir));
+    // println!("{}", crate::frontend::display_jssatir::display(&ir));
 
     println!("lifting program");
     let program = time(move || lifted::lift(ir));
 
     println!("executing program");
+    // let program = time(|| symbolic_execution::execute(&program));
+    let interpreter_result = time(|| {
+        let builder = crate::interpreter::InterpreterBuilder::new(&program);
+        let interpreter = builder.build();
+
+        let threaded_global = crate::interpreter::Value::Record(Default::default());
+        interpreter.execute_fn_id(main_id.map_context(), vec![threaded_global])
+    });
+
+    println!(
+        "executed: {:?}",
+        match interpreter_result {
+            Ok(_) => "success".to_string(),
+            Err(err) => format!("error: {}", err),
+        }
+    );
+
+    panic!("done");
     let program = time(|| symbolic_execution::execute(&program));
 
     println!("typing program");
