@@ -45,6 +45,9 @@
       (elif :cond1 :then1
             (elif :cond2 :then2 :else))))
 
+(def (exec-ctx-stack-push :x) (list-push (get-global -> JSSATExecutionContextStack) :x))
+(def (exec-ctx-stack-size) (list-len (get-global -> JSSATExecutionContextStack)))
+
 (def for-item (list-get :jssat_list :jssat_i))
 (def for-item-rev (list-get :jssat_list (:jssat_len - (:jssat_i + 1))))
 
@@ -257,6 +260,12 @@
 
 ; TODO: actually an algorithm we can write
 (def (IsAnonymousFunctionDefinition :x :expr) (call-virt (:x -> JSSATIsAnonymousFunctionDefinition) :x :expr))
+
+; helpers
+(section
+  (:0.0.0.0 InitializeJSSATThreadedGlobal ())
+  ((get-global JSSATExecutionContextStack <- list-new)
+   (return)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; METHOD IMPLEMENTATIONS ;
@@ -485,6 +494,7 @@
    ;;; 5. Set the ScriptOrModule of newContext to null.
    (:newContext ScriptOrModule <- null)
    ;;; 6. Push newContext onto the execution context stack; newContext is now the running execution context.
+   (exec-ctx-stack-push :newContext)
    ;;; 7. If the host requires use of an exotic object to serve as realm's global object, let global be such an object created
    ;;;    in a host-defined manner. Otherwise, let global be undefined, indicating that an ordinary object should be created
    ;;;    as the global object.
@@ -648,7 +658,7 @@
    ;;; 8. Suspend the currently running execution context.
    (todo)
    ;;; 9. Push scriptContext onto the execution context stack; scriptContext is now the running execution context.
-   (todo)
+   (exec-ctx-stack-push :scriptContext)
    ;;; 10. Let scriptBody be scriptRecord.[[ECMAScriptCode]].
    (scriptBody = (:scriptRecord -> ECMAScriptCode))
    ;;; 11. Let result be GlobalDeclarationInstantiation(scriptBody, globalEnv).
@@ -768,4 +778,4 @@
          ;;; a. Perform ? env.CreateGlobalVarBinding(vn, false).
         ))
    ;;; 18. Return NormalCompletion(empty).
-   (return)))
+   (return (NormalCompletion empty))))

@@ -87,6 +87,10 @@ pub enum Statement {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Expression {
+    /// If enabled, there is a piece of "threaded state" which will
+    /// automatically thread itself through every single function declaration
+    /// and call. This is an instruction to get that piece of threaded state.
+    GetGlobal,
     /// An if statement as an expression is different than an if statement as a
     /// statement becuase an if statement as an expression MUST have a carry
     /// value, whereas an if statement as a statement does not.

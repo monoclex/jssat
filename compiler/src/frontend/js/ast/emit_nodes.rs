@@ -40,20 +40,22 @@ fn emit_virt_overrides(
     true
 }
 
-pub struct NodeEmitter<'block> {
-    block: &'block mut DynBlockBuilder,
-    program: &'block mut ProgramBuilder,
+pub struct NodeEmitter<'scope> {
+    block: &'scope mut DynBlockBuilder,
+    program: &'scope mut ProgramBuilder,
     stack: Vec<ParseNode>,
     pub last_completed: Option<ParseNode>,
     simple_fns: FxHashMap<InternalSlot, FnSignature<1>>,
-    ecma_methods: ECMA262Methods,
+    ecma_methods: &'scope ECMA262Methods,
 }
 
-impl<'b> NodeEmitter<'b> {
-    pub fn new(block: &'b mut DynBlockBuilder, program: &'b mut ProgramBuilder) -> Self {
+impl<'s> NodeEmitter<'s> {
+    pub fn new(
+        block: &'s mut DynBlockBuilder,
+        program: &'s mut ProgramBuilder,
+        ecma_methods: &'s ECMA262Methods,
+    ) -> Self {
         let simple_fns = Self::generate_simple_fns(program);
-
-        let ecma_methods = ECMA262Methods::new(program);
 
         Self {
             block,

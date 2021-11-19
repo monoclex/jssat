@@ -17,7 +17,10 @@
 
 use std::{io::Write, process::Command, time::Instant};
 
-use crate::frontend::{builder::ProgramBuilder, js::ast::parse_nodes::Visitor};
+use crate::frontend::{
+    builder::ProgramBuilder,
+    js::{ast::parse_nodes::Visitor, ecmascript::ECMA262Methods},
+};
 
 pub mod backend;
 pub mod codegen;
@@ -173,9 +176,12 @@ print('Hello, World!');
     let mut builder = ProgramBuilder::new();
     let mut f = builder.start_function_main();
     let mut b = f.start_block_main();
+
+    let methods = ECMA262Methods::new(&mut builder);
+
     println!("visiting parse nodes of script");
-    time(|| {
-        frontend::js::ast::emit_nodes(&mut builder, &mut b, |visitor| {
+    let entry_parse_node = time(|| {
+        frontend::js::ast::emit_nodes(&mut builder, &mut b, &methods, |visitor| {
             visitor.visit_script(&script)
         })
     });

@@ -482,6 +482,9 @@ fn emit_expr(counter: &mut usize, block: &mut Block, expr: &Expression) -> Strin
     let result = name(counter);
 
     match expr {
+        Expression::GetGlobal => {
+            panic!("get global instructions should automatically be replaced by threaded state");
+        }
         Expression::If {
             condition,
             then: (then, thene),

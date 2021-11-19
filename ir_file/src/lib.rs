@@ -18,7 +18,10 @@ pub use codegen_rs::*;
 mod parser;
 pub use parser::*;
 
+mod threaded_state;
+
 pub fn generate(name: &str, code: &str) -> String {
-    let ast = parser::parse(code);
+    let mut ast = parser::parse(code);
+    threaded_state::thread_state(&mut ast);
     codegen_rs::gen(name, ast)
 }

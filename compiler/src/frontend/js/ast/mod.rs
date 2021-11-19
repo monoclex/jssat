@@ -8,6 +8,8 @@
 
 use crate::frontend::builder::{DynBlockBuilder, ProgramBuilder, RegisterId};
 
+use super::ecmascript::ECMA262Methods;
+
 pub mod emit_nodes;
 pub mod parse_nodes;
 mod parser;
@@ -19,9 +21,10 @@ pub fn parse_script(script: &str) -> parse_nodes::Script {
 pub fn emit_nodes(
     program: &mut ProgramBuilder,
     block: &mut DynBlockBuilder,
+    ecma_methods: &ECMA262Methods,
     visit_initial_node: impl FnOnce(&mut emit_nodes::NodeEmitter),
 ) -> RegisterId {
-    let mut node_emitter = emit_nodes::NodeEmitter::new(block, program);
+    let mut node_emitter = emit_nodes::NodeEmitter::new(block, program, ecma_methods);
     visit_initial_node(&mut node_emitter);
 
     let last_visited = node_emitter

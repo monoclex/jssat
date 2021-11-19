@@ -393,6 +393,7 @@ fn parse_body(body: Vec<Node>) -> Vec<Statement> {
 
 fn parse_expression(node: Node<&str>) -> Expression {
     match node {
+        Node::Word("get-global", _) => Expression::GetGlobal,
         Node::Word("record-new", _) => Expression::RecordNew,
         Node::Word("list-new", _) => Expression::ListNew,
         Node::Word("true", _) => Expression::MakeBoolean { value: true },
