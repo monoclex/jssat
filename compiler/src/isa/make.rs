@@ -50,6 +50,8 @@ pub enum TrivialItem {
     Unresolvable,
     /// Completion record "normal"
     Normal,
+    /// The kind of a parse node
+    ParseNodeKind(crate::frontend::js::ast::parse_nodes::ParseNodeKind),
 }
 
 impl<T: Tag> Make<T, TrivialItem> {

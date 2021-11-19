@@ -1,4 +1,4 @@
-use std::array::IntoIter;
+use std::{array::IntoIter, convert::TryInto};
 
 use rustc_hash::FxHashMap;
 
@@ -7,7 +7,7 @@ use crate::{
         builder::{DynBlockBuilder, FnSignature, ProgramBuilder, RegisterId},
         js::ecmascript::ECMA262Methods,
     },
-    isa::InternalSlot,
+    isa::{InternalSlot, TrivialItem},
     UnwrapNone,
 };
 
@@ -154,6 +154,17 @@ pub struct ParseNode {
 impl ParseNode {
     fn new(block: &mut DynBlockBuilder, kind: js::ParseNodeKind, variant_idx: usize) -> Self {
         let parse_node = block.record_new();
+
+        let trivial_kind = block.make_trivial(TrivialItem::ParseNodeKind(kind));
+        block.record_set_slot(parse_node, InternalSlot::JSSATParseNodeKind, trivial_kind);
+
+        let variant_i64: i64 = variant_idx.try_into().unwrap();
+        let variant_kind = block.make_number_decimal(variant_i64);
+        block.record_set_slot(
+            parse_node,
+            InternalSlot::JSSATParseNodeVariant,
+            variant_kind,
+        );
 
         Self {
             parse_node,

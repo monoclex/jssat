@@ -59,7 +59,9 @@
         ((jssat_list = :jssat_list) (jssat_i = (:jssat_i + 1)) (jssat_len = :jssat_len))
         :body))
 
-(def (list-push :list :x) (list-set :list ((list-len :list) - 1) :x))
+(def
+  (list-push :list :x)
+  (list-set :list (math-max ((list-len :list) - 1) 0) :x))
 
 (def
   (list-new-1 :1)
@@ -113,6 +115,13 @@
 (def (is-object :x) (is-type-of Record :x))
 
 (def (isnt-type-as :x :y) (not (is-type-as :x :y)))
+
+(def
+  (math-max :x :y)
+  (expr-block
+   ((if (:x > :y)
+        ((:x))
+        ((:y))))))
 
 (def (:1 -> :2) (record-get-slot :1 :2))
 (def (:1 => :2) (record-get-prop :1 :2))
@@ -524,7 +533,7 @@
   (;;; 1. If globalObj is undefined, then
    (globalObj =
               (expr-block
-               ((if (isnt-undef :globalObj)
+               ((if (is-undef :globalObj)
                     (;;; a. Let intrinsics be realmRec.[[Intrinsics]].
                      (intrinsics = (:realmRec -> Intrinsics))
                      ;;; b. Set globalObj to ! OrdinaryObjectCreate(intrinsics.[[%Object.prototype%]]).

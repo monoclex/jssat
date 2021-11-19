@@ -10,6 +10,8 @@ pub fn generate(productions: Productions) -> String {
     eprintln!("{} productions found", len);
 
     let prelude = "
+use derive_more::Display;
+
 #[derive(Debug, Clone)]
 pub struct LineTerminator;
 
@@ -255,7 +257,16 @@ fn generate_combinatory_enum(productions: &Productions, formatter: &mut Formatte
     combinatory.vis("pub");
 
     // #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-    IntoIter::new(["Clone", "Copy", "Debug", "PartialEq", "Eq", "Hash"]).for_each(|name| {
+    IntoIter::new([
+        "Clone",
+        "Copy",
+        "Debug",
+        "PartialEq",
+        "Eq",
+        "Hash",
+        "Display",
+    ])
+    .for_each(|name| {
         combinatory.derive(name);
     });
 

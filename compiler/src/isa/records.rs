@@ -108,6 +108,8 @@ pub enum InternalSlot {
     JSSATParseNodeSlot6,
     JSSATParseNode_Identifier_StringValue,
     JSSATExecutionContextStack,
+    JSSATParseNodeKind,
+    JSSATParseNodeVariant,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]

@@ -178,8 +178,10 @@ pub struct Record(FxHashMap<RecordKey, Value>);
 impl Record {
     #[track_caller]
     pub fn try_get(&self, key: &RecordKey) -> InstResult<&Value> {
-        self.get(key)
-            .ok_or_else(|| InstErr::RecordDNCKey(key.clone(), Location::caller()))
+        self.get(key).ok_or_else(|| {
+            println!("got here:");
+            InstErr::RecordDNCKey(key.clone(), Location::caller())
+        })
     }
 
     #[track_caller]
@@ -245,6 +247,9 @@ impl<'p> Interpreter<'p> {
             .get(&id)
             .expect("expected valid function id");
 
+        #[cfg(debug_assertions)]
+        println!("executing @{} : {}", function.ir_fn_id, function.ir_blk_id);
+
         ensure_arg_count(function.parameters.len(), args.len())?;
 
         let mut registers = FxHashMap::default();
@@ -258,8 +263,12 @@ impl<'p> Interpreter<'p> {
         };
 
         for inst in function.instructions.iter() {
+            println!("inst is: {:?}", inst);
             inst_exec.exec(inst)?;
         }
+
+        #[cfg(debug_assertions)]
+        println!("nea @{} : {}", function.ir_fn_id, function.ir_blk_id);
 
         match &function.end {
             EndInstruction::Jump(i) => {
@@ -502,6 +511,7 @@ impl<'c> InstExec<'c> {
                 use Value::*;
                 let value = match value {
                     Boolean(b) => Boolean(!*b),
+                    Number(n) => Number(-*n),
                     _ => return fail(),
                 };
 
@@ -707,6 +717,7 @@ impl<'c> InstExec<'c> {
         // making an interpreter is cheap and stateless)
         //
         // EDIT^: yeah interpreter shouldn't be stateless
+
         // in the future, we want to provide a stacktrace of function
         // execution when we come across an error
         //

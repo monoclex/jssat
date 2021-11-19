@@ -201,7 +201,7 @@ print('Hello, World!');
     builder.end_function(f);
     let ir = builder.finish();
 
-    // println!("{}", crate::frontend::display_jssatir::display(&ir));
+    println!("{}", crate::frontend::display_jssatir::display(&ir));
 
     println!("lifting program");
     let program = time(move || lifted::lift(ir));
@@ -212,8 +212,7 @@ print('Hello, World!');
         let builder = crate::interpreter::InterpreterBuilder::new(&program);
         let interpreter = builder.build();
 
-        let threaded_global = crate::interpreter::Value::Record(Default::default());
-        interpreter.execute_fn_id(main_id.map_context(), vec![threaded_global])
+        interpreter.execute_fn_id(program.entrypoint, vec![])
     });
 
     println!(

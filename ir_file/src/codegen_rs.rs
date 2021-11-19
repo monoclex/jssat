@@ -651,7 +651,10 @@ fn emit_expr(counter: &mut usize, block: &mut Block, expr: &Expression) -> Strin
                     ));
                 }
                 crate::BinOpKind::Lt => {
-                    block.line(format!("let {} = e.and({}, {});", result, lhs, rhs));
+                    block.line(format!(
+                        "let {} = e.compare_less_than({}, {});",
+                        result, lhs, rhs
+                    ));
                 }
             };
         }
