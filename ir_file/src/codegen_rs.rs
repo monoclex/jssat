@@ -329,7 +329,7 @@ fn emit_stmts(
                     .join(", ");
 
                 block.line(format!(
-                    "e.call(self.{}, [{}]",
+                    "e.call(self.{}, [{}]);",
                     function_name.replace(':', "_"),
                     args
                 ));

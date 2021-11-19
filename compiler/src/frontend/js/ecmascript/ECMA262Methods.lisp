@@ -101,6 +101,7 @@
 (def (is-number :x) (is-type-of Number :x))
 (def (is-bigint :x) (is-type-of BigInt :x))
 (def (is-bool :x) (is-type-of Boolean :x))
+(def (is-object :x) (is-type-of Record :x))
 
 (def (isnt-type-as :x :y) (not (is-type-as :x :y)))
 
@@ -367,6 +368,138 @@
   (:8.1.1 BoundNames_BindingIdentifier_Await (identifier))
   (;;; 1. Return a List whose sole element "await".
    (return (list-new-1 "await"))))
+
+(section
+  (:9.1.2.3 NewObjectEnvironment (O, W, E))
+  (;;; 1. Let env be a new object Environment Record.
+   (env = record-new)
+   ;;; 2. Set env.[[BindingObject]] to O.
+   (:env BindingObject <- :O)
+   ;;; 3. Set env.[[IsWithEnvironment]] to W.
+   (:env IsWithEnvironment <- :W)
+   ;;; 4. Set env.[[OuterEnv]] to E.
+   (:env OuterEnv <- :E)
+   ;;; 5. Return env.
+   (return :env)))
+
+(section
+  (:9.1.2.5 NewGlobalEnvironment (G, thisValue))
+  (;;; 1. Let objRec be NewObjectEnvironment(G, false, null).
+   (objRec = (call NewObjectEnvironment :G false null))
+   ;;; 2. Let dclRec be a new declarative Environment Record containing no bindings.
+   (dclRec = record-new)
+   ;;; 3. Let env be a new global Environment Record.
+   (env = record-new)
+   ;;; 4. Set env.[[ObjectRecord]] to objRec.
+   (:env ObjectRecord <- :objRec)
+   ;;; 5. Set env.[[GlobalThisValue]] to thisValue.
+   (:env GlobalThisValue <- :thisValue)
+   ;;; 6. Set env.[[DeclarativeRecord]] to dclRec.
+   (:env DeclarativeRecord <- :dclRec)
+   ;;; 7. Set env.[[VarNames]] to a new empty List.
+   (:env VarNames <- list-new)
+   ;;; 8. Set env.[[OuterEnv]] to null.
+   (:env OuterEnv <- null)
+   ;;; 9. Return env.
+   (return :env)))
+
+(section
+  (:9.3.1 CreateRealm ())
+  (;;; 1. Let realmRec be a new Realm Record.
+   (realmRec = record-new)
+   ;;; 2. Perform CreateIntrinsics(realmRec).
+   (call CreateIntrinsics :realmRec)
+   ;;; 3. Set realmRec.[[GlobalObject]] to undefined.
+   (:realmRec GlobalObject <- undefined)
+   ;;; 4. Set realmRec.[[GlobalEnv]] to undefined.
+   (:realmRec GlobalEnv <- undefined)
+   ;;; 5. Set realmRec.[[TemplateMap]] to a new empty List.
+   (:realmRec TemplateMap <- list-new)
+   ;;; 6. Return realmRec.
+   (return :realmRec)))
+
+(section
+  (:9.3.2 CreateIntrinsics (realmRec))
+  (;;; 1. Let intrinsics be a new Record.
+   (intrinsics = record-new)
+   ;;; 2. Set realmRec.[[Intrinsics]] to intrinsics.
+   (:realmRec Intrinsics <- :intrinsics)
+   ;;; 3. Set fields of intrinsics with the values listed in Table 8. The field names are the names listed in column one
+   ;;;    of the table. The value of each field is a new object value fully and recursively populated with property values
+   ;;;    as defined by the specification of each object in clauses 19 through 28. All object property values are newly
+   ;;;    created object values. All values that are built-in function objects are created by performing CreateBuiltinFunction(steps, length, name, slots, realmRec, prototype) where steps is the definition of that function provided by this specification, name is the initial value of the function's name property, length is the initial value of the function's length property, slots is a list of the names, if any, of the function's specified internal slots, and prototype is the specified value of the function's [[Prototype]] internal slot. The creation of the intrinsics and their properties must be ordered to avoid any dependencies upon objects that have not yet been created.
+   ;;; 4. Perform AddRestrictedFunctionProperties(intrinsics.[[%Function.prototype%]], realmRec).
+   ;;; 5. Return intrinsics.
+   (return :intrinsics)))
+
+(section
+  (:9.3.3 SetRealmGlobalObject (realmRec, globalObj, thisValue))
+  (;;; 1. If globalObj is undefined, then
+   (globalObj =
+              (expr-block
+               ((if (isnt-undef :globalObj)
+                    (;;; a. Let intrinsics be realmRec.[[Intrinsics]].
+                     (intrinsics = (:realmRec -> Intrinsics))
+                     ;;; b. Set globalObj to ! OrdinaryObjectCreate(intrinsics.[[%Object.prototype%]]).
+                     ;  (! (call OrdinaryObjectCreate (:intrinsics -> %Object.prototype%))))
+                     (unreachable))
+                    ((:globalObj))))))
+   ;;; 2. Assert: Type(globalObj) is Object.
+   (assert (is-object :globalObj) "Type(globalObj) is Object")
+   ;;; 3. If thisValue is undefined, set thisValue to globalObj.
+   (thisValue =
+              (expr-block
+               ((if (is-undef :thisValue)
+                    ((:globalObj))
+                    ((:thisValue))))))
+   ;;; 4. Set realmRec.[[GlobalObject]] to globalObj.
+   (:realmRec GlobalObject <- :globalObj)
+   ;;; 5. Let newGlobalEnv be NewGlobalEnvironment(globalObj, thisValue).
+   (newGlobalEnv = (call NewGlobalEnvironment :globalObj :thisValue))
+   ;;; 6. Set realmRec.[[GlobalEnv]] to newGlobalEnv.
+   (:realmRec GlobalEnv <- :newGlobalEnv)
+   ;;; 7. Return realmRec.
+   (return :realmRec)))
+
+(section
+  (:9.3.4 SetDefaultGlobalBindings (realmRec))
+  (;;; 1. Let global be realmRec.[[GlobalObject]].
+   (global = (:realmRec -> GlobalObject))
+   ;;; 2. For each property of the Global Object specified in clause 19, do
+   ;;; a. Let name be the String value of the property name.
+   ;;; b. Let desc be the fully populated data Property Descriptor for the property, containing the specified attributes for the property. For properties listed in 19.2, 19.3, or 19.4 the value of the [[Value]] attribute is the corresponding intrinsic object from realmRec.
+   ;;; c. Perform ? DefinePropertyOrThrow(global, name, desc).
+   ;;; 3. Return global.
+   (return :global)))
+
+(section
+  (:9.5 InitializeHostDefinedRealm ())
+  (;;; 1. Let realm be CreateRealm().
+   (realm = (call CreateRealm))
+   ;;; 2. Let newContext be a new execution context.
+   (newContext = record-new)
+   ;;; 3. Set the Function of newContext to null.
+   (:newContext Function <- null)
+   ;;; 4. Set the Realm of newContext to realm.
+   (:newContext Realm <- :realm)
+   ;;; 5. Set the ScriptOrModule of newContext to null.
+   (:newContext ScriptOrModule <- null)
+   ;;; 6. Push newContext onto the execution context stack; newContext is now the running execution context.
+   ;;; 7. If the host requires use of an exotic object to serve as realm's global object, let global be such an object created
+   ;;;    in a host-defined manner. Otherwise, let global be undefined, indicating that an ordinary object should be created
+   ;;;    as the global object.
+   (global = undefined)
+   ;;; 8. If the host requires that the this binding in realm's global scope return an object other than the global object,
+   ;;;    let thisValue be such an object created in a host-defined manner. Otherwise, let thisValue be undefined, indicating
+   ;;;    that realm's global this binding should be the global object.
+   (thisValue = undefined)
+   ;;; 9. Perform SetRealmGlobalObject(realm, global, thisValue).
+   (call SetRealmGlobalObject :realm :global :thisValue)
+   ;;; 10. Let globalObj be ? SetDefaultGlobalBindings(realm).
+   (globalObj = (? (call SetDefaultGlobalBindings :realm)))
+   ;;; 11. Create any host-defined global object properties on globalObj.
+   ;;; 12. Return NormalCompletion(empty).
+   (return (NormalCompletion empty))))
 
 (section
   (:10.1.6.3 ValidateAndApplyPropertyDescriptor (O, P, extensible, Desc, current))
