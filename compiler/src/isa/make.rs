@@ -65,6 +65,7 @@ pub enum TrivialItem {
     Return,
     Initialized,
     Uninitialized,
+    Sync,
 }
 
 impl<T: Tag> Make<T, TrivialItem> {

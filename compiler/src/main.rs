@@ -203,10 +203,12 @@ print('Hello, World!');
         interpreter.execute_fn_id(program.entrypoint, vec![])
     });
 
+    println!("executed");
+
     println!(
         "executed: {:?}",
         match interpreter_result {
-            Ok(val) => format!("success: {:?}", val),
+            Ok(val) => format!("success"),
             Err(err) => format!("error: {}", err),
         }
     );

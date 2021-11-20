@@ -115,6 +115,7 @@
 (def undefined (trivial Undefined))
 (def normal (trivial Normal))
 (def empty (trivial Empty))
+(def sync (trivial Sync))
 (def unresolvable (trivial Unresolvable))
 (def lexical-this (trivial LexicalThis))
 (def lexical (trivial Lexical))
@@ -132,7 +133,9 @@
 (def (is-true :x) (:x == true))
 (def (is-false :x) (:x == false))
 (def (is-normal :x) (:x == normal))
+(def (is-unresolvable :x) (:x == unresolvable))
 (def (is-empty :x) (:x == empty))
+(def (isnt-empty :x) (not (is-empty :x)))
 (def (is-string :x) (is-type-of String :x))
 (def (is-symbol :x) (is-type-of Symbol :x))
 (def (is-number :x) (is-type-of Number :x))
@@ -141,6 +144,7 @@
 (def (is-record :x) (is-type-of Record :x))
 (def (isnt-record :x) (not (is-record :x)))
 (def (is-object :x) (is-record :x))
+(def (isnt-object :x) (not (is-object :x)))
 
 (def
   (match-pn :parseNode :kind :variant_idx)
@@ -193,6 +197,15 @@
         (record-absent-slot :r :s3) (record-absent-slot :r :s4)
         (record-absent-slot :r :s5) (record-absent-slot :r :s6)))
 
+; TODO: more stuff ig
+(def (isnt-reference-record :x) (not (is-reference-record :x)))
+(def
+  (is-reference-record :x)
+  (expr-block
+   ((if (is-record :x)
+        ((record-has-slot :x ReferencedName))
+        (false)))))
+
 (def (isnt-abrupt-completion :x) (not (is-abrupt-completion :x)))
 (def
   (is-abrupt-completion :x)
@@ -206,6 +219,10 @@
    (record-has-slot :x Type)
    (record-has-slot :x Value)
    (record-has-slot :x Target)))
+
+; TODO: use some kind of `Kind`/`Type` key to identify it
+;       for now we just try to check if one of the virtual methods exists
+(def (is-environment-record :x) (record-has-slot :x GetBindingValue))
 
 ; TODO: somehow use `env` to load the `SyntaxError` object and construct it
 (def (SyntaxError :env :msg) (:msg))
@@ -289,6 +306,7 @@
   (expr-block
    ((rec = record-new)
     (:rec JSSATHasBinding <- (get-fn-ptr DeclarativeEnvironmentRecord_HasBinding))
+    (:rec GetBindingValue <- (get-fn-ptr DeclarativeEnvironmentRecord_GetBindingValue))
     (:rec))))
 
 ;;;;;;;
@@ -305,6 +323,9 @@
 (def (:env .. HasRestrictedGlobalProperty :N) (call-virt (:env -> JSSATHasRestrictedGlobalProperty) :env :N))
 (def (:env .. HasBinding :N) (call-virt (:env -> JSSATHasBinding) :env :N))
 
+(def (:env .. WithBaseObject) (virt0 :env WithBaseObject))
+(def (:O .. GetBindingValue :1 :2) (virt2 :O GetBindingValue :1 :2))
+
 ; TODO: once we have all of these defined we should then replace them all with the single rule
 ; (def (:O .. :slot :P) (virt1 :O :slot :P))
 ; but for now we have each of these listed explicitly so we know how much we've done
@@ -315,7 +336,9 @@
 (def (:O .. DefineOwnProperty :P :Desc) (call-virt (:O -> DefineOwnProperty) :O :P :Desc))
 (def (:O .. IsExtensible) (virt0 :O IsExtensible))
 
-(def (:func .. Call :thisValue :argumentList) (virt2 :func Call :thisValue :argmentList))
+(def (:O .. Get :1 :2) (virt2 :O Get :1 :2))
+
+(def (:func .. Call :thisValue :argumentList) (virt2 :func Call :thisValue :argumentList))
 
 (def (evaluating :x) (call-virt (:x -> JSSATParseNodeEvaluate) :x))
 
@@ -372,6 +395,67 @@
   ((return (:x == :y))))
 
 (section
+  (:6.2.4.1 IsPropertyReference (V))
+  (;;; 1. If V.[[Base]] is unresolvable, return false.
+   (if ((:V -> Base) == unresolvable)
+       ((return false)))
+   ;;; 2. If V.[[Base]] is an Environment Record, return false; otherwise return true.
+   (return (not (is-environment-record (:V -> Base))))))
+
+(section
+  (:6.2.4.2 IsUnresolvableReference (V))
+  (;;; 1. If V.[[Base]] is unresolvable, return true; otherwise return false.
+   (return (is-unresolvable (:V -> Base)))))
+
+(section
+  (:6.2.4.3 IsSuperReference (V))
+  (;;; 1. If V.[[ThisValue]] is not empty, return true; otherwise return false.
+   (return (isnt-empty (:V -> ThisValue)))))
+
+(section
+  (:6.2.4.4 IsPrivateReference (V))
+  (;;; 1. If V.[[ReferencedName]] is a Private Name, return true; otherwise return false.
+   (todo)
+   (return unreachable)))
+
+(section
+  (:6.2.4.5 GetValue (V))
+  (;;; 1. ReturnIfAbrupt(V).
+   (V = (? :V))
+   ;;; 2. If V is not a Reference Record, return V.
+   (if (isnt-reference-record :V)
+       ((return :V)))
+   ;;; 3. If IsUnresolvableReference(V) is true, throw a ReferenceError exception.
+   (if (call IsUnresolvableReference :V)
+       ((throw (ReferenceError "oopsies woopsies!"))))
+   ;;; 4. If IsPropertyReference(V) is true, then
+   (if (is-true (call IsPropertyReference :V))
+       (;;; a. Let baseObj be ? ToObject(V.[[Base]]).
+        (baseObj = (? (call ToObject (:V -> Base))))
+        ;;; b. If IsPrivateReference(V) is true, then
+        (if (is-true (call IsPrivateReference :V))
+            (;;; i. Return ? PrivateGet(baseObj, V.[[ReferencedName]]).
+             (return (? (call PrivateGet :baseObj (:V -> ReferencedName))))))
+        ;;; c. Return ? baseObj.[[Get]](V.[[ReferencedName]], GetThisValue(V)).
+        (return (? (:baseObj .. Get (:V -> ReferencedName) (call GetThisValue :V)))))
+       ;;; 5. Else,
+       (;;; a. Let base be V.[[Base]].
+        (base = (:V -> Base))
+        ;;; b. Assert: base is an Environment Record.
+        ;;; c. Return ? base.GetBindingValue(V.[[ReferencedName]], V.[[Strict]]) (see 9.1).
+        (return (? (:base .. GetBindingValue (:V -> ReferencedName) (:V -> Strict))))))
+   (return unreachable)))
+
+(section
+  (:6.2.4.7 GetThisValue (V))
+  (;;; 1. Assert: IsPropertyReference(V) is true.
+   (assert (call IsPropertyReference :V) "IsPropertyReference(V) is true.")
+   ;;; 2. If IsSuperReference(V) is true, return V.[[ThisValue]]; otherwise return V.[[Base]].
+   (if (call IsSuperReference :V)
+       ((return (:V -> ThisValue))))
+   (return (:V -> Base))))
+
+(section
   (:6.2.5.1 IsAccessorDescriptor (Desc))
   (;;; 1. If Desc is undefined, return false.
    (if (is-undef :Desc)
@@ -405,6 +489,29 @@
    (return false)))
 
 (section
+  (:7.1.2 ToBoolean (argument))
+  ((if (is-undef :argument)
+       ((return false)))
+   (if (is-null :argument)
+       ((return false)))
+   (if (is-bool :argument)
+       ((return :argument)))
+   (if (is-number :argument)
+       ((return ((:argument == 0) or (:argument == (not 0))))))
+   (if (:argument == "")
+       ((return false))
+       ((return true)))
+   (if (is-symbol :argument)
+       ((return true)))
+   (if (is-bigint :argument)
+       ((if (:argument == 0)
+            ((return false))
+            ((return true)))))
+   (if (is-object :argument)
+       ((return true)))
+   (return unreachable)))
+
+(section
   (:7.1.18 ToObject (argument))
   ((if (is-undef :argument)
        ((throw (TypeError "undefined -> object no worky"))))
@@ -433,6 +540,15 @@
    (if (is-record :argument)
        ((return :argument)))
    (return unreachable)))
+
+(section
+  (:7.2.3 IsCallable (argument))
+  (;;; 1. If Type(argument) is not Object, return false.
+   (if (isnt-object :argument)
+       ((return false)))
+   ;;; 2. If argument has a [[Call]] internal method, return true.
+   ;;; 3. Return false.
+   (return (record-has-slot :argument Call))))
 
 (section
   (:7.2.5 IsExtensible (O))
@@ -511,6 +627,11 @@
    (return :obj)))
 
 (section
+  (:7.3.2 Get (O, P))
+  (;;; 1. Return ? O.[[Get]](P, O).
+   (return (:O .. Get :P :O))))
+
+(section
   (:7.3.5 CreateDataProperty (O, P, V))
   (;;; 1. Let newDesc be the PropertyDescriptor { [[Value]]: V, [[Writable]]: true, [[Enumerable]]: true, [[Configurable]]: true }.
    (newDesc = record-new)
@@ -535,6 +656,83 @@
   (:7.3.12 HasProperty (O, P))
   (;;; 1. Return ? O.[[HasProperty]](P).
    (return (? (:O .. HasProperty :P)))))
+
+(section
+  (:7.3.14 Call (F, V, argumentsList))
+  (;;; 1. If argumentsList is not present, set argumentsList to a new empty List.
+   ; the caller should be expected to do this
+   ;;; 2. If IsCallable(F) is false, throw a TypeError exception.
+   (if (is-false (call IsCallable :F))
+       ((throw (TypeError "not callable :(("))))
+   ;;; 3. Return ? F.[[Call]](V, argumentsList).
+   (return (? (:F .. Call :V :argumentsList)))))
+
+(section
+  (:7.3.30 PrivateGet (O, P))
+  (;;; 1. Let entry be ! PrivateElementFind(O, P).
+   (todo)
+   ;;; 2. If entry is empty, throw a TypeError exception.
+   ;;; 3. If entry.[[Kind]] is field or method, then
+   ;;; a. Return entry.[[Value]].
+   ;;; 4. Assert: entry.[[Kind]] is accessor.
+   ;;; 5. If entry.[[Get]] is undefined, throw a TypeError exception.
+   ;;; 6. Let getter be entry.[[Get]].
+   ;;; 7. Return ? Call(getter, O).
+   (return unreachable)))
+
+(section
+  (:7.4.1 GetIterator (obj, hint, method))
+  (;;; 1. If hint is not present, set hint to sync.
+   (hint = (expr-block ((if (is-undef :hint) (sync) (:hint)))))
+   ;;; 2. If method is not present, then
+   (todo)
+   ;;; a. If hint is async, then
+   ;;; i. Set method to ? GetMethod(obj, @@asyncIterator).
+   ;;; ii. If method is undefined, then
+   ;;; 1. Let syncMethod be ? GetMethod(obj, @@iterator).
+   ;;; 2. Let syncIteratorRecord be ? GetIterator(obj, sync, syncMethod).
+   ;;; 3. Return ! CreateAsyncFromSyncIterator(syncIteratorRecord).
+   ;;; b. Otherwise, set method to ? GetMethod(obj, @@iterator).
+   ;;; 3. Let iterator be ? Call(method, obj).
+   ;;; 4. If Type(iterator) is not Object, throw a TypeError exception.
+   ;;; 5. Let nextMethod be ? GetV(iterator, "next").
+   ;;; 6. Let iteratorRecord be the Record { [[Iterator]]: iterator, [[NextMethod]]: nextMethod, [[Done]]: false }.
+   ;;; 7. Return iteratorRecord.
+   (return unreachable)))
+
+(section
+  (:7.4.2 IteratorNext (iteratorRecord, value))
+  (;;; 1. If value is not present, then
+   (todo)
+   (return unreachable)
+   ;;; a. Let result be ? Call(iteratorRecord.[[NextMethod]], iteratorRecord.[[Iterator]]).
+   ;;; 2. Else,
+   ;;; a. Let result be ? Call(iteratorRecord.[[NextMethod]], iteratorRecord.[[Iterator]], « value »).
+   ;;; 3. If Type(result) is not Object, throw a TypeError exception.
+   ;;; 4. Return result.
+  ))
+
+(section
+  (:7.4.3 IteratorComplete (iterResult))
+  (;;; 1. Return ! ToBoolean(? Get(iterResult, "done")).
+   (return (! (call ToBoolean (? (call Get :iterResult "done")))))))
+
+(section
+  (:7.4.4 IteratorValue (iterResult))
+  (;;; 1. Return ? Get(iterResult, "value").
+   (return (? (call Get :iterResult "value")))))
+
+(section
+  (:7.4.5 IteratorStep (iteratorRecord))
+  (;;; 1. Let result be ? IteratorNext(iteratorRecord).
+   (result = (? (call IteratorNext :iteratorRecord undefined)))
+   ;;; 2. Let done be ? IteratorComplete(result).
+   (done = (? (call IteratorComplete :result)))
+   ;;; 3. If done is true, return false.
+   (if (:done)
+       ((return false)))
+   ;;; 4. Return result.
+   (return :result)))
 
 (section
   (:8.1.1 BoundNames (parseNode))
@@ -622,6 +820,16 @@
    (return false)))
 
 (section
+  (:9.1.1.1.6 DeclarativeEnvironmentRecord_GetBindingValue (envRec, N, S))
+  (;;; 1. Assert: envRec has a binding for N.
+   (assert (record-has-prop :envRec :N) "envRec has a binding for N.")
+   ;;; 2. If the binding for N in envRec is an uninitialized binding, throw a ReferenceError exception.
+   (if ((:envRec => :N) == uninitialized)
+       ((throw (ReferenceError "not initialized :((("))))
+   ;;; 3. Return the value currently bound to N in envRec.
+   (return (:envRec => :N))))
+
+(section
   (:9.1.1.2.1 ObjectEnvironmentRecord_HasBinding (envRec, N))
   (;;; 1. Let bindingObject be envRec.[[BindingObject]].
    (bindingObject = (:envRec -> BindingObject))
@@ -639,6 +847,21 @@
    ;;; b. If blocked is true, return false.
    ;;; 7. Return true.
    (return true)))
+
+(section
+  (:9.1.1.2.6 ObjectEnvironmentRecord_GetBindingValue (envRec, N, S))
+  (;;; 1. Let bindingObject be envRec.[[BindingObject]].
+   (bindingObject = (:envRec -> BindingObject))
+   ;;; 2. Let value be ? HasProperty(bindingObject, N).
+   (value = (? (call HasProperty :bindingObject :N)))
+   ;;; 3. If value is false, then
+   (if (is-false :value)
+       (;;; a. If S is false, return the value undefined; otherwise throw a ReferenceError exception.
+        (if (is-false :S)
+            ((return undefined))
+            ((throw (ReferenceError "le strict mode lack of binding"))))))
+   ;;; 4. Return ? Get(bindingObject, N).
+   (return (? (call Get :bindingObject :N)))))
 
 (section
   (:9.1.1.3.1 BindThisValue (envRec, V))
@@ -665,6 +888,19 @@
    (ObjRec = (:envRec -> ObjectRecord))
    ;;; 4. Return ? ObjRec.HasBinding(N).
    (return (? (:ObjRec .. HasBinding :N)))))
+
+(section
+  (:9.1.1.4.6 GlobalEnvironmentRecord_GetBindingValue (envRec, N, S))
+  (;;; 1. Let DclRec be envRec.[[DeclarativeRecord]].
+   (DclRec = (:envRec -> DeclarativeRecord))
+   ;;; 2. If DclRec.HasBinding(N) is true, then
+   (if (:DclRec .. HasBinding :N)
+       (;;; a. Return DclRec.GetBindingValue(N, S).
+        (return (:DclRec .. GetBindingValue :N :S))))
+   ;;; 3. Let ObjRec be envRec.[[ObjectRecord]].
+   (ObjRec = (:envRec -> ObjectRecord))
+   ;;; 4. Return ? ObjRec.GetBindingValue(N, S).
+   (return (? (:ObjRec .. GetBindingValue :N :S)))))
 
 (section
   (:9.1.2.1 GetIdentifierReference (env, name, strict))
@@ -700,6 +936,7 @@
   (;;; 1. Let env be a new object Environment Record.
    (env = record-new)
    (:env JSSATHasBinding <- (get-fn-ptr ObjectEnvironmentRecord_HasBinding))
+   (:env GetBindingValue <- (get-fn-ptr ObjectEnvironmentRecord_GetBindingValue))
    ;;; 2. Set env.[[BindingObject]] to O.
    (:env BindingObject <- :O)
    ;;; 3. Set env.[[IsWithEnvironment]] to W.
@@ -736,6 +973,7 @@
    ;;; 3. Let env be a new global Environment Record.
    (env = record-new)
    (:env JSSATHasBinding <- (get-fn-ptr GlobalEnvironmentRecord_HasBinding))
+   (:env JSSATGetBindingValue <- (get-fn-ptr GlobalEnvironmentRecord_GetBindingValue))
    ;;; 4. Set env.[[ObjectRecord]] to objRec.
    (:env ObjectRecord <- :objRec)
    ;;; 5. Set env.[[GlobalThisValue]] to thisValue.
@@ -1401,6 +1639,145 @@
    (return unreachable)))
 
 (section
+  (:13.3.6.1 Evaluation_CallExpression (parseNode))
+  (; CallExpression : CoverCallExpressionAndAsyncArrowHead
+   (if (is-pn CallExpression 0)
+       (;;; 1. Let expr be the CallMemberExpression that is covered by CoverCallExpressionAndAsyncArrowHead.
+        ;;; 2. Let memberExpr be the MemberExpression of expr.
+        ;;; 3. Let arguments be the Arguments of expr.
+        ;;; 4. Let ref be the result of evaluating memberExpr.
+        ;;; 5. Let func be ? GetValue(ref).
+        ;;; 6. If ref is a Reference Record, IsPropertyReference(ref) is false, and ref.[[ReferencedName]] is "eval", then
+        ;;; a. If SameValue(func, %eval%) is true, then
+        ;;; i. Let argList be ? ArgumentListEvaluation of arguments.
+        ;;; ii. If argList has no elements, return undefined.
+        ;;; iii. Let evalArg be the first element of argList.
+        ;;; iv. If the source text matched by this CallExpression is strict mode code, let strictCaller be true. Otherwise let strictCaller be false.
+        ;;; v. Let evalRealm be the current Realm Record.
+        ;;; vi. Return ? PerformEval(evalArg, evalRealm, strictCaller, true).
+        ;;; 7. Let thisCall be this CallExpression.
+        ;;; 8. Let tailCall be IsInTailPosition(thisCall).
+        ;;; 9. Return ? EvaluateCall(func, ref, arguments, tailCall).
+
+       ))
+   ; CallExpression : CallExpression Arguments
+   (if (is-pn CallExpression 3)
+       (;;; 1. Let ref be the result of evaluating CallExpression.
+        (ref = (call Evaluation_CallExpression (:parseNode -> JSSATParseNodeSlot1)))
+        ;;; 2. Let func be ? GetValue(ref).
+        (func = (? (call GetValue :ref)))
+        ;;; 3. Let thisCall be this CallExpression.
+        (thisCall = :parseNode)
+        ;;; 4. Let tailCall be IsInTailPosition(thisCall).
+        (tailCall = false) ; lol im not implementing that
+        ;;; 5. Return ? EvaluateCall(func, ref, Arguments, tailCall).
+        (return (? (call EvaluateCall :func :ref (:parseNode -> JSSATParseNodeSlot2) :tailCall)))))
+   (return unreachable)))
+
+(section
+  (:13.3.6.2 EvaluateCall (func, ref, arguments, tailPosition))
+  (;;; 1. If ref is a Reference Record, then
+   (thisValue =
+              (expr-block
+               ((if (is-reference-record :ref)
+                    (;;; a. If IsPropertyReference(ref) is true, then
+                     (if (is-true (call IsPropertyReference :ref))
+                         (;;; i. Let thisValue be GetThisValue(ref).
+                          (call GetThisValue :ref))
+                         ;;; b. Else,
+                         (;;; i. Let refEnv be ref.[[Base]].
+                          (refEnv = (:ref -> Base))
+                          ;;; ii. Assert: refEnv is an Environment Record.
+                          ;;; iii. Let thisValue be refEnv.WithBaseObject().
+                          (:refEnv .. WithBaseObject))))
+
+                    ;;; 2. Else,
+                    (;;; a. Let thisValue be undefined.
+                     (undefined))))))
+   ;;; 3. Let argList be ? ArgumentListEvaluation of arguments.
+   (argList = (? (call ArgumentListEvaluation :arguments)))
+   ;;; 4. If Type(func) is not Object, throw a TypeError exception.
+   (if (isnt-object :func)
+       ((throw (TypeError "not an object :("))))
+   ;;; 5. If IsCallable(func) is false, throw a TypeError exception.
+   (if (is-false (call IsCallable :func))
+       ((throw (TypeError ":(((((((((("))))
+   ;;; 6. If tailPosition is true, perform PrepareForTailCall().
+   (if :tailPosition
+       ((call PrepareForTailCall)))
+   ;;; 7. Let result be Call(func, thisValue, argList).
+   (result = (call Call :func :thisValue :argList))
+   ;;; 8. Assert: If result is not an abrupt completion, then Type(result) is an ECMAScript language type.
+   ;;; 9. Return result.
+   (return :result)))
+
+(section
+  (:13.3.8.1 ArgumentListEvaluation (parseNode))
+  (; Arguments : ( )
+   (if (is-pn Arguments 0)
+       (;;; 1. Return a new empty List.
+        (return list-new)))
+   ; ArgumentList : AssignmentExpression
+   (if (is-pn ArgumentList 0)
+       (;;; 1. Let ref be the result of evaluating AssignmentExpression.
+        (ref = (evaluating (:parseNode -> JSSATParseNodeSlot1)))
+        ;;; 2. Let arg be ? GetValue(ref).
+        (arg = (? (call GetValue :ref)))
+        ;;; 3. Return a List whose sole element is arg.
+        (return (list-new-1 :arg))))
+   ; ArgumentList : ... AssignmentExpression
+   (if (is-pn ArgumentList 1)
+       (;;; 1. Let list be a new empty List.
+        (list = list-new)
+        ;;; 2. Let spreadRef be the result of evaluating AssignmentExpression.
+        (spreadRef = (evaluating (:parseNode -> JSSATParseNodeSlot1)))
+        ;;; 3. Let spreadObj be ? GetValue(spreadRef).
+        (spreadObj = (? (call GetValue :spreadRef)))
+        ;;; 4. Let iteratorRecord be ? GetIterator(spreadObj).
+        (iteratorRecord = (? (call GetIterator :spreadObj undefined undefined)))
+        ;;; 5. Repeat,
+        (loop () (true) ()
+              (;;; a. Let next be ? IteratorStep(iteratorRecord).
+               (next = (? (call IteratorStep :iteratorRecord)))
+               ;;; b. If next is false, return list.
+               (if (is-false :next)
+                   ((return :list)))
+               ;;; c. Let nextArg be ? IteratorValue(next).
+               (nextArg = (? (call IteratorValue :next)))
+               ;;; d. Append nextArg as the last element of list.
+               (list-push :list :nextArg)))))
+   ; ArgumentList : ArgumentList , AssignmentExpression
+   (if (is-pn ArgumentList 2)
+       (;;; 1. Let precedingArgs be ? ArgumentListEvaluation of ArgumentList.
+        (precedingArgs = (? (call ArgumentListEvaluation (:parseNode -> JSSATParseNodeSlot1))))
+        ;;; 2. Let ref be the result of evaluating AssignmentExpression.
+        (ref = (evaluating (:parseNode -> JSSATParseNodeSlot2)))
+        ;;; 3. Let arg be ? GetValue(ref).
+        (arg = (? (call GetValue :ref)))
+        ;;; 4. Return the list-concatenation of precedingArgs and « arg ».
+        (return (list-concat :precedingArgs (list-new-1 :arg)))))
+   ; ArgumentList : ArgumentList , ... AssignmentExpression
+   (if (is-pn ArgumentList 3)
+       (;;; 1. Let precedingArgs be ? ArgumentListEvaluation of ArgumentList.
+        (precedingArgs = (? (call ArgumentListEvaluation (:parseNode -> JSSATParseNodeSlot1))))
+        ;;; 2. Let spreadRef be the result of evaluating AssignmentExpression.
+        (spreadRef = (evaluating (:parseNode -> JSSATParseNodeSlot2)))
+        ;;; 3. Let iteratorRecord be ? GetIterator(? GetValue(spreadRef)).
+        (iteratorRecord = (? (call GetIterator (? (call GetValue :spreadRef)) undefined undefined)))
+        ;;; 4. Repeat,
+        (loop () (true) ()
+              (;;; a. Let next be ? IteratorStep(iteratorRecord).
+               (next = (? (call IteratorStep :iteratorRecord)))
+               ;;; b. If next is false, return precedingArgs.
+               (if (is-false :next)
+                   ((return :precedingArgs)))
+               ;;; c. Let nextArg be ? IteratorValue(next).
+               (nextArg = (? (call IteratorValue :next)))
+               ;;; d. Append nextArg as the last element of precedingArgs.
+               (list-push :precedingArgs :nextArg)))))
+   (return unreachable)))
+
+(section
   (:15.1.4 HasInitializer (parseNode))
   (; BindingElement : BindingPattern
    (if (is-pn BindingElement 1)
@@ -1481,6 +1858,14 @@
        (;;; 1. Return 1.
         (return 1)))
    (return unreachable)))
+
+(section
+  (:15.10.3 PrepareForTailCall ())
+  (; i am sorry to disapoint you dear reader, but there appears to be nothing here!
+   (return)
+   ;;; 1. Assert: The current execution context will not subsequently be used for the evaluation of any ECMAScript code or built-in functions. The invocation of Call subsequent to the invocation of this abstract operation will create and push a new execution context before performing any such evaluation.
+   ;;; 2. Discard all resources associated with the current execution context.
+  ))
 
 (section
   (:16.1.6 ScriptEvaluation (scriptRecord))

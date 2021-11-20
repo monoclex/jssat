@@ -99,6 +99,8 @@ pub enum InternalSlot {
     BigIntData,
     NewTarget,
     FunctionObject,
+    WithBaseObject,
+    GetBindingValue,
     /// `%Function.prototype%`
     FunctionPrototype,
     /// `%Object.prototype%`

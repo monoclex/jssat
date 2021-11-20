@@ -232,3 +232,16 @@ impl<'b> Visitor for NodeEmitter<'b> {
         );
     }
 }
+
+impl<'b> NodeEmitter<'b> {
+    // fn handle_cover_call_expression_and_async_arrow_head(
+    //     &mut self,
+    //     expr: &js::CoverCallExpressionAndAsyncArrowHead,
+    // ) {
+    //     let js::CoverCallExpressionAndAsyncArrowHead::Variant0(member_expr, args)
+    // = expr;
+
+    //     let call_member_expr =
+    //         js::CallMemberExpression::Variant0(member_expr.clone(),
+    // args.clone()); }
+}
