@@ -501,6 +501,8 @@ impl<'c> InstExec<'c> {
                         (Bytes(lhs), Bytes(rhs)) => lhs == rhs,
                         (Boolean(lhs), Boolean(rhs)) => lhs == rhs,
                         (Trivial(lhs), Trivial(rhs)) => lhs == rhs,
+                        (Record(_), Trivial(_)) 
+                        | (Trivial(_), Record(_)) => false,
                         _ => return fail(),
                     }),
                     LessThan => Boolean(match (lhs, rhs) {

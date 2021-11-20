@@ -83,6 +83,7 @@ pub enum InternalSlot {
     /// `%Object.prototype%`
     ObjectPrototype,
     // TODO: auto generate these from the ecmascript IR file
+    JSSATParseNodeEvaluate,
     JSSATParseNodeSlot1,
     JSSATParseNodeSlot2,
     JSSATParseNodeSlot3,

@@ -31,6 +31,7 @@
 (def (todo) (assert false "TODO"))
 (def (:a - :b) (:a + (not :b)))
 (def (throw :x) (return (ThrowCompletion :x)))
+(def (ret-comp :x) (return (NormalCompletion :x)))
 
 (def
   (elif :condition :then-expr :end-expr)
@@ -47,8 +48,12 @@
       (elif :cond1 :then1
             (elif :cond2 :then2 :else))))
 
-(def (exec-ctx-stack-push :x) (list-push (get-global -> JSSATExecutionContextStack) :x))
-(def (exec-ctx-stack-size) (list-len (get-global -> JSSATExecutionContextStack)))
+; TODO: implement a real list pop
+(def (exec-ctx-stack-pop) (get-global JSSATExecutionContextStack <- list-new))
+(def exec-ctx-stack (get-global -> JSSATExecutionContextStack))
+(def (exec-ctx-stack-push :x) (list-push exec-ctx-stack :x))
+(def exec-ctx-stack-size (list-len exec-ctx-stack))
+(def curr-exec-ctx (list-get exec-ctx-stack (list-end exec-ctx-stack)))
 
 (def for-item (list-get :jssat_list :jssat_i))
 (def for-item-rev (list-get :jssat_list (:jssat_len - (:jssat_i + 1))))
@@ -63,7 +68,9 @@
 
 (def
   (list-push :list :x)
-  (list-set :list (math-max ((list-len :list) - 1) 0) :x))
+  (list-set :list (math-max (list-end :list) 0) :x))
+
+(def (list-end :list) ((list-len :list) - 1))
 
 (def
   (list-new-1 :1)
@@ -107,6 +114,7 @@
 (def undefined (trivial Undefined))
 (def normal (trivial Normal))
 (def empty (trivial Empty))
+(def unresolvable (trivial Unresolvable))
 (def (trivial throw) (trivial Throw))
 
 (def (is-undef :x) (:x == undefined))
@@ -122,7 +130,9 @@
 (def (is-number :x) (is-type-of Number :x))
 (def (is-bigint :x) (is-type-of BigInt :x))
 (def (is-bool :x) (is-type-of Boolean :x))
-(def (is-object :x) (is-type-of Record :x))
+(def (is-record :x) (is-type-of Record :x))
+(def (isnt-record :x) (not (is-record :x)))
+(def (is-object :x) (is-record :x))
 
 (def
   (match-pn :parseNode :kind :variant_idx)
@@ -212,26 +222,32 @@
   (expr-block
    (;;; 1. Let val be OperationName().
     (val = :OperationName)
-    ;;; 2. Assert: val is never an abrupt completion.
-    (assert (isnt-abrupt-completion :val) "val is never an abrupt completion")
-    ;;; 3. If val is a Completion Record, set val to val.[[Value]].
-    (if (is-completion-record :val)
-        ((record-get-slot :val Value))
-        (:val)))))
+    ; if we're not dealing with an object, it's already unwrapped
+    (if (isnt-record :val)
+        ((:val))
+        (;;; 2. Assert: val is never an abrupt completion.
+         (assert (isnt-abrupt-completion :val) "val is never an abrupt completion")
+         ;;; 3. If val is a Completion Record, set val to val.[[Value]].
+         (if (is-completion-record :val)
+             ((record-get-slot :val Value))
+             (:val)))))))
 
 ; 5.2.3.4 ReturnIfAbrupt Shorthands
 (def
   (? :x)
   (expr-block
    ((jssat_arg = :x)
-    (;;; 1. If argument is an abrupt completion, return argument.
-     (if (is-abrupt-completion :jssat_arg)
-         ((return :jssat_arg)
-          (unreachable))
-         ;;; 2. Else if argument is a Completion Record, set argument to argument.[[Value]].
-         (elif (is-completion-record :jssat_arg)
-               ((record-get-slot :jssat_arg Value))
-               (:jssat_arg)))))))
+    (; if we're not dealing with an object, it's already unwrapped
+     (if (isnt-record :jssat_arg)
+         ((:jssat_arg))
+         (;;; 1. If argument is an abrupt completion, return argument.
+          (if (is-abrupt-completion :jssat_arg)
+              ((return :jssat_arg)
+               (unreachable))
+              ;;; 2. Else if argument is a Completion Record, set argument to argument.[[Value]].
+              (elif (is-completion-record :jssat_arg)
+                    ((record-get-slot :jssat_arg Value))
+                    (:jssat_arg)))))))))
 
 ; 6.2.3.2  NormalCompletion
 (def
@@ -253,6 +269,13 @@
     (:jssat_throw_completion Target <- empty)
     (:jssat_throw_completion))))
 
+; "new declarative environment record"
+(def new-declarative-environment-record
+  (expr-block
+   ((rec = record-new)
+    (:rec JSSATHasBinding <- (get-fn-ptr DeclarativeEnvironmentRecord_HasBinding))
+    (:rec))))
+
 ;;;;;;;
 ; virt calls
 ;;;;;;;
@@ -261,8 +284,14 @@
 (def (:env .. HasVarDeclaration :N) (call-virt (:env -> JSSATHasVarDeclaration) :env :N))
 (def (:env .. HasLexicalDeclaration :N) (call-virt (:env -> JSSATHasLexicalDeclaration) :env :N))
 (def (:env .. HasRestrictedGlobalProperty :N) (call-virt (:env -> JSSATHasRestrictedGlobalProperty) :env :N))
+(def (:env .. HasBinding :N) (call-virt (:env -> JSSATHasBinding) :env :N))
 
-(def (evaluating :x) (NormalCompletion empty))
+(def (:O .. GetOwnProperty :P) (call-virt (:O -> GetOwnProperty) :O :P))
+(def (:O .. GetPrototypeOf) (call-virt (:O -> GetPrototypeOf) :O))
+(def (:O .. HasOwnProperty :P) (call-virt (:O -> HasOwnProperty) :O :P))
+(def (:O .. HasProperty :P) (call-virt (:O -> HasProperty) :O :P))
+
+(def (evaluating :x) (call-virt (:x -> JSSATParseNodeEvaluate) :x))
 
 ;;;;;;;;;;;;;;;;;;
 ; something ; (STATIC SEMANTICS AND RUNTIME SEMANTICS WIP SECTION)
@@ -383,6 +412,9 @@
   (;;; 1. Let obj be a newly created object with an internal slot for each name in internalSlotsList.
    (obj = record-new)
    ;;; 2. Set obj's essential internal methods to the default ordinary object definitions specified in 10.1.
+   (:obj GetPrototypeOf <- (get-fn-ptr OrdinaryObjectInternalMethods_GetPrototypeOf))
+   (:obj GetOwnProperty <- (get-fn-ptr OrdinaryObjectInternalMethods_GetOwnProperty))
+   (:obj HasProperty <- (get-fn-ptr OrdinaryObjectInternalMethods_HasProperty))
    ;;; 3. Assert: If the caller will not be overriding both obj's [[GetPrototypeOf]] and [[SetPrototypeOf]] essential internal
    ;;;    methods, then internalSlotsList contains [[Prototype]].
    ;;; 4. Assert: If the caller will not be overriding all of obj's [[SetPrototypeOf]], [[IsExtensible]], and [[PreventExtensions]]
@@ -390,6 +422,11 @@
    ;;; 5. If internalSlotsList contains [[Extensible]], set obj.[[Extensible]] to true.
    ;;; 6. Return obj.
    (return :obj)))
+
+(section
+  (:7.3.12 HasProperty (O, P))
+  (;;; 1. Return ? O.[[HasProperty]](P).
+   (return (? (:O .. HasProperty :P)))))
 
 (section
   (:8.1.1 BoundNames (parseNode))
@@ -469,9 +506,78 @@
    (return list-new)))
 
 (section
+  (:9.1.1.1.1 DeclarativeEnvironmentRecord_HasBinding (envRec, N))
+  (;;; 1. If envRec has a binding for the name that is the value of N, return true.
+   (if (record-has-prop :envRec :N)
+       ((return true)))
+   ;;; 2. Return false.
+   (return false)))
+
+(section
+  (:9.1.1.2.1 ObjectEnvironmentRecord_HasBinding (envRec, N))
+  (;;; 1. Let bindingObject be envRec.[[BindingObject]].
+   (bindingObject = (:envRec -> BindingObject))
+   ;;; 2. Let foundBinding be ? HasProperty(bindingObject, N).
+   (foundBinding = (? (call HasProperty :bindingObject :N)))
+   ;;; 3. If foundBinding is false, return false.
+   (if (is-false :foundBinding)
+       ((return false)))
+   ;;; 4. If envRec.[[IsWithEnvironment]] is false, return true.
+   (if (is-false (:envRec -> IsWithEnvironment))
+       ((return true)))
+   ;;; 5. Let unscopables be ? Get(bindingObject, @@unscopables).
+   ;;; 6. If Type(unscopables) is Object, then
+   ;;; a. Let blocked be ! ToBoolean(? Get(unscopables, N)).
+   ;;; b. If blocked is true, return false.
+   ;;; 7. Return true.
+   (return true)))
+
+(section
+  (:9.1.1.4.1 GlobalEnvironmentRecord_HasBinding (envRec, N))
+  (;;; 1. Let DclRec be envRec.[[DeclarativeRecord]].
+   (DclRec = (:envRec -> DeclarativeRecord))
+   ;;; 2. If DclRec.HasBinding(N) is true, return true.
+   (if (is-true (:DclRec .. HasBinding :N))
+       ((return true)))
+   ;;; 3. Let ObjRec be envRec.[[ObjectRecord]].
+   (ObjRec = (:envRec -> ObjectRecord))
+   ;;; 4. Return ? ObjRec.HasBinding(N).
+   (return (? (:ObjRec .. HasBinding :N)))))
+
+(section
+  (:9.1.2.1 GetIdentifierReference (env, name, strict))
+  (;;; 1. If env is the value null, then
+   (if (is-null :env)
+       (;;; a. Return the Reference Record { [[Base]]: unresolvable, [[ReferencedName]]: name, [[Strict]]: strict, [[ThisValue]]: empty }.
+        (refRec = record-new)
+        (:refRec Base <- unresolvable)
+        (:refRec ReferencedName <- :name)
+        (:refRec Strict <- :strict)
+        (:refRec ThisValue <- empty)
+        (return :refRec)))
+   ;;; 2. Let exists be ? env.HasBinding(name).
+   (exists = (? (:env .. HasBinding :name)))
+   ;;; 3. If exists is true, then
+   (if (is-true :exists)
+       (;;; a. Return the Reference Record { [[Base]]: env, [[ReferencedName]]: name, [[Strict]]: strict, [[ThisValue]]: empty }.
+        (refRec = record-new)
+        (:refRec Base <- :env)
+        (:refRec ReferencedName <- :name)
+        (:refRec Strict <- :strict)
+        (:refRec ThisValue <- empty)
+        (return :refRec))
+       ;;; 4. Else,
+       (;;; a. Let outer be env.[[OuterEnv]].
+        (outer = (:env -> OuterEnv))
+        ;;; b. Return ? GetIdentifierReference(outer, name, strict).
+        (return (? (call GetIdentifierReference :outer :name :strict)))))
+   (return unreachable)))
+
+(section
   (:9.1.2.3 NewObjectEnvironment (O, W, E))
   (;;; 1. Let env be a new object Environment Record.
    (env = record-new)
+   (:env JSSATHasBinding <- (get-fn-ptr ObjectEnvironmentRecord_HasBinding))
    ;;; 2. Set env.[[BindingObject]] to O.
    (:env BindingObject <- :O)
    ;;; 3. Set env.[[IsWithEnvironment]] to W.
@@ -486,9 +592,10 @@
   (;;; 1. Let objRec be NewObjectEnvironment(G, false, null).
    (objRec = (call NewObjectEnvironment :G false null))
    ;;; 2. Let dclRec be a new declarative Environment Record containing no bindings.
-   (dclRec = record-new)
+   (dclRec = new-declarative-environment-record)
    ;;; 3. Let env be a new global Environment Record.
    (env = record-new)
+   (:env JSSATHasBinding <- (get-fn-ptr GlobalEnvironmentRecord_HasBinding))
    ;;; 4. Set env.[[ObjectRecord]] to objRec.
    (:env ObjectRecord <- :objRec)
    ;;; 5. Set env.[[GlobalThisValue]] to thisValue.
@@ -540,7 +647,13 @@
                     (;;; a. Let intrinsics be realmRec.[[Intrinsics]].
                      (intrinsics = (:realmRec -> Intrinsics))
                      ;;; b. Set globalObj to ! OrdinaryObjectCreate(intrinsics.[[%Object.prototype%]]).
-                     (! (call OrdinaryObjectCreate record-new list-new)))
+                     ; TODO: actually use the intrinsics
+                     (tmp = record-new)
+                     (:tmp Prototype <- null)
+                     (:tmp GetPrototypeOf <- (get-fn-ptr OrdinaryObjectInternalMethods_GetPrototypeOf))
+                     (:tmp GetOwnProperty <- (get-fn-ptr OrdinaryObjectInternalMethods_GetOwnProperty))
+                     (:tmp HasProperty <- (get-fn-ptr OrdinaryObjectInternalMethods_HasProperty))
+                     (! (call OrdinaryObjectCreate :tmp list-new)))
                     ((:globalObj))))))
    ;;; 2. Assert: Type(globalObj) is Object.
    (assert (is-object :globalObj) "Type(globalObj) is Object")
@@ -571,11 +684,28 @@
    (return :global)))
 
 (section
+  (:9.4.2 ResolveBinding (name, env))
+  (;;; 1. If env is not present or if env is undefined, then
+   (env = (expr-block
+           ((if (is-undef :env)
+                (;;; a. Set env to the running execution context's LexicalEnvironment.
+                 (curr-exec-ctx -> LexicalEnvironment))
+                (:env)))))
+   ;;; 2. Assert: env is an Environment Record.
+   ;;; 3. If the source text matched by the syntactic production that is being evaluated is contained in strict mode code,
+   ;;;    let strict be true; else let strict be false.
+   (strict = true) ; TODO: revisit this
+   ;;; 4. Return ? GetIdentifierReference(env, name, strict).
+   (return (? (call GetIdentifierReference :env :name :strict)))))
+
+(section
   (:9.5 InitializeHostDefinedRealm ())
   (;;; 1. Let realm be CreateRealm().
    (realm = (call CreateRealm))
    ;;; 2. Let newContext be a new execution context.
    (newContext = record-new)
+   ; TODO: have a subroutine to make new execution context properly
+   (:newContext LexicalEnvironment <- record-new)
    ;;; 3. Set the Function of newContext to null.
    (:newContext Function <- null)
    ;;; 4. Set the Realm of newContext to realm.
@@ -729,6 +859,59 @@
    (return true)))
 
 (section
+  (:10.1.1 OrdinaryObjectInternalMethods_GetPrototypeOf (O))
+  (;;; 1. Return ! OrdinaryGetPrototypeOf(O).
+   (return (! (call OrdinaryGetPrototypeOf :O)))))
+
+(section
+  (:10.1.1.1 OrdinaryGetPrototypeOf (O))
+  (;;; 1. Return O.[[Prototype]].
+   (return (:O -> Prototype))))
+
+(section
+  (:10.1.5 OrdinaryObjectInternalMethods_GetOwnProperty (O, P))
+  (;;; 1. Return ! OrdinaryGetOwnProperty(O, P).
+   (return (! (call OrdinaryGetOwnProperty :O :P)))))
+
+(section
+  (:10.1.5.1 OrdinaryGetOwnProperty (O, P))
+  (;;; 1. If O does not have an own property with key P, return undefined.
+   ;;; 2. Let D be a newly created Property Descriptor with no fields.
+   ;;; 3. Let X be O's own property whose key is P.
+   ;;; 4. If X is a data property, then
+   ;;; a. Set D.[[Value]] to the value of X's [[Value]] attribute.
+   ;;; b. Set D.[[Writable]] to the value of X's [[Writable]] attribute.
+   ;;; 5. Else,
+   ;;; a. Assert: X is an accessor property.
+   ;;; b. Set D.[[Get]] to the value of X's [[Get]] attribute.
+   ;;; c. Set D.[[Set]] to the value of X's [[Set]] attribute.
+   ;;; 6. Set D.[[Enumerable]] to the value of X's [[Enumerable]] attribute.
+   ;;; 7. Set D.[[Configurable]] to the value of X's [[Configurable]] attribute.
+   ;;; 8. Return D.
+   (return undefined)))
+
+(section
+  (:10.1.7 OrdinaryObjectInternalMethods_HasProperty (O, P))
+  (;;; 1. Return ? OrdinaryHasProperty(O, P).
+   (return (? (call OrdinaryHasProperty :O :P)))))
+
+(section
+  (:10.1.7.1 OrdinaryHasProperty (O, P))
+  (;;; 1. Let hasOwn be ? O.[[GetOwnProperty]](P).
+   (hasOwn = (? (:O .. GetOwnProperty :P)))
+   ;;; 2. If hasOwn is not undefined, return true.
+   (if (isnt-undef :hasOwn)
+       ((return true)))
+   ;;; 3. Let parent be ? O.[[GetPrototypeOf]]().
+   (parent = (? (:O .. GetPrototypeOf)))
+   ;;; 4. If parent is not null, then
+   (if (isnt-null :parent)
+       (;;; a. Return ? parent.[[HasProperty]](P).
+        (return (? (:parent .. HasProperty :P)))))
+   ;;; 5. Return false.
+   (return false)))
+
+(section
   (:10.1.12 OrdinaryObjectCreate (proto, additionalInternalSlotsList))
   (;;; 1. Let internalSlotsList be « [[Prototype]], [[Extensible]] ».
    (internalSlotsList = (list-new-2 (trivial-slot Prototype) (trivial-slot Extensible)))
@@ -741,6 +924,22 @@
    (:O Prototype <- :proto)
    ;;; 5. Return O.
    (return :O)))
+
+(section
+  (:13.1.3 Evaluation_IdentifierReference (parseNode))
+  (; IdentifierReference : Identifier
+   (if (is-pn IdentifierReference 0)
+       (;;; 1. Return ? ResolveBinding(StringValue of Identifier).
+        (ret-comp (? (call ResolveBinding (:parseNode -> JSSATParseNodeSlot1 -> JSSATParseNode_Identifier_StringValue) undefined)))))
+   ; IdentifierReference : yield
+   (if (is-pn IdentifierReference 1)
+       (;;; 1. Return ? ResolveBinding("yield").
+        (ret-comp (? (call ResolveBinding "yield" undefined)))))
+   ; IdentifierReference : await
+   (if (is-pn IdentifierReference 2)
+       (;;; 1. Return ? ResolveBinding("await").
+        (ret-comp (? (call ResolveBinding "await" undefined)))))
+   (return unreachable)))
 
 (section
   (:16.1.6 ScriptEvaluation (scriptRecord))
@@ -759,7 +958,7 @@
    ;;; 7. Set the LexicalEnvironment of scriptContext to globalEnv.
    (:scriptContext LexicalEnvironment <- :globalEnv)
    ;;; 8. Suspend the currently running execution context.
-   ; (todo)
+   (exec-ctx-stack-pop)
    ;;; 9. Push scriptContext onto the execution context stack; scriptContext is now the running execution context.
    (exec-ctx-stack-push :scriptContext)
    ;;; 10. Let scriptBody be scriptRecord.[[ECMAScriptCode]].
@@ -779,7 +978,7 @@
    ;;; 14. Suspend scriptContext and remove it from the execution context stack.
    ; (todo)
    ;;; 15. Assert: The execution context stack is not empty.
-   (assert (0 != (list-len (get-global -> JSSATExecutionContextStack))) "The execution context stack is not empty.")
+   (assert (0 != (list-len exec-ctx-stack)) "The execution context stack is not empty.")
    ;;; 16. Resume the context that is now on the top of the execution context stack as the running execution context.
    ; (todo)
    ;;; 17. Return Completion(result).

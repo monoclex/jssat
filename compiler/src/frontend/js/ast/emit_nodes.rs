@@ -24,19 +24,17 @@ fn emit_virt_overrides(
     m: &ECMA262Methods,
 ) -> bool {
     use js::ParseNodeKind::*;
-    use InternalSlot::*;
 
-    return false;
+    #[rustfmt::skip]
+    let function = match (kind, idx) {
+        (IdentifierReference, _) => m.Evaluation_IdentifierReference,
+        _ => return false,
+    };
 
-    // #[rustfmt::skip]
-    // let function = match (slot, kind, idx) {
-    //     _ => return false,
-    // };
+    let fn_ptr = block.make_fnptr(function.id);
+    block.record_set_slot(parse_node, slot, fn_ptr);
 
-    // let fn_ptr = block.make_fnptr(function.id);
-    // block.record_set_slot(parse_node, slot, fn_ptr);
-
-    // true
+    true
 }
 
 pub struct NodeEmitter<'scope> {
@@ -98,8 +96,8 @@ impl<'s> NodeEmitter<'s> {
             let (mut f, [threaded_global, x]) = program.start_function();
 
             let mut e = f.start_block_main();
-            let fn_ptr = e.record_get_slot(x, slot);
             let next = e.record_get_slot(x, InternalSlot::JSSATParseNodeSlot1);
+            let fn_ptr = e.record_get_slot(next, slot);
             let result = e.call_virt_with_result(fn_ptr, [threaded_global, next]);
             f.end_block(e.ret(Some(result)));
 
@@ -121,7 +119,7 @@ const PARSE_NODE_SLOTS: [InternalSlot; 6] = [
     InternalSlot::JSSATParseNodeSlot6,
 ];
 
-const RUNTIME_SEMANTICS: [InternalSlot; 0] = [];
+const RUNTIME_SEMANTICS: [InternalSlot; 1] = [InternalSlot::JSSATParseNodeEvaluate];
 
 pub struct ParseNode {
     pub parse_node: RegisterId,
