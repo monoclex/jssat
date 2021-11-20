@@ -415,8 +415,8 @@
 (section
   (:6.2.4.4 IsPrivateReference (V))
   (;;; 1. If V.[[ReferencedName]] is a Private Name, return true; otherwise return false.
-   (todo)
-   (return unreachable)))
+   ; TODO: this
+   (return false)))
 
 (section
   (:6.2.4.5 GetValue (V))
@@ -1643,23 +1643,31 @@
   (; CallExpression : CoverCallExpressionAndAsyncArrowHead
    (if (is-pn CallExpression 0)
        (;;; 1. Let expr be the CallMemberExpression that is covered by CoverCallExpressionAndAsyncArrowHead.
+        (expr = (:parseNode -> JSSATParseNodeSlot1 -> JSSATParseNodeSlot3))
         ;;; 2. Let memberExpr be the MemberExpression of expr.
+        (memberExpr = (:expr -> JSSATParseNodeSlot1))
         ;;; 3. Let arguments be the Arguments of expr.
+        (arguments = (:expr -> JSSATParseNodeSlot2))
         ;;; 4. Let ref be the result of evaluating memberExpr.
+        (ref = (evaluating :memberExpr))
         ;;; 5. Let func be ? GetValue(ref).
+        (func = (? (call GetValue :ref)))
         ;;; 6. If ref is a Reference Record, IsPropertyReference(ref) is false, and ref.[[ReferencedName]] is "eval", then
-        ;;; a. If SameValue(func, %eval%) is true, then
-        ;;; i. Let argList be ? ArgumentListEvaluation of arguments.
-        ;;; ii. If argList has no elements, return undefined.
-        ;;; iii. Let evalArg be the first element of argList.
-        ;;; iv. If the source text matched by this CallExpression is strict mode code, let strictCaller be true. Otherwise let strictCaller be false.
-        ;;; v. Let evalRealm be the current Realm Record.
-        ;;; vi. Return ? PerformEval(evalArg, evalRealm, strictCaller, true).
+        (if (and3 (is-reference-record :ref) (is-false (call IsPropertyReference :ref)) ((:ref -> ReferencedName) == "eval"))
+            (;;; a. If SameValue(func, %eval%) is true, then
+             ;;; i. Let argList be ? ArgumentListEvaluation of arguments.
+             ;;; ii. If argList has no elements, return undefined.
+             ;;; iii. Let evalArg be the first element of argList.
+             ;;; iv. If the source text matched by this CallExpression is strict mode code, let strictCaller be true. Otherwise let strictCaller be false.
+             ;;; v. Let evalRealm be the current Realm Record.
+             ;;; vi. Return ? PerformEval(evalArg, evalRealm, strictCaller, true).
+            ))
         ;;; 7. Let thisCall be this CallExpression.
+        (thisCall = :parseNode)
         ;;; 8. Let tailCall be IsInTailPosition(thisCall).
+        (tailCall = false)
         ;;; 9. Return ? EvaluateCall(func, ref, arguments, tailCall).
-
-       ))
+        (return (? (call EvaluateCall :func :ref :arguments :tailCall)))))
    ; CallExpression : CallExpression Arguments
    (if (is-pn CallExpression 3)
        (;;; 1. Let ref be the result of evaluating CallExpression.

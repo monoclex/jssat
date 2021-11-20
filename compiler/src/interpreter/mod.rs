@@ -181,13 +181,12 @@ impl Record {
         self.get(key).ok_or_else(|| {
             #[cfg(debug_assertions)]
             println!(
-                "failed to get record key on parse node kind: {:?} -- record -- {:#?}",
+                "failed to get record key on parse node kind: {:?}",
                 self.get(&RecordKey::Slot(InternalSlot::JSSATParseNodeKind))
                     .map(|x| match x {
                         Value::Trivial(x) => x,
                         _ => unreachable!(),
                     }),
-                self,
             );
             InstErr::RecordDNCKey(key.clone(), Location::caller())
         })

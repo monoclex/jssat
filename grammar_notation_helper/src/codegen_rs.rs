@@ -342,6 +342,20 @@ fn generate_visitor_ast(productions: &Productions, formatter: &mut Formatter) {
             production.name
         ));
 
+        f.line(format!(
+            "self.visit_impl_{}(node);",
+            production.name.to_case(Case::Snake)
+        ));
+
+        f.line("self.post_visit();");
+
+        let f = visitor.new_fn(&format!(
+            "visit_impl_{}",
+            production.name.to_case(Case::Snake)
+        ));
+        f.arg_mut_self();
+        f.arg("node", format!("&{}", &production.name));
+
         f.line("match node ");
         f.push_block({
             let mut block = Block::new("");
@@ -376,6 +390,7 @@ fn generate_visitor_ast(productions: &Productions, formatter: &mut Formatter) {
                         visit.line(format!("if let Some({0}) = {0}", variant_name(idx)));
 
                         let mut visit_block = Block::new("");
+
                         visit_block.line(format!(
                             "self.visit_{}({});",
                             variant.name.to_case(Case::Snake),
@@ -398,8 +413,6 @@ fn generate_visitor_ast(productions: &Productions, formatter: &mut Formatter) {
 
             block
         });
-
-        f.line("self.post_visit();");
     }
 
     visitor.fmt(formatter).unwrap();

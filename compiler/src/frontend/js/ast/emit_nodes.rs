@@ -26,8 +26,9 @@ fn emit_virt_overrides(
     use js::ParseNodeKind::*;
 
     #[rustfmt::skip]
-    let function = match (kind, idx) {
-        (IdentifierReference, _) => m.Evaluation_IdentifierReference,
+    let function = match kind {
+        IdentifierReference => m.Evaluation_IdentifierReference,
+        CallExpression => m.Evaluation_CallExpression,
         _ => return false,
     };
 
@@ -231,17 +232,40 @@ impl<'b> Visitor for NodeEmitter<'b> {
             string,
         );
     }
-}
 
-impl<'b> NodeEmitter<'b> {
-    // fn handle_cover_call_expression_and_async_arrow_head(
-    //     &mut self,
-    //     expr: &js::CoverCallExpressionAndAsyncArrowHead,
-    // ) {
-    //     let js::CoverCallExpressionAndAsyncArrowHead::Variant0(member_expr, args)
-    // = expr;
+    // rust doesn't have calling `super` so we have to sort of implement `visit_x`
+    // instead of `visit_impl_x`
 
-    //     let call_member_expr =
-    //         js::CallMemberExpression::Variant0(member_expr.clone(),
-    // args.clone()); }
+    // here we visit `cover`ed expressions and automatically parse them as alternate
+    // options that way, we put into JSSATParseNodeSlot the alternatives
+    // so when ecmascript instructions say "get the X covered by Y" we can load it
+
+    // TODO: look into whether or not we can reuse the parse rather than parse
+    //        duplicatedly i feel like we might run into weirdness if we parse as
+    //        duplicately but w/e
+    //
+    //        by duplicately i mean like generating new code when re-parsing to
+    //        satsify the "covered by" thing. e.g. in the below function, we clone
+    //        member expression and arguments (that is fine) but then we visit it,
+    //        potentially regenerating code when we should be able to re-use the
+    //        already generated parse nodes
+
+    fn visit_cover_call_expression_and_async_arrow_head(
+        &mut self,
+        node @ js::CoverCallExpressionAndAsyncArrowHead::Variant0(member_expression, arguments): &js::CoverCallExpressionAndAsyncArrowHead,
+    ) {
+        self.pre_visit(js::ParseNodeKind::CoverCallExpressionAndAsyncArrowHead, 0);
+
+        // slot 1: member expressoin
+        // slot 2: arguments
+        self.visit_impl_cover_call_expression_and_async_arrow_head(node);
+
+        // slot 3: CallMemberExpression
+        let call_member_expr =
+            js::CallMemberExpression::Variant0(member_expression.clone(), arguments.clone());
+
+        self.visit_call_member_expression(&call_member_expr);
+
+        self.post_visit();
+    }
 }

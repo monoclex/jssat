@@ -174,7 +174,7 @@ print('Hello, World!');
 
     println!("converting script to parse nodes");
     let script = time(|| frontend::js::ast::parse_script(&content));
-    println!("traversed script: {:#?}", script);
+    println!("traversed script");
 
     let mut builder = ProgramBuilder::new();
     let mut f = builder.start_function_main();
