@@ -54,6 +54,17 @@ pub enum TrivialItem {
     ParseNodeKind(crate::frontend::js::ast::parse_nodes::ParseNodeKind),
     /// An internal slot (needed for OrdinaryObjectCreate)
     InternalSlot(InternalSlot),
+    /// ECMAScript "lexical"
+    Lexical,
+    /// ECMAScript "strict"
+    Strict,
+    /// ECMAScript "global"
+    Global,
+    /// ECMAScript "lexical-this"
+    LexicalThis,
+    Return,
+    Initialized,
+    Uninitialized,
 }
 
 impl<T: Tag> Make<T, TrivialItem> {

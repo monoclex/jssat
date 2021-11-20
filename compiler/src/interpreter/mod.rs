@@ -181,12 +181,13 @@ impl Record {
         self.get(key).ok_or_else(|| {
             #[cfg(debug_assertions)]
             println!(
-                "failed to get record key on parse node kind: {:?}",
+                "failed to get record key on parse node kind: {:?} -- record -- {:#?}",
                 self.get(&RecordKey::Slot(InternalSlot::JSSATParseNodeKind))
                     .map(|x| match x {
                         Value::Trivial(x) => x,
                         _ => unreachable!(),
-                    })
+                    }),
+                self,
             );
             InstErr::RecordDNCKey(key.clone(), Location::caller())
         })
@@ -501,8 +502,7 @@ impl<'c> InstExec<'c> {
                         (Bytes(lhs), Bytes(rhs)) => lhs == rhs,
                         (Boolean(lhs), Boolean(rhs)) => lhs == rhs,
                         (Trivial(lhs), Trivial(rhs)) => lhs == rhs,
-                        (Record(_), Trivial(_)) 
-                        | (Trivial(_), Record(_)) => false,
+                        (Record(_), Trivial(_)) | (Trivial(_), Record(_)) => false,
                         _ => return fail(),
                     }),
                     LessThan => Boolean(match (lhs, rhs) {

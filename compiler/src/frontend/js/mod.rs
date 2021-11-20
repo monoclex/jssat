@@ -79,12 +79,13 @@ impl<'p> JavaScriptFrontend<'p> {
         let hook = hosts::HostHookState {
             ecma_methods: &self.ecma_methods,
             program: self.program,
+            threaded_global,
             block,
             realm,
             global_object,
         };
 
-        host_environment.inject(&hook);
+        host_environment.inject(hook);
 
         // we don't care about the parameters we pass null to for ParseScript
         let null = block.make_null();
@@ -107,8 +108,11 @@ impl<'p> JavaScriptFrontend<'p> {
         ) -> RegisterId {
             let exec_ctx_stack =
                 block.record_get_slot(threaded_global, InternalSlot::JSSATExecutionContextStack);
-            let first = block.make_number_decimal(0);
-            let context = block.list_get(exec_ctx_stack, first);
+            let last = block.list_len(exec_ctx_stack);
+            let one = block.make_number_decimal(1);
+            let neg_one = block.negate(one);
+            let last_minus_one = block.add(last, neg_one);
+            let context = block.list_get(exec_ctx_stack, last_minus_one);
             context
         }
     }

@@ -14,6 +14,7 @@ pub struct HostHookState<'scope> {
     pub ecma_methods: &'scope ECMA262Methods,
     pub program: &'scope mut ProgramBuilder,
     pub block: &'scope mut DynBlockBuilder,
+    pub threaded_global: RegisterId,
     pub realm: RegisterId,
     pub global_object: RegisterId,
 }
@@ -21,5 +22,5 @@ pub struct HostHookState<'scope> {
 /// Trait that represents something that modifies the environment of an
 /// ECMAScript program to be suitable for a particular host.
 pub trait HostEnvironment {
-    fn inject<'s>(&mut self, hook: &HostHookState<'s>);
+    fn inject<'s>(&mut self, hook: HostHookState<'s>);
 }

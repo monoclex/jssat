@@ -54,6 +54,7 @@
 (def (exec-ctx-stack-push :x) (list-push exec-ctx-stack :x))
 (def exec-ctx-stack-size (list-len exec-ctx-stack))
 (def curr-exec-ctx (list-get exec-ctx-stack (list-end exec-ctx-stack)))
+(def current-realm (curr-exec-ctx -> Realm))
 
 (def for-item (list-get :jssat_list :jssat_i))
 (def for-item-rev (list-get :jssat_list (:jssat_len - (:jssat_i + 1))))
@@ -115,6 +116,13 @@
 (def normal (trivial Normal))
 (def empty (trivial Empty))
 (def unresolvable (trivial Unresolvable))
+(def lexical-this (trivial LexicalThis))
+(def lexical (trivial Lexical))
+(def initialized (trivial Initialized))
+(def uninitialized (trivial Uninitialized))
+(def trivial-strict (trivial Strict))
+(def trivial-global (trivial Global))
+(def trivial-return (trivial Return))
 (def (trivial throw) (trivial Throw))
 
 (def (is-undef :x) (:x == undefined))
@@ -200,8 +208,10 @@
    (record-has-slot :x Target)))
 
 ; TODO: somehow use `env` to load the `SyntaxError` object and construct it
-(def (SyntaxError :env :msg)
-  (:msg))
+(def (SyntaxError :env :msg) (:msg))
+; same for TypeError (:env can be gotten via curr-exec-ctx)
+(def (TypeError :msg) (:msg))
+(def (ReferenceError :msg) (:msg))
 
 ; "Let <thing> be the sole element of <list>"
 (def
@@ -231,6 +241,11 @@
          (if (is-completion-record :val)
              ((record-get-slot :val Value))
              (:val)))))))
+
+(def (Perform ! :x)
+  (if (is-record :x)
+      (;;; 2. Assert: val is never an abrupt completion.
+       (assert (isnt-abrupt-completion :x) "val is never an abrupt completion"))))
 
 ; 5.2.3.4 ReturnIfAbrupt Shorthands
 (def
@@ -280,18 +295,51 @@
 ; virt calls
 ;;;;;;;
 
+(def (virt0 :actor :slot) (call-virt (:actor -> :slot) :actor))
+(def (virt1 :actor :slot :1) (call-virt (:actor -> :slot) :actor :1))
+(def (virt2 :actor :slot :1 :2) (call-virt (:actor -> :slot) :actor :1 :2))
+
 ; we use `..` instead of `.` because `.` is a cons cell :v
 (def (:env .. HasVarDeclaration :N) (call-virt (:env -> JSSATHasVarDeclaration) :env :N))
 (def (:env .. HasLexicalDeclaration :N) (call-virt (:env -> JSSATHasLexicalDeclaration) :env :N))
 (def (:env .. HasRestrictedGlobalProperty :N) (call-virt (:env -> JSSATHasRestrictedGlobalProperty) :env :N))
 (def (:env .. HasBinding :N) (call-virt (:env -> JSSATHasBinding) :env :N))
 
+; TODO: once we have all of these defined we should then replace them all with the single rule
+; (def (:O .. :slot :P) (virt1 :O :slot :P))
+; but for now we have each of these listed explicitly so we know how much we've done
 (def (:O .. GetOwnProperty :P) (call-virt (:O -> GetOwnProperty) :O :P))
 (def (:O .. GetPrototypeOf) (call-virt (:O -> GetPrototypeOf) :O))
 (def (:O .. HasOwnProperty :P) (call-virt (:O -> HasOwnProperty) :O :P))
 (def (:O .. HasProperty :P) (call-virt (:O -> HasProperty) :O :P))
+(def (:O .. DefineOwnProperty :P :Desc) (call-virt (:O -> DefineOwnProperty) :O :P :Desc))
+(def (:O .. IsExtensible) (virt0 :O IsExtensible))
+
+(def (:func .. Call :thisValue :argumentList) (virt2 :func Call :thisValue :argmentList))
 
 (def (evaluating :x) (call-virt (:x -> JSSATParseNodeEvaluate) :x))
+
+; Table 34
+
+(def (inject-table-34 :list)
+  (_dontCare =
+             (expr-block
+              ((list-push :internalSlotsList (trivial-slot Environment))
+               (list-push :internalSlotsList (trivial-slot PrivateEnvironment))
+               (list-push :internalSlotsList (trivial-slot FormalParameters))
+               (list-push :internalSlotsList (trivial-slot ECMAScriptCode))
+               (list-push :internalSlotsList (trivial-slot ConstructorKind))
+               (list-push :internalSlotsList (trivial-slot Realm))
+               (list-push :internalSlotsList (trivial-slot ScriptOrModule))
+               (list-push :internalSlotsList (trivial-slot ThisMode))
+               (list-push :internalSlotsList (trivial-slot Strict))
+               (list-push :internalSlotsList (trivial-slot HomeObject))
+               (list-push :internalSlotsList (trivial-slot SourceText))
+               (list-push :internalSlotsList (trivial-slot Fields))
+               (list-push :internalSlotsList (trivial-slot PrivateMethods))
+               (list-push :internalSlotsList (trivial-slot ClassFieldInitializerName))
+               (list-push :internalSlotsList (trivial-slot IsClassConstructor))
+               (undefined)))))
 
 ;;;;;;;;;;;;;;;;;;
 ; something ; (STATIC SEMANTICS AND RUNTIME SEMANTICS WIP SECTION)
@@ -357,6 +405,41 @@
    (return false)))
 
 (section
+  (:7.1.18 ToObject (argument))
+  ((if (is-undef :argument)
+       ((throw (TypeError "undefined -> object no worky"))))
+   (if (is-null :argument)
+       ((throw (TypeError "null -> object no worky"))))
+   (if (is-bool :argument)
+       ((wrapper = record-new)
+        (:wrapper BooleanData <- :argument)
+        (return :wrapper)))
+   (if (is-number :argument)
+       ((wrapper = record-new)
+        (:wrapper NumberData <- :argument)
+        (return :wrapper)))
+   (if (is-string :argument)
+       ((wrapper = record-new)
+        (:wrapper StringData <- :argument)
+        (return :wrapper)))
+   (if (is-symbol :argument)
+       ((wrapper = record-new)
+        (:wrapper SymbolData <- :argument)
+        (return :wrapper)))
+   (if (is-bigint :argument)
+       ((wrapper = record-new)
+        (:wrapper BigIntData <- :argument)
+        (return :wrapper)))
+   (if (is-record :argument)
+       ((return :argument)))
+   (return unreachable)))
+
+(section
+  (:7.2.5 IsExtensible (O))
+  (;;; 1. Return ? O.[[IsExtensible]]().
+   (return (? (:O .. IsExtensible)))))
+
+(section
   (:7.2.7 IsPropertyKey (argument))
   (;;; 1. If Type(argument) is String, return true.
    (if (is-string :argument)
@@ -413,15 +496,40 @@
    (obj = record-new)
    ;;; 2. Set obj's essential internal methods to the default ordinary object definitions specified in 10.1.
    (:obj GetPrototypeOf <- (get-fn-ptr OrdinaryObjectInternalMethods_GetPrototypeOf))
+   (:obj IsExtensible <- (get-fn-ptr OrdinaryObjectInternalMethods_IsExtensible))
    (:obj GetOwnProperty <- (get-fn-ptr OrdinaryObjectInternalMethods_GetOwnProperty))
    (:obj HasProperty <- (get-fn-ptr OrdinaryObjectInternalMethods_HasProperty))
+   (:obj DefineOwnProperty <- (get-fn-ptr OrdinaryObjectInternalMethods_DefineOwnProperty))
    ;;; 3. Assert: If the caller will not be overriding both obj's [[GetPrototypeOf]] and [[SetPrototypeOf]] essential internal
    ;;;    methods, then internalSlotsList contains [[Prototype]].
    ;;; 4. Assert: If the caller will not be overriding all of obj's [[SetPrototypeOf]], [[IsExtensible]], and [[PreventExtensions]]
    ;;;    essential internal methods, then internalSlotsList contains [[Extensible]].
    ;;; 5. If internalSlotsList contains [[Extensible]], set obj.[[Extensible]] to true.
+   (if (true)
+       ((:obj Extensible <- true)))
    ;;; 6. Return obj.
    (return :obj)))
+
+(section
+  (:7.3.5 CreateDataProperty (O, P, V))
+  (;;; 1. Let newDesc be the PropertyDescriptor { [[Value]]: V, [[Writable]]: true, [[Enumerable]]: true, [[Configurable]]: true }.
+   (newDesc = record-new)
+   (:newDesc Value <- :V)
+   (:newDesc Writable <- true)
+   (:newDesc Enumerable <- true)
+   (:newDesc Configurable <- true)
+   ;;; 2. Return ? O.[[DefineOwnProperty]](P, newDesc).
+   (return (? (:O .. DefineOwnProperty :P :newDesc)))))
+
+(section
+  (:7.3.9 DefinePropertyOrThrow (O, P, desc))
+  (;;; 1. Let success be ? O.[[DefineOwnProperty]](P, desc).
+   (success = (? (:O .. DefineOwnProperty :P :desc)))
+   ;;; 2. If success is false, throw a TypeError exception.
+   (if (is-false :success)
+       ((throw (TypeError "can't define property"))))
+   ;;; 3. Return success.
+   (return :success)))
 
 (section
   (:7.3.12 HasProperty (O, P))
@@ -533,6 +641,20 @@
    (return true)))
 
 (section
+  (:9.1.1.3.1 BindThisValue (envRec, V))
+  (;;; 1. Assert: envRec.[[ThisBindingStatus]] is not lexical.
+   (assert ((:envRec -> ThisBindingStatus) != lexical) "envRec.[[ThisBindingStatus]] is not lexical.")
+   ;;; 2. If envRec.[[ThisBindingStatus]] is initialized, throw a ReferenceError exception.
+   (if ((:envRec -> ThisBindingStatus) == initialized)
+       ((throw (ReferenceError "couldnt bind this value idk"))))
+   ;;; 3. Set envRec.[[ThisValue]] to V.
+   (:envRec ThisValue <- :V)
+   ;;; 4. Set envRec.[[ThisBindingStatus]] to initialized.
+   (:envRec ThisBindingStatus <- initialized)
+   ;;; 5. Return V.
+   (return :V)))
+
+(section
   (:9.1.1.4.1 GlobalEnvironmentRecord_HasBinding (envRec, N))
   (;;; 1. Let DclRec be envRec.[[DeclarativeRecord]].
    (DclRec = (:envRec -> DeclarativeRecord))
@@ -585,6 +707,24 @@
    ;;; 4. Set env.[[OuterEnv]] to E.
    (:env OuterEnv <- :E)
    ;;; 5. Return env.
+   (return :env)))
+
+(section
+  (:9.1.2.4 NewFunctionEnvironment (F, newTarget))
+  (;;; 1. Let env be a new function Environment Record containing no bindings.
+   (env = record-new)
+   ;;; 2. Set env.[[FunctionObject]] to F.
+   (:env FunctionObject <- :F)
+   ;;; 3. If F.[[ThisMode]] is lexical, set env.[[ThisBindingStatus]] to lexical.
+   (if ((:F -> ThisMode) == lexical)
+       ((:env ThisBindingStatus <- lexical))
+       (;;; 4. Else, set env.[[ThisBindingStatus]] to uninitialized.
+        (:env ThisBindingStatus <- uninitialized)))
+   ;;; 5. Set env.[[NewTarget]] to newTarget.
+   (:env NewTarget <- :newTarget)
+   ;;; 6. Set env.[[OuterEnv]] to F.[[Environment]].
+   (:env OuterEnv <- (:F -> Environment))
+   ;;; 7. Return env.
    (return :env)))
 
 (section
@@ -682,6 +822,20 @@
    ;;; c. Perform ? DefinePropertyOrThrow(global, name, desc).
    ;;; 3. Return global.
    (return :global)))
+
+(section
+  (:9.4.1 GetActiveScriptOrModule ())
+  (;;; 1. If the execution context stack is empty, return null.
+   (if (exec-ctx-stack-size == 0)
+       ((return null)))
+   ;;; 2. Let ec be the topmost execution context on the execution context stack whose ScriptOrModule component is not null.
+   ;;; 3. If no such execution context exists, return null. Otherwise, return ec's ScriptOrModule.
+   (for exec-ctx-stack
+        ((execCtx = for-item-rev)
+         (scriptOrModule = (:execCtx -> ScriptOrModule))
+         (if (isnt-null :scriptOrModule)
+             ((return :scriptOrModule)))))
+   (return null)))
 
 (section
   (:9.4.2 ResolveBinding (name, env))
@@ -869,6 +1023,16 @@
    (return (:O -> Prototype))))
 
 (section
+  (:10.1.3 OrdinaryObjectInternalMethods_IsExtensible (O))
+  (;;; 1. Return ! OrdinaryIsExtensible(O).
+   (return (! (call OrdinaryIsExtensible :O)))))
+
+(section
+  (:10.1.3.1 OrdinaryIsExtensible (O))
+  (;;; 1. Return O.[[Extensible]].
+   (return (:O -> Extensible))))
+
+(section
   (:10.1.5 OrdinaryObjectInternalMethods_GetOwnProperty (O, P))
   (;;; 1. Return ! OrdinaryGetOwnProperty(O, P).
    (return (! (call OrdinaryGetOwnProperty :O :P)))))
@@ -876,19 +1040,45 @@
 (section
   (:10.1.5.1 OrdinaryGetOwnProperty (O, P))
   (;;; 1. If O does not have an own property with key P, return undefined.
+   (if (record-absent-prop :O :P)
+       ((return undefined)))
    ;;; 2. Let D be a newly created Property Descriptor with no fields.
+   (D = record-new)
    ;;; 3. Let X be O's own property whose key is P.
+   (X = (:O => :P))
    ;;; 4. If X is a data property, then
-   ;;; a. Set D.[[Value]] to the value of X's [[Value]] attribute.
-   ;;; b. Set D.[[Writable]] to the value of X's [[Writable]] attribute.
-   ;;; 5. Else,
-   ;;; a. Assert: X is an accessor property.
-   ;;; b. Set D.[[Get]] to the value of X's [[Get]] attribute.
-   ;;; c. Set D.[[Set]] to the value of X's [[Set]] attribute.
+   (if (call IsDataDescriptor :X)
+       (;;; a. Set D.[[Value]] to the value of X's [[Value]] attribute.
+        (:D Value <- (:X -> Value))
+        ;;; b. Set D.[[Writable]] to the value of X's [[Writable]] attribute.
+        (:D Writable <- (:X -> Writable)))
+       ;;; 5. Else,
+       (;;; a. Assert: X is an accessor property.
+        (assert (call IsAccessorDescriptor :X) "X is an accessor property.")
+        ;;; b. Set D.[[Get]] to the value of X's [[Get]] attribute.
+        (:D Get <- (:X -> Get))
+        ;;; c. Set D.[[Set]] to the value of X's [[Set]] attribute.
+        (:D Set <- (:X -> Set))))
    ;;; 6. Set D.[[Enumerable]] to the value of X's [[Enumerable]] attribute.
+   (:D Enumerable <- (:X -> Enumerable))
    ;;; 7. Set D.[[Configurable]] to the value of X's [[Configurable]] attribute.
+   (:D Configurable <- (:X -> Configurable))
    ;;; 8. Return D.
-   (return undefined)))
+   (return :D)))
+
+(section
+  (:10.1.6 OrdinaryObjectInternalMethods_DefineOwnProperty (O, P, Desc))
+  (;;; 1. Return ? OrdinaryDefineOwnProperty(O, P, Desc).
+   (return (? (call OrdinaryDefineOwnProperty :O :P :Desc)))))
+
+(section
+  (:10.1.6.1 OrdinaryDefineOwnProperty (O, P, Desc))
+  (;;; 1. Let current be ? O.[[GetOwnProperty]](P).
+   (current = (? (:O .. GetOwnProperty :P)))
+   ;;; 2. Let extensible be ? IsExtensible(O).
+   (extensible = (? (call IsExtensible :O)))
+   ;;; 3. Return ValidateAndApplyPropertyDescriptor(O, P, extensible, Desc, current).
+   (return (call ValidateAndApplyPropertyDescriptor :O :P :extensible :Desc :current))))
 
 (section
   (:10.1.7 OrdinaryObjectInternalMethods_HasProperty (O, P))
@@ -926,6 +1116,275 @@
    (return :O)))
 
 (section
+  (:10.2.1 FunctionObject_Call (F, thisArgument, argumentsList))
+  (;;; 1. Let callerContext be the running execution context.
+   (callerContext = curr-exec-ctx)
+   ;;; 2. Let calleeContext be PrepareForOrdinaryCall(F, undefined).
+   (calleeContext = (call PrepareForOrdinaryCall :F undefined))
+   ;;; 3. Assert: calleeContext is now the running execution context.
+   (assert (:calleeContext == curr-exec-ctx) "calleeContext is now the running execution context.")
+   ;;; 4. If F.[[IsClassConstructor]] is true, then
+   (if (is-true (:F -> IsClassConstructor))
+       (;;; a. Let error be a newly created TypeError object.
+        ;;; b. NOTE: error is created in calleeContext with F's associated Realm Record.
+        (error = (TypeError "function is class constructor"))
+        ;;; c. Remove calleeContext from the execution context stack and restore callerContext as the running execution context.
+        (exec-ctx-stack-pop)
+        (exec-ctx-stack-push :callerContext)
+        ;;; d. Return ThrowCompletion(error).
+        (return (ThrowCompletion :error))))
+   ;;; 5. Perform OrdinaryCallBindThis(F, calleeContext, thisArgument).
+   (call OrdinaryCallBindThis :F :calleeContext :thisArgument)
+   ;;; 6. Let result be OrdinaryCallEvaluateBody(F, argumentsList).
+   (result = (call OrdinaryCallEvaluateBody :F :argumentsList))
+   ;;; 7. Remove calleeContext from the execution context stack and restore callerContext as the running execution context.
+   (exec-ctx-stack-pop)
+   (exec-ctx-stack-push :callerContext)
+   ;;; 8. If result.[[Type]] is return, return NormalCompletion(result.[[Value]]).
+   (if ((:result -> Type) == trivial-return)
+       ((return (NormalCompletion (:result -> Value)))))
+   ;;; 9. ReturnIfAbrupt(result).
+   (dontCare = (? :result))
+   ;;; 10. Return NormalCompletion(undefined).
+   (return (NormalCompletion undefined))))
+
+(section
+  (:10.2.1.1 PrepareForOrdinaryCall (F, newTarget))
+  (;;; 1. Let callerContext be the running execution context.
+   (callerContext = curr-exec-ctx)
+   ;;; 2. Let calleeContext be a new ECMAScript code execution context.
+   (calleeContext = record-new)
+   ;;; 3. Set the Function of calleeContext to F.
+   (:calleeContext Function <- :F)
+   ;;; 4. Let calleeRealm be F.[[Realm]].
+   (calleeRealm = (:F -> Realm))
+   ;;; 5. Set the Realm of calleeContext to calleeRealm.
+   (:calleeContext Realm <- :calleeRealm)
+   ;;; 6. Set the ScriptOrModule of calleeContext to F.[[ScriptOrModule]].
+   (:calleeContext ScriptOrModule <- (:F -> ScriptOrModule))
+   ;;; 7. Let localEnv be NewFunctionEnvironment(F, newTarget).
+   (localEnv = (call NewFunctionEnvironment :F :newTarget))
+   ;;; 8. Set the LexicalEnvironment of calleeContext to localEnv.
+   (:calleeContext LexicalEnvironment <- :localEnv)
+   ;;; 9. Set the VariableEnvironment of calleeContext to localEnv.
+   (:calleeContext VariableEnvironment <- :localEnv)
+   ;;; 10. Set the PrivateEnvironment of calleeContext to F.[[PrivateEnvironment]].
+   (:calleeContext PrivateEnvironment <- (:F -> PrivateEnvironment))
+   ;;; 11. If callerContext is not already suspended, suspend callerContext.
+   (exec-ctx-stack-pop)
+   ;;; 12. Push calleeContext onto the execution context stack; calleeContext is now the running execution context.
+   (exec-ctx-stack-push :calleeContext)
+   ;;; 13. NOTE: Any exception objects produced after this point are associated with calleeRealm.
+   ;;; 14. Return calleeContext.
+   (return :calleeContext)))
+
+(section
+  (:10.2.1.2 OrdinaryCallBindThis (F, calleeContext, thisArgument))
+  (;;; 1. Let thisMode be F.[[ThisMode]].
+   (thisMode = (:F -> ThisMode))
+   ;;; 2. If thisMode is lexical, return NormalCompletion(undefined).
+   (if (:thisMode == lexical)
+       ((return (NormalCompletion undefined))))
+   ;;; 3. Let calleeRealm be F.[[Realm]].
+   (calleeRealm = (:F -> Realm))
+   ;;; 4. Let localEnv be the LexicalEnvironment of calleeContext.
+   (localEnv = (:calleeContext -> LexicalEnvironment))
+   ;;; 5. If thisMode is strict, let thisValue be thisArgument.
+   (thisValue =
+              (expr-block
+               ((if (:thisMode == trivial-strict)
+                    ((:thisArgument))
+                    ;;; 6. Else,
+                    (;;; a. If thisArgument is undefined or null, then
+                     (if ((is-undef :thisArgument) or (is-null :thisArgument))
+                         (;;; i. Let globalEnv be calleeRealm.[[GlobalEnv]].
+                          (globalEnv = (:calleeRealm -> GlobalEnv))
+                          ;;; ii. Assert: globalEnv is a global Environment Record.
+                          ;;; iii. Let thisValue be globalEnv.[[GlobalThisValue]].
+                          (:globalEnv -> GlobalThisValue))
+                         ;;; b. Else,
+                         (;;; i. Let thisValue be ! ToObject(thisArgument).
+                          ;;; ii. NOTE: ToObject produces wrapper objects using calleeRealm.
+                          (! (call ToObject :thisArgument)))))))))
+   ;;; 7. Assert: localEnv is a function Environment Record.
+   ;;; 8. Assert: The next step never returns an abrupt completion because localEnv.[[ThisBindingStatus]] is not initialized.
+   ;;; 9. Return localEnv.BindThisValue(thisValue).
+   (return (call BindThisValue :localEnv :thisValue))))
+
+(section
+  (:10.2.1.3 EvaluateBody (parseNode, F, argumentsList))
+  ((todo)
+   (return unreachable)))
+
+(section
+  (:10.2.1.4 OrdinaryCallEvaluateBody (F, argumentsList))
+  (;;; 1. Return the result of EvaluateBody of the parsed code that is F.[[ECMAScriptCode]] passing F and argumentsList
+   ;;;    as the arguments.
+   (return (call EvaluateBody (:F -> ECMAScriptCode) :F :argumentsList))))
+
+(section
+  (:10.2.3 OrdinaryFunctionCreate (functionPrototype, sourceText, ParameterList, Body, thisMode, Scope, PrivateScope))
+  (;;; 1. Let internalSlotsList be the internal slots listed in Table 34.
+   (internalSlotsList = list-new)
+   (inject-table-34 :internalSlotsList)
+   ;;; 2. Let F be ! OrdinaryObjectCreate(functionPrototype, internalSlotsList).
+   (F = (call OrdinaryObjectCreate :functionPrototype :internalSlotsList))
+   ;;; 3. Set F.[[Call]] to the definition specified in 10.2.1.
+   (:F Call <- (get-fn-ptr FunctionObject_Call))
+   ;;; 4. Set F.[[SourceText]] to sourceText.
+   (:F SourceText <- :sourceText)
+   ;;; 5. Set F.[[FormalParameters]] to ParameterList.
+   (:F FormalParameters <- :ParameterList)
+   ;;; 6. Set F.[[ECMAScriptCode]] to Body.
+   (:F ECMAScriptCode <- :Body)
+   ;;; 7. If the source text matched by Body is strict mode code, let Strict be true; else let Strict be false.
+   (Strict = true) ; TODO: strict mode stuff
+   ;;; 8. Set F.[[Strict]] to Strict.
+   (:F Strict <- :Strict)
+   ;;; 9. If thisMode is lexical-this, set F.[[ThisMode]] to lexical.
+   (if (:thisMode == lexical-this)
+       ((:F ThisMode <- lexical))
+       ;;; 10. Else if Strict is true, set F.[[ThisMode]] to strict.
+       (elif (is-true :Strict)
+             ((:F ThisMode <- trivial-strict))
+             (;;; 11. Else, set F.[[ThisMode]] to global.
+              (:F ThisMode <- trivial-global))))
+   ;;; 12. Set F.[[IsClassConstructor]] to false.
+   (:F IsClassConstructor <- false)
+   ;;; 13. Set F.[[Environment]] to Scope.
+   (:F Environment <- :Scope)
+   ;;; 14. Set F.[[PrivateEnvironment]] to PrivateScope.
+   (:F PrivateEnvironment <- :PrivateScope)
+   ;;; 15. Set F.[[ScriptOrModule]] to GetActiveScriptOrModule().
+   (:F ScriptOrModule <- (call GetActiveScriptOrModule))
+   ;;; 16. Set F.[[Realm]] to the current Realm Record.
+   (:F Realm <- current-realm)
+   ;;; 17. Set F.[[HomeObject]] to undefined.
+   (:F HomeObject <- undefined)
+   ;;; 18. Set F.[[Fields]] to a new empty List.
+   (:F Fields <- list-new)
+   ;;; 19. Set F.[[PrivateMethods]] to a new empty List.
+   (:F PrivateMethods <- list-new)
+   ;;; 20. Set F.[[ClassFieldInitializerName]] to empty.
+   (:F ClassFieldInitializerName <- empty)
+   ;;; 21. Let len be the ExpectedArgumentCount of ParameterList.
+   (len = (call ExpectedArgumentCount :ParameterList))
+   ;;; 22. Perform ! SetFunctionLength(F, len).
+   (tmp = (call SetFunctionLength :F :len))
+   (Perform ! :tmp)
+   ;;; 23. Return F.
+   (return :F)))
+
+(section
+  (:10.2.9 SetFunctionName (F, name, prefix))
+  (;;; 1. Assert: F is an extensible object that does not have a "name" own property.
+   ;;; 2. If Type(name) is Symbol, then
+   (name =
+         (expr-block
+          ((if (is-symbol :name)
+               (;;; a. Let description be name's [[Description]] value.
+                (description = (:name -> Description))
+                ;;; b. If description is undefined, set name to the empty String.
+                (if (is-undef :description)
+                    ("")
+                    ;;; c. Else, set name to the string-concatenation of "[", description, and "]".
+                    (; TODO: string concat
+                     :description)))
+               ;;; 3. Else if name is a Private Name, then
+               (elif (false)
+                     (;;; a. Set name to name.[[Description]].
+                      (:name -> Description))
+                     (:name))))))
+   ;;; 4. If F has an [[InitialName]] internal slot, then
+   (if (record-has-slot :F InitialName)
+       (;;; a. Set F.[[InitialName]] to name.
+        (:F InitialName <- :name)))
+   ;;; 5. If prefix is present, then
+   (name =
+         (expr-block
+          ((if (isnt-undef :prefix)
+               (;;; a. Set name to the string-concatenation of prefix, the code unit 0x0020 (SPACE), and name.
+                ; TODO: string concatenation
+                (nameTemp = :name)
+                ;;; b. If F has an [[InitialName]] internal slot, then
+                (if (record-has-slot :F InitialName)
+                    (;;; i. Optionally, set F.[[InitialName]] to name.
+                     (:F InitialName <- :nameTemp)))
+                (:nameTemp))
+               (:name)))))
+   ;;; 6. Return ! DefinePropertyOrThrow(F, "name", PropertyDescriptor { [[Value]]: name, [[Writable]]: false, [[Enumerable]]: false,
+   ;;;                                              [[Configurable]]: true }).
+   (propDesc = record-new)
+   (:propDesc Value <- :name)
+   (:propDesc Writable <- false)
+   (:propDesc Enumerable <- false)
+   (:propDesc Configurable <- true)
+   (return (! (call DefinePropertyOrThrow :F "name" :propDesc)))))
+
+(section
+  (:10.2.10 SetFunctionLength (F, length))
+  (;;; 1. Assert: F is an extensible object that does not have a "length" own property.
+   ;;; 2. Return ! DefinePropertyOrThrow(F, "length", PropertyDescriptor { [[Value]]: 𝔽(length), [[Writable]]: false, [[Enumerable]]: false, [[Configurable]]: true }).
+   (propDesc = record-new)
+   (:propDesc Value <- :length)
+   (:propDesc Writable <- false)
+   (:propDesc Enumerable <- false)
+   (:propDesc Configurable <- true)
+   (return (! (call DefinePropertyOrThrow :F "length" :propDesc)))))
+
+(section
+  (:10.3.3 CreateBuiltinFunction (behaviour, length, name, additionalInternalSlotsList, realm, prototype, prefix))
+  (;;; 1. If realm is not present, set realm to the current Realm Record.
+   (realm = (expr-block
+             ((if (is-undef :realm)
+                  ((curr-exec-ctx -> Realm))
+                  (:realm)))))
+   ;;; 2. If prototype is not present, set prototype to realm.[[Intrinsics]].[[%Function.prototype%]].
+   (prototype = (expr-block
+                 ((if (is-undef :prototype)
+                      (record-new)
+                      ; TODO
+                      (:prototype)))))
+   ;;; 3. Let internalSlotsList be a List containing the names of all the internal slots that 10.3 requires for the built-in
+   ;;;    function object that is about to be created.
+   (internalSlotsList = list-new)
+   (list-push :internalSlotsList (trivial-slot Prototype))
+   (list-push :internalSlotsList (trivial-slot Extensible))
+   (inject-table-34 :internalSlotsList)
+   (list-push :internalSlotsList (trivial-slot InitialName))
+   ;;; 4. Append to internalSlotsList the elements of additionalInternalSlotsList.
+   (for :additionalInternalSlotsList
+        ((list-push :internalSlotsList for-item)))
+   ;;; 5. Let func be a new built-in function object that, when called, performs the action described by behaviour using
+   ;;;    the provided arguments as the values of the corresponding parameters specified by behaviour. The new function
+   ;;;    object has internal slots whose names are the elements of internalSlotsList, and an [[InitialName]] internal
+   ;;;    slot.
+   ; (! (MakeBasicObject)) determined to be suitable here
+   ; because engine262 does this
+   (func = (! (call MakeBasicObject :internalSlotsList)))
+   (:func InitialName <- undefined) ; this must be present i guess
+   (:func Call <- :behaviour)
+   ;;; 6. Set func.[[Prototype]] to prototype.
+   (:func Prototype <- :prototype)
+   ;;; 7. Set func.[[Extensible]] to true.
+   (:func Extensible <- true)
+   ;;; 8. Set func.[[Realm]] to realm.
+   (:func Realm <- :realm)
+   ;;; 9. Set func.[[InitialName]] to null.
+   (:func InitialName <- null)
+   ;;; 10. Perform ! SetFunctionLength(func, length).
+   (Perform ! (call SetFunctionLength :func :length))
+   ;;; 11. If prefix is not present, then
+   (if (is-undef :prefix)
+       (;;; a. Perform ! SetFunctionName(func, name).
+        (Perform ! (call SetFunctionName :func :name undefined)))
+       ;;; 12. Else,
+       (;;; a. Perform ! SetFunctionName(func, name, prefix).
+        (Perform ! (call SetFunctionName :func :name :prefix))))
+   ;;; 13. Return func.
+   (return :func)))
+
+(section
   (:13.1.3 Evaluation_IdentifierReference (parseNode))
   (; IdentifierReference : Identifier
    (if (is-pn IdentifierReference 0)
@@ -939,6 +1398,88 @@
    (if (is-pn IdentifierReference 2)
        (;;; 1. Return ? ResolveBinding("await").
         (ret-comp (? (call ResolveBinding "await" undefined)))))
+   (return unreachable)))
+
+(section
+  (:15.1.4 HasInitializer (parseNode))
+  (; BindingElement : BindingPattern
+   (if (is-pn BindingElement 1)
+       (;;; 1. Return false.
+        (return false)))
+   ; BindingElement : BindingPattern Initializer
+   (if (is-pn BindingElement 2)
+       (;;; 1. Return true.
+        (return true)))
+   ; SingleNameBinding : BindingIdentifier
+   (if (is-pn SingleNameBinding 0)
+       (;;; 1. Return false.
+        (return false)))
+   ; SingleNameBinding : BindingIdentifier Initializer
+   (if (is-pn SingleNameBinding 1)
+       (;;; 1. Return true.
+        (return true)))
+   ; FormalParameterList : FormalParameterList , FormalParameter
+   (if (is-pn FormalParameterList 1)
+       (;;; 1. If HasInitializer of FormalParameterList is true, return true.
+        (if (is-true (call HasInitializer (:parseNode -> JSSATParseNodeSlot1)))
+            ((return true)))
+        ;;; 2. Return HasInitializer of FormalParameter.
+        (return (call HasInitializer (:parseNode -> JSSATParseNodeSlot2)))))
+   (return unreachable)))
+
+(section
+  (:15.1.5 ExpectedArgumentCount (parseNode))
+  (; FormalParameters :
+   ;     [empty]
+   ;     FunctionRestParameter
+   (if (or (is-pn FormalParameters 0) (is-pn FormalParameters 1))
+       (;;; 1. Return 0.
+        (return 0)))
+   ; FormalParameters : FormalParameterList , FunctionRestParameter
+   (if (is-pn FormalParameters 4)
+       (;;; 1. Return ExpectedArgumentCount of FormalParameterList.
+        (return (call ExpectedArgumentCount (:parseNode -> JSSATParseNodeSlot1)))))
+   ; FormalParameterList : FormalParameter
+   (if (is-pn FormalParameterList 0)
+       (;;; 1. If HasInitializer of FormalParameter is true, return 0.
+        (if (is-true (call HasInitializer (:parseNode -> JSSATParseNodeSlot1)))
+            ((return 0)))
+        ;;; 2. Return 1.
+        (return 1)))
+   ; FormalParameterList : FormalParameterList , FormalParameter
+   (if (is-pn FormalParameterList 1)
+       (;;; 1. Let count be ExpectedArgumentCount of FormalParameterList.
+        (count = (call ExpectedArgumentCount (:parseNode -> JSSATParseNodeSlot1)))
+        ;;; 2. If HasInitializer of FormalParameterList is true or HasInitializer of FormalParameter is true, return count.
+        (if (or
+             (is-true (call HasInitializer (:parseNode -> JSSATParseNodeSlot1)))
+             (is-true (call HasInitializer (:parseNode -> JSSATParseNodeSlot2))))
+            ((return :count)))
+        ;;; 3. Return count + 1.
+        (return (:count + 1))))
+   ; ArrowParameters : BindingIdentifier
+   (if (is-pn ArrowParameters 0)
+       (;;; 1. Return 1.
+        (return 1)))
+   ; ArrowParameters : CoverParenthesizedExpressionAndArrowParameterList
+   (if (is-pn ArrowParameters 1)
+       (;;; 1. Let formals be the ArrowFormalParameters that is covered by CoverParenthesizedExpressionAndArrowParameterList.
+        (todo)
+        (assert false "in the future we'll have every parse node that's a `Cover X` automatically try to be parsed as a")
+        (assert false "cover thing, so that we can just perform a member lookup")
+        ;;; 2. Return ExpectedArgumentCount of formals.
+       ))
+   ; PropertySetParameterList : FormalParameter
+   (if (is-pn PropertySetParameterList 0)
+       (;;; 1. If HasInitializer of FormalParameter is true, return 0.
+        (if (is-true (call HasInitializer (:parseNode -> JSSATParseNodeSlot1)))
+            ((return 0)))
+        ;;; 2. Return 1.
+        (return 1)))
+   ; AsyncArrowBindingIdentifier : BindingIdentifier
+   (if (is-pn AsyncArrowBindingIdentifier 0)
+       (;;; 1. Return 1.
+        (return 1)))
    (return unreachable)))
 
 (section
@@ -978,7 +1519,7 @@
    ;;; 14. Suspend scriptContext and remove it from the execution context stack.
    ; (todo)
    ;;; 15. Assert: The execution context stack is not empty.
-   (assert (0 != (list-len exec-ctx-stack)) "The execution context stack is not empty.")
+   (assert (0 != exec-ctx-stack-size) "The execution context stack is not empty.")
    ;;; 16. Resume the context that is now on the top of the execution context stack as the running execution context.
    ; (todo)
    ;;; 17. Return Completion(result).

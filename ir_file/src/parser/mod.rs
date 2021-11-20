@@ -577,12 +577,17 @@ fn parse_expression(node: Node<&str>) -> Expression {
                 },
                 (Some(parenthetical), None, None) => parse_expression(parenthetical),
                 _ => panic!(
-                    "unrecognized expression {:?}",
-                    Node::<String>::Parent(children, parent_span).to_lisp()
+                    "unrecognized expression {:?} at {:?}",
+                    Node::<String>::Parent(children, parent_span).to_lisp(),
+                    parent_span
                 ),
             }
         }
-        other => panic!("unrecognized expression {:?}", other.to_lisp()),
+        other => panic!(
+            "unrecognized expression {:?} at {:?}",
+            other.to_lisp(),
+            other.span()
+        ),
     }
 }
 
