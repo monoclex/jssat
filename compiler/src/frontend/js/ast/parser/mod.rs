@@ -7,17 +7,17 @@ use swc_common::{
     sync::Lrc,
     FileName, SourceMap,
 };
-use swc_ecmascript::parser::{Parser, Syntax};
+use swc_ecmascript::parser::{PResult, Parser, Syntax};
 
 use super::parse_nodes as js;
 use swc_ecmascript::ast as swc;
 
-pub fn parse_script(script: &str) -> js::Script {
-    let swc_script = to_swc_script(script.to_string());
-    swc_script.to_parse_node()
+pub fn parse_script(script: &str) -> PResult<js::Script> {
+    let swc_script = to_swc_script(script.to_string())?;
+    Ok(swc_script.to_parse_node())
 }
 
-fn to_swc_script(source: String) -> swc::Script {
+fn to_swc_script(source: String) -> PResult<swc::Script> {
     // https://github.com/Starlight-JS/starlight/blob/4c4ce5d0178fb28c3b2a044d572473baaf057b73/crates/starlight/src/vm.rs#L275-L300
     let cm: Lrc<SourceMap> = Default::default();
     let handler = Handler::with_tty_emitter(ColorConfig::Auto, true, false, Some(cm.clone()));
@@ -33,7 +33,7 @@ fn to_swc_script(source: String) -> swc::Script {
         err.into_diagnostic(&handler).emit();
     }
 
-    parser.parse_script().expect("script to parse")
+    parser.parse_script()
 }
 
 trait ToParseNode<P> {

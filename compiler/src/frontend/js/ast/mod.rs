@@ -6,6 +6,8 @@
 //! Rust, and is also responsible for the code that maps these parse nodes to
 //! ECMAScript instructions.
 
+use swc_ecmascript::parser::PResult;
+
 use crate::frontend::builder::{DynBlockBuilder, ProgramBuilder, RegisterId};
 
 use super::ecmascript::ECMA262Methods;
@@ -14,7 +16,7 @@ pub mod emit_nodes;
 pub mod parse_nodes;
 mod parser;
 
-pub fn parse_script(script: &str) -> parse_nodes::Script {
+pub fn parse_script(script: &str) -> PResult<parse_nodes::Script> {
     parser::parse_script(script)
 }
 

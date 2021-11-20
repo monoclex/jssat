@@ -19,7 +19,10 @@ use std::{io::Write, process::Command, time::Instant};
 
 use crate::frontend::{
     builder::ProgramBuilder,
-    js::{ast::parse_nodes::Visitor, ecmascript::ECMA262Methods},
+    js::{
+        ast::parse_nodes::Visitor, ecmascript::ECMA262Methods, hosts::JSSATHostEnvironment,
+        JavaScriptFrontend,
+    },
 };
 
 pub mod backend;
@@ -175,44 +178,14 @@ print('Hello, World!');
 
     let mut builder = ProgramBuilder::new();
     let mut f = builder.start_function_main();
-    let main_id = f.id;
     let mut b = f.start_block_main();
 
-    let threaded_global = b.record_new();
+    let mut frontend = JavaScriptFrontend::new(&mut builder);
+    let result = frontend
+        .parse(&content, &mut b, &mut JSSATHostEnvironment::new())
+        .expect("should parse js");
 
-    let methods = ECMA262Methods::new(&mut builder);
-
-    println!("visiting parse nodes of script");
-    let entry_parse_node = time(|| {
-        frontend::js::ast::emit_nodes(&mut builder, &mut b, &methods, |visitor| {
-            visitor.visit_script(&script)
-        })
-    });
-
-    b.call(methods.InitializeJSSATThreadedGlobal, [threaded_global]);
-
-    b.call(methods.InitializeHostDefinedRealm, [threaded_global]);
-
-    // for some reason, ecmascript spec doesn't have initializehostdefinedrealm
-    // return the realm okay?
-    let exec_ctx_stack = b.record_get_slot(
-        threaded_global,
-        isa::InternalSlot::JSSATExecutionContextStack,
-    );
-    let first = b.make_number_decimal(0);
-    let context = b.list_get(exec_ctx_stack, first);
-    let realm = b.record_get_slot(context, isa::InternalSlot::Realm);
-
-    // we don't care about the parameters we pass null to for ParseScript
-    let null = b.make_null();
-    let script_context = b.call_with_result(
-        methods.ParseScript,
-        [threaded_global, null, realm, null, entry_parse_node],
-    );
-
-    b.call(methods.ScriptEvaluation, [threaded_global, script_context]);
-
-    f.end_block(b.ret(None));
+    f.end_block(b.ret(Some(result)));
     builder.end_function(f);
     let ir = builder.finish();
 
@@ -233,7 +206,7 @@ print('Hello, World!');
     println!(
         "executed: {:?}",
         match interpreter_result {
-            Ok(_) => "success".to_string(),
+            Ok(val) => format!("success: {:?}", val),
             Err(err) => format!("error: {}", err),
         }
     );
