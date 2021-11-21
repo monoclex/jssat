@@ -203,7 +203,7 @@
   (is-reference-record :x)
   (expr-block
    ((if (is-record :x)
-        ((record-has-slot :x ReferencedName))
+        ((record-has-slot :x Base))
         (false)))))
 
 (def (isnt-abrupt-completion :x) (not (is-abrupt-completion :x)))
@@ -307,6 +307,7 @@
    ((rec = record-new)
     (:rec JSSATHasBinding <- (get-fn-ptr DeclarativeEnvironmentRecord_HasBinding))
     (:rec GetBindingValue <- (get-fn-ptr DeclarativeEnvironmentRecord_GetBindingValue))
+    (:rec WithBaseObject <- (get-fn-ptr DeclarativeEnvironmentRecord_WithBaseObject))
     (:rec))))
 
 ;;;;;;;
@@ -340,7 +341,7 @@
 
 (def (:func .. Call :thisValue :argumentList) (virt2 :func Call :thisValue :argumentList))
 
-(def (evaluating :x) (call-virt (:x -> JSSATParseNodeEvaluate) :x))
+(def (evaluating :x) (? (call-virt (:x -> JSSATParseNodeEvaluate) :x)))
 
 ; Table 34
 
@@ -396,7 +397,8 @@
 
 (section
   (:6.2.4.1 IsPropertyReference (V))
-  (;;; 1. If V.[[Base]] is unresolvable, return false.
+  ((assert (is-reference-record :V) "V is a reference record")
+   ;;; 1. If V.[[Base]] is unresolvable, return false.
    (if ((:V -> Base) == unresolvable)
        ((return false)))
    ;;; 2. If V.[[Base]] is an Environment Record, return false; otherwise return true.
@@ -404,7 +406,8 @@
 
 (section
   (:6.2.4.2 IsUnresolvableReference (V))
-  (;;; 1. If V.[[Base]] is unresolvable, return true; otherwise return false.
+  ((assert (is-reference-record :V) "V is a reference record")
+   ;;; 1. If V.[[Base]] is unresolvable, return true; otherwise return false.
    (return (is-unresolvable (:V -> Base)))))
 
 (section
@@ -442,6 +445,7 @@
        (;;; a. Let base be V.[[Base]].
         (base = (:V -> Base))
         ;;; b. Assert: base is an Environment Record.
+        (assert (is-environment-record :base) "base is an Environment Record.")
         ;;; c. Return ? base.GetBindingValue(V.[[ReferencedName]], V.[[Strict]]) (see 9.1).
         (return (? (:base .. GetBindingValue (:V -> ReferencedName) (:V -> Strict))))))
    (return unreachable)))
@@ -616,6 +620,7 @@
    (:obj GetOwnProperty <- (get-fn-ptr OrdinaryObjectInternalMethods_GetOwnProperty))
    (:obj HasProperty <- (get-fn-ptr OrdinaryObjectInternalMethods_HasProperty))
    (:obj DefineOwnProperty <- (get-fn-ptr OrdinaryObjectInternalMethods_DefineOwnProperty))
+   (:obj Get <- (get-fn-ptr OrdinaryObjectInternalMethods_Get))
    ;;; 3. Assert: If the caller will not be overriding both obj's [[GetPrototypeOf]] and [[SetPrototypeOf]] essential internal
    ;;;    methods, then internalSlotsList contains [[Prototype]].
    ;;; 4. Assert: If the caller will not be overriding all of obj's [[SetPrototypeOf]], [[IsExtensible]], and [[PreventExtensions]]
@@ -830,6 +835,11 @@
    (return (:envRec => :N))))
 
 (section
+  (:9.1.1.1.10 DeclarativeEnvironmentRecord_WithBaseObject (envRec))
+  (;;; 1. Return undefined.
+   (return undefined)))
+
+(section
   (:9.1.1.2.1 ObjectEnvironmentRecord_HasBinding (envRec, N))
   (;;; 1. Let bindingObject be envRec.[[BindingObject]].
    (bindingObject = (:envRec -> BindingObject))
@@ -862,6 +872,14 @@
             ((throw (ReferenceError "le strict mode lack of binding"))))))
    ;;; 4. Return ? Get(bindingObject, N).
    (return (? (call Get :bindingObject :N)))))
+
+(section
+  (:9.1.1.2.10 ObjectEnvironmentRecord_WithBaseObject (envRec))
+  (;;; 1. If envRec.[[IsWithEnvironment]] is true, return envRec.[[BindingObject]].
+   (if (:envRec -> IsWithEnvironment)
+       ((return (:envRec -> BindingObject))))
+   ;;; 2. Otherwise, return undefined.
+   (return undefined)))
 
 (section
   (:9.1.1.3.1 BindThisValue (envRec, V))
@@ -903,6 +921,11 @@
    (return (? (:ObjRec .. GetBindingValue :N :S)))))
 
 (section
+  (:9.1.1.4.10 GlobalEnvironmentRecord_WithBaseObject (envRec))
+  (;;; 1. Return undefined.
+   (return undefined)))
+
+(section
   (:9.1.2.1 GetIdentifierReference (env, name, strict))
   (;;; 1. If env is the value null, then
    (if (is-null :env)
@@ -937,6 +960,7 @@
    (env = record-new)
    (:env JSSATHasBinding <- (get-fn-ptr ObjectEnvironmentRecord_HasBinding))
    (:env GetBindingValue <- (get-fn-ptr ObjectEnvironmentRecord_GetBindingValue))
+   (:env WithBaseObject <- (get-fn-ptr ObjectEnvironmentRecord_WithBaseObject))
    ;;; 2. Set env.[[BindingObject]] to O.
    (:env BindingObject <- :O)
    ;;; 3. Set env.[[IsWithEnvironment]] to W.
@@ -973,7 +997,8 @@
    ;;; 3. Let env be a new global Environment Record.
    (env = record-new)
    (:env JSSATHasBinding <- (get-fn-ptr GlobalEnvironmentRecord_HasBinding))
-   (:env JSSATGetBindingValue <- (get-fn-ptr GlobalEnvironmentRecord_GetBindingValue))
+   (:env GetBindingValue <- (get-fn-ptr GlobalEnvironmentRecord_GetBindingValue))
+   (:env WithBaseObject <- (get-fn-ptr GlobalEnvironmentRecord_WithBaseObject))
    ;;; 4. Set env.[[ObjectRecord]] to objRec.
    (:env ObjectRecord <- :objRec)
    ;;; 5. Set env.[[GlobalThisValue]] to thisValue.
@@ -1026,12 +1051,7 @@
                      (intrinsics = (:realmRec -> Intrinsics))
                      ;;; b. Set globalObj to ! OrdinaryObjectCreate(intrinsics.[[%Object.prototype%]]).
                      ; TODO: actually use the intrinsics
-                     (tmp = record-new)
-                     (:tmp Prototype <- null)
-                     (:tmp GetPrototypeOf <- (get-fn-ptr OrdinaryObjectInternalMethods_GetPrototypeOf))
-                     (:tmp GetOwnProperty <- (get-fn-ptr OrdinaryObjectInternalMethods_GetOwnProperty))
-                     (:tmp HasProperty <- (get-fn-ptr OrdinaryObjectInternalMethods_HasProperty))
-                     (! (call OrdinaryObjectCreate :tmp list-new)))
+                     (! (call OrdinaryObjectCreate null list-new)))
                     ((:globalObj))))))
    ;;; 2. Assert: Type(globalObj) is Object.
    (assert (is-object :globalObj) "Type(globalObj) is Object")
@@ -1340,6 +1360,35 @@
    (return false)))
 
 (section
+  (:10.1.8 OrdinaryObjectInternalMethods_Get (O, P, Receiver))
+  (;;; 1. Return ? OrdinaryGet(O, P, Receiver).
+   (return (? (call OrdinaryGet :O :P :Receiver)))))
+
+(section
+  (:10.1.8.1 OrdinaryGet (O, P, Receiver))
+  (;;; 1. Let desc be ? O.[[GetOwnProperty]](P).
+   (desc = (? (:O .. GetOwnProperty :P)))
+   ;;; 2. If desc is undefined, then
+   (if (is-undef :desc)
+       (;;; a. Let parent be ? O.[[GetPrototypeOf]]().
+        (parent = (? (:O .. GetPrototypeOf)))
+        ;;; b. If parent is null, return undefined.
+        (if (is-null :parent) ((return undefined)))
+        ;;; c. Return ? parent.[[Get]](P, Receiver).
+        (return (? (:parent .. Get :P :Receiver)))))
+   ;;; 3. If IsDataDescriptor(desc) is true, return desc.[[Value]].
+   (if (call IsDataDescriptor :desc)
+       ((return (:desc -> Value))))
+   ;;; 4. Assert: IsAccessorDescriptor(desc) is true.
+   (assert (call IsAccessorDescriptor :desc) "IsAccessorDescriptor(desc) is true.")
+   ;;; 5. Let getter be desc.[[Get]].
+   (getter = (:desc -> Get))
+   ;;; 6. If getter is undefined, return undefined.
+   (if (is-undef :getter) ((return undefined)))
+   ;;; 7. Return ? Call(getter, Receiver).
+   (return (? (call Call :getter :Receiver list-new)))))
+
+(section
   (:10.1.12 OrdinaryObjectCreate (proto, additionalInternalSlotsList))
   (;;; 1. Let internalSlotsList be « [[Prototype]], [[Extensible]] ».
    (internalSlotsList = (list-new-2 (trivial-slot Prototype) (trivial-slot Extensible)))
@@ -1639,6 +1688,28 @@
    (return unreachable)))
 
 (section
+  (:13.2.3.1 Evaluation_Literal (parseNode))
+  (; Literal : NullLiteral
+   (if (is-pn Literal 0)
+       (;;; 1. Return null.
+        (return null)))
+   ; Literal : BooleanLiteral
+   (if (is-pn Literal 1)
+       (;;; 1. If BooleanLiteral is the token false, return false.
+        (todo)
+        ;;; 2. If BooleanLiteral is the token true, return true.
+       ))
+   ; Literal : NumericLiteral
+   (if (is-pn Literal 2)
+       (;;; 1. Return the NumericValue of NumericLiteral as defined in 12.8.3.
+        (todo)))
+   ; Literal : StringLiteral
+   (if (is-pn Literal 3)
+       (;;; 1. Return the SV of StringLiteral as defined in 12.8.4.2.
+        (return (:parseNode -> JSSATParseNode_StringLiteral_StringValue))))
+   (return unreachable)))
+
+(section
   (:13.3.6.1 Evaluation_CallExpression (parseNode))
   (; CallExpression : CoverCallExpressionAndAsyncArrowHead
    (if (is-pn CallExpression 0)
@@ -1655,6 +1726,7 @@
         ;;; 6. If ref is a Reference Record, IsPropertyReference(ref) is false, and ref.[[ReferencedName]] is "eval", then
         (if (and3 (is-reference-record :ref) (is-false (call IsPropertyReference :ref)) ((:ref -> ReferencedName) == "eval"))
             (;;; a. If SameValue(func, %eval%) is true, then
+             (todo)
              ;;; i. Let argList be ? ArgumentListEvaluation of arguments.
              ;;; ii. If argList has no elements, return undefined.
              ;;; iii. Let evalArg be the first element of argList.
@@ -1719,6 +1791,7 @@
    ;;; 9. Return result.
    (return :result)))
 
+; NOTE: for some reason this is dual-purposed as a Evaluation_ArgumentList too
 (section
   (:13.3.8.1 ArgumentListEvaluation (parseNode))
   (; Arguments : ( )
@@ -1783,7 +1856,7 @@
                (nextArg = (? (call IteratorValue :next)))
                ;;; d. Append nextArg as the last element of precedingArgs.
                (list-push :precedingArgs :nextArg)))))
-   (return unreachable)))
+   (return (evaluating :parseNode))))
 
 (section
   (:15.1.4 HasInitializer (parseNode))

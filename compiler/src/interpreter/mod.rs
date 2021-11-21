@@ -239,6 +239,14 @@ pub fn ensure_arg_count(expected: usize, got: usize) -> InstResult<()> {
     Ok(())
 }
 
+/// this is only temporary
+///
+/// once interpreter state becomes shared and threaded we can use a local on the
+/// interpreter for the code path flow things
+lazy_static::lazy_static! {
+    static ref HACKY_MAP: std::sync::Arc<std::sync::Mutex<FxHashMap<usize, crate::isa::Comment>>> = Default::default();
+}
+
 impl<'p> Interpreter<'p> {
     pub fn new(
         code: &'p LiftedProgram,
@@ -271,7 +279,23 @@ impl<'p> Interpreter<'p> {
         };
 
         for inst in function.instructions.iter() {
-            println!("inst is: {:?}", inst);
+            #[cfg(debug_assertions)]
+            if let Instruction::Comment(comment) = inst {
+                HACKY_MAP
+                    .lock()
+                    .unwrap()
+                    .insert(function.ir_fn_id.get_the_value(), *comment);
+            }
+
+            #[cfg(debug_assertions)]
+            if let Some(c) = HACKY_MAP
+                .lock()
+                .unwrap()
+                .get(&function.ir_fn_id.get_the_value())
+            {
+                println!(":: {:?}", c);
+            }
+
             inst_exec.exec(inst)?;
         }
 

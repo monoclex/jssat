@@ -60,6 +60,10 @@ macro_rules! gen_id {
             pub fn map_context<C2: Tag>(&self) -> $name<C2> {
                 $name::<C2>::new_with_value_const(self.value())
             }
+
+            pub fn get_the_value(&self) -> usize {
+                self.0.get()
+            }
         }
 
         impl<C: Tag> crate::id::IdCompat for $name<C> {

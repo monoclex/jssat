@@ -26,9 +26,12 @@ fn emit_virt_overrides(
     use js::ParseNodeKind::*;
 
     #[rustfmt::skip]
-    let function = match kind {
-        IdentifierReference => m.Evaluation_IdentifierReference,
-        CallExpression => m.Evaluation_CallExpression,
+    let function = match (kind, idx) {
+        (IdentifierReference, _) => m.Evaluation_IdentifierReference,
+        (CallExpression, _) => m.Evaluation_CallExpression,
+        (Arguments, 0) => m.ArgumentListEvaluation,
+        (ArgumentList, _) => m.ArgumentListEvaluation,
+        (Literal, _) => m.Evaluation_Literal,
         _ => return false,
     };
 
@@ -229,6 +232,21 @@ impl<'b> Visitor for NodeEmitter<'b> {
         self.block.record_set_slot(
             parse_node.parse_node,
             InternalSlot::JSSATParseNode_Identifier_StringValue,
+            string,
+        );
+    }
+
+    fn visit_string_literal(&mut self, node: &js::StringLiteral) {
+        let parse_node = self.stack.last_mut().expect("it");
+
+        let string = node.0.clone();
+
+        let constant = self.program.constant_str_utf16(string);
+        let string = self.block.make_string(constant);
+
+        self.block.record_set_slot(
+            parse_node.parse_node,
+            InternalSlot::JSSATParseNode_StringLiteral_StringValue,
             string,
         );
     }
