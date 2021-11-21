@@ -56,7 +56,7 @@ pub struct TrivialItemCompat {
 impl TrivialItemCompat {
     pub fn new(dealer: &mut AtomDealer) -> Self {
         let [runtime, null, undefined, empty, throw, unresolvable, lexical, strict, global, lexical_this, r#return, initialized, uninitialized, sync] =
-            [(); 14].map(|_| dealer.next());
+            [(); 14].map(|_| dealer.deal());
 
         Self {
             Runtime: runtime,

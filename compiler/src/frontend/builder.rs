@@ -28,6 +28,7 @@ pub fn panics_on_drop_with_function_start_without_function_end() {
 }
 
 pub struct ProgramBuilder {
+    pub dealer: AtomDealer,
     entrypoint: Option<FunctionId>,
     constants: Vec<Constant>,
     external_functions: Vec<ExternalFunction>,
@@ -41,6 +42,7 @@ pub struct ExtFnIdTyped<const PARAMETERS: usize>(pub ExternalFunctionId);
 impl ProgramBuilder {
     pub fn new() -> Self {
         ProgramBuilder {
+            dealer: AtomDealer::new(),
             entrypoint: None,
             constants: vec![],
             external_functions: vec![],

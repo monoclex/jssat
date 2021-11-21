@@ -528,19 +528,9 @@ fn parse_expression(node: Node<&str>) -> Expression {
                         .map(|node| parse_expression(node.as_ref()))
                         .collect(),
                 },
-                (Some(Node::Word("trivial", _)), Some(Node::Word(trivial_item, _)), None) => {
-                    Expression::MakeTrivial {
-                        trivial_item: trivial_item.to_owned(),
-                    }
-                }
-                (Some(Node::Word("trivial-slot", _)), Some(Node::Word(trivial_item, _)), None) => {
-                    Expression::MakeTrivial {
-                        trivial_item: format!("InternalSlot(InternalSlot::{})", trivial_item),
-                    }
-                }
-                (Some(Node::Word("trivial-node", _)), Some(Node::Word(trivial_item, _)), None) => {
-                    Expression::MakeTrivial {
-                        trivial_item: format!("ParseNodeKind(ParseNodeKind::{})", trivial_item),
+                (Some(Node::Word("atom", _)), Some(Node::Word(trivial_item, _)), None) => {
+                    Expression::MakeAtom {
+                        atom: trivial_item.to_string(),
                     }
                 }
                 (
@@ -842,9 +832,9 @@ fn parses_expression() {
     );
 
     assert_eq!(
-        expr!("(trivial undefined)"),
-        Expression::MakeTrivial {
-            trivial_item: "undefined".into()
+        expr!("(atom undefined)"),
+        Expression::MakeAtom {
+            atom: "undefined".into()
         }
     );
 

@@ -76,7 +76,7 @@ fn expr_is_global(expression: &Expression) -> bool {
         | Expression::RecordNew
         | Expression::ListNew
         | Expression::MakeBytes { bytes: _ }
-        | Expression::MakeTrivial { trivial_item: _ }
+        | Expression::MakeAtom { atom: _ }
         | Expression::MakeInteger { value: _ }
         | Expression::MakeBoolean { value: _ }
         | Expression::VarReference { variable: _ } => false,
@@ -310,7 +310,7 @@ fn thread_expression(expression: &mut Expression) {
             thread_expressions(args);
             args.insert(0, threaded_global());
         }
-        Expression::MakeTrivial { trivial_item: _ } => {}
+        Expression::MakeAtom { atom: _ } => {}
         Expression::MakeBytes { bytes: _ } => {}
         Expression::MakeInteger { value: _ } => {}
         Expression::MakeBoolean { value: _ } => {}

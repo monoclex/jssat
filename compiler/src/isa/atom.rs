@@ -29,7 +29,7 @@ impl AtomDealer {
     }
 
     /// Issues a unique [`Atom`] that this dealer has not given out before.
-    pub fn next(&mut self) -> Atom {
+    pub fn deal(&mut self) -> Atom {
         let result = self.current;
         self.current = self.current.next();
         result

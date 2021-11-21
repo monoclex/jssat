@@ -18,6 +18,11 @@
 ; For more information on JSSAT IR Files, see the `ir_file` crate.
 ;
 
+; compat
+(def (trivial :x) (atom :x))
+(def (trivial-node :x) (atom :x))
+(def (trivial-slot :x) (atom :x))
+
 (def (and :a :b) (:a and :b))
 (def (or :a :b) (:a or :b))
 (def (and3 :a :b :c) (and (and :a :b) :c))

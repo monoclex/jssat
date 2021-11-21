@@ -51,7 +51,7 @@ pub trait ISAInstruction<C: Tag> {
 }
 
 mod atom;
-pub use atom::Atom;
+pub use atom::{Atom, AtomDealer};
 
 mod noop;
 pub use noop::Noop;

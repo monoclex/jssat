@@ -54,14 +54,17 @@
 use std::collections::HashMap;
 
 use codegen::{Block, Field, Formatter, Function, Impl, Scope};
+use rustc_hash::FxHashSet;
 
-use crate::{Assign, Expression, Section, Statement, AST};
+use crate::{Assign, Expression, Section, Statement, Visitor, AST};
 
-pub fn gen(name: &str, ast: AST) -> String {
+pub fn gen(name: &str, mut ast: AST) -> String {
     let mut scope = Scope::new();
 
     let r#struct = scope.new_struct(name);
     r#struct.vis("pub");
+
+    r#struct.push_field(Field::new("atoms", format!("{}Atoms", name)));
 
     for method in ast.sections.iter() {
         r#struct.push_field(Field::new(
@@ -69,6 +72,32 @@ pub fn gen(name: &str, ast: AST) -> String {
             format!("FnSignature<{}>", method.header.parameters.len()),
         ));
     }
+
+    let atoms = scope.new_struct(format!("{}Atoms", name).as_str());
+    atoms.vis("pub");
+
+    let mut visitor = AtomVisitor {
+        atoms: FxHashSet::default(),
+    };
+    visitor.visit_ast(&mut ast);
+
+    for atom in &visitor.atoms {
+        atoms.field(&format!("pub {}", atom.as_str()), "Atom");
+    }
+
+    let atoms_impl = scope.new_impl(format!("{}Atoms", name).as_str());
+    let new = atoms_impl
+        .new_fn("new")
+        .arg("dealer", "&mut AtomDealer")
+        .ret("Self");
+
+    new.line(format!("{}Atoms", name).as_str());
+
+    let mut fields = Block::new("");
+    for atom in &visitor.atoms {
+        fields.line(format!("{}: dealer.deal(),", atom));
+    }
+    new.push_block(fields);
 
     let r#impl = scope.new_impl(name);
 
@@ -89,7 +118,7 @@ use crate::{{
         emitter::{{ControlFlow, Emitter, LoopControlFlow}},
         js::ast::parse_nodes::ParseNodeKind,
     }},
-    isa::{{InternalSlot, TrivialItem, ValueType}},
+    isa::{{Atom, AtomDealer, InternalSlot, TrivialItem, ValueType}},
 }};
 
 {}",
@@ -118,6 +147,8 @@ fn emit_method_new(name: &str, ast: &AST) -> Function {
     }
 
     let mut fields = Block::new("");
+    fields.line(format!("atoms: {}Atoms::new(&mut program.dealer),", name));
+
     for method in ast.sections.iter() {
         fields.line(format!(
             "{}: signature_{0},",
@@ -607,11 +638,15 @@ fn emit_expr(counter: &mut usize, block: &mut Block, expr: &Expression) -> Strin
                 result, fn_ptr, args
             ));
         }
-        Expression::MakeTrivial { trivial_item } => {
+        Expression::MakeAtom { atom } => {
             block.line(format!(
-                "let {} = e.make_trivial(TrivialItem::{});",
-                result, trivial_item
+                "let {} = e.make_atom(self.atoms.{});",
+                result, atom
             ));
+            // block.line(format!(
+            //     "let {} = e.make_trivial(TrivialItem::{});",
+            //     result, trivial_item
+            // ));
         }
         Expression::MakeBytes { bytes } => {
             block.line(format!(
@@ -705,4 +740,18 @@ fn blk_to_s(b: Block) -> String {
     let mut f = Formatter::new(&mut s);
     b.fmt(&mut f).unwrap();
     s
+}
+
+struct AtomVisitor {
+    atoms: FxHashSet<String>,
+}
+
+impl Visitor for AtomVisitor {
+    fn visit_expr(&mut self, expr: &mut Expression) {
+        if let Expression::MakeAtom { atom } = expr {
+            self.atoms.insert(atom.clone());
+        }
+
+        self.visit_expr_impl(expr);
+    }
 }

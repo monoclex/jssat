@@ -19,7 +19,7 @@ pub struct Header {
 type Variable = String;
 type FnName = String;
 type Slot = String;
-type TrivialItem = String;
+type Atom = String;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Assign {
@@ -152,8 +152,8 @@ pub enum Expression {
         fn_ptr: Box<Expression>,
         args: Vec<Expression>,
     },
-    MakeTrivial {
-        trivial_item: TrivialItem,
+    MakeAtom {
+        atom: Atom,
     },
     MakeBytes {
         bytes: Vec<u8>,
@@ -189,4 +189,231 @@ pub enum BinOpKind {
     Or,
     Eq,
     Lt,
+}
+
+pub trait Visitor {
+    fn pre_visit_section(&mut self) {}
+    fn post_visit_section(&mut self) {}
+
+    fn pre_visit_stmt(&mut self) {}
+    fn post_visit_stmt(&mut self) {}
+
+    fn pre_visit_expr(&mut self) {}
+    fn post_visit_expr(&mut self) {}
+
+    fn visit_ast(&mut self, ast: &mut AST) {
+        self.visit_ast_impl(ast);
+    }
+
+    fn visit_ast_impl(&mut self, ast: &mut AST) {
+        for section in &mut ast.sections {
+            self.visit_section(section);
+        }
+    }
+
+    fn visit_section(&mut self, section: &mut Section) {
+        self.visit_section_impl(section);
+    }
+
+    fn visit_section_impl(&mut self, section: &mut Section) {
+        self.visit_stmts(&mut section.body);
+    }
+
+    fn visit_maybe_stmts(&mut self, stmts: Option<&mut [Statement]>) {
+        if let Some(stmts) = stmts {
+            self.visit_stmts(stmts);
+        }
+    }
+
+    fn visit_stmts(&mut self, stmts: &mut [Statement]) {
+        self.visit_stmts_impl(stmts);
+    }
+
+    fn visit_stmts_impl(&mut self, stmts: &mut [Statement]) {
+        for stmt in stmts {
+            self.visit_stmt(stmt);
+        }
+    }
+
+    fn visit_stmt(&mut self, stmts: &mut Statement) {
+        self.visit_stmt_impl(stmts);
+    }
+
+    fn visit_stmt_impl(&mut self, stmt: &mut Statement) {
+        match stmt {
+            Statement::Assign(assign) => self.visit_assign(assign),
+            Statement::If {
+                condition,
+                then,
+                r#else,
+            } => {
+                self.visit_expr(condition);
+                self.visit_stmts(then);
+                self.visit_maybe_stmts(r#else.as_deref_mut());
+            }
+            Statement::RecordSetProp {
+                record,
+                prop,
+                value,
+            } => {
+                self.visit_expr(record);
+                self.visit_expr(prop);
+                self.visit_maybe_expr(value.as_mut());
+            }
+            Statement::RecordSetSlot {
+                record,
+                slot: _,
+                value,
+            } => {
+                self.visit_expr(record);
+                self.visit_maybe_expr(value.as_mut());
+            }
+            Statement::ListSet { list, prop, value } => {
+                self.visit_expr(list);
+                self.visit_expr(prop);
+                self.visit_maybe_expr(value.as_mut());
+            }
+            Statement::Return { expr } => {
+                self.visit_maybe_expr(expr.as_mut());
+            }
+            Statement::CallStatic {
+                function_name: _,
+                args,
+            } => {
+                self.visit_exprs(args);
+            }
+            Statement::CallVirt { fn_ptr, args } => {
+                self.visit_expr(fn_ptr);
+                self.visit_exprs(args);
+            }
+            Statement::Assert { expr, message: _ } => {
+                self.visit_expr(expr);
+            }
+            Statement::Loop {
+                init,
+                cond,
+                next,
+                body,
+            } => {
+                self.visit_assigns(init);
+                self.visit_expr(cond);
+                self.visit_assigns(next);
+                self.visit_stmts(body);
+            }
+        }
+    }
+
+    fn visit_assigns(&mut self, assigns: &mut [Assign]) {
+        for assign in assigns {
+            self.visit_assign(assign);
+        }
+    }
+
+    fn visit_assign(&mut self, assign: &mut Assign) {
+        self.visit_assign_impl(assign);
+    }
+
+    fn visit_assign_impl(&mut self, assign: &mut Assign) {
+        self.visit_expr(&mut assign.value);
+    }
+
+    fn visit_maybe_expr(&mut self, expr: Option<&mut Expression>) {
+        if let Some(expr) = expr {
+            self.visit_expr(expr);
+        }
+    }
+
+    fn visit_exprs(&mut self, exprs: &mut [Expression]) {
+        for expr in exprs {
+            self.visit_expr(expr);
+        }
+    }
+
+    fn visit_expr(&mut self, expr: &mut Expression) {
+        self.visit_expr_impl(expr);
+    }
+
+    fn visit_expr_impl(&mut self, expr: &mut Expression) {
+        match expr {
+            Expression::If {
+                condition,
+                then: (then_stmts, then_expr),
+                r#else: (else_stmts, else_expr),
+            } => {
+                self.visit_expr(condition);
+                self.visit_stmts(then_stmts);
+                self.visit_expr(then_expr);
+                self.visit_stmts(else_stmts);
+                self.visit_expr(else_expr);
+            }
+            Expression::LetIn {
+                variable: _,
+                be_bound_to,
+                r#in: (stmts, expr),
+            } => {
+                self.visit_expr(be_bound_to);
+                self.visit_stmts(stmts);
+                self.visit_expr(expr);
+            }
+            Expression::RecordGetProp { record, property } => {
+                self.visit_expr(record);
+                self.visit_expr(property);
+            }
+            Expression::RecordGetSlot { record, slot: _ } => {
+                self.visit_expr(record);
+            }
+            Expression::RecordHasProp { record, property } => {
+                self.visit_expr(record);
+                self.visit_expr(property);
+            }
+            Expression::RecordHasSlot { record, slot: _ } => {
+                self.visit_expr(record);
+            }
+            Expression::ListGet { list, property } => {
+                self.visit_expr(list);
+                self.visit_expr(property);
+            }
+            Expression::ListHas { list, property } => {
+                self.visit_expr(list);
+                self.visit_expr(property);
+            }
+            Expression::ListLen { list } => {
+                self.visit_expr(list);
+            }
+            Expression::CallStatic {
+                function_name: _,
+                args,
+            } => {
+                self.visit_exprs(args);
+            }
+            Expression::CallVirt { fn_ptr, args } => {
+                self.visit_expr(fn_ptr);
+                self.visit_exprs(args);
+            }
+            Expression::BinOp { kind: _, lhs, rhs } => {
+                self.visit_expr(lhs);
+                self.visit_expr(rhs);
+            }
+            Expression::Negate { expr } => {
+                self.visit_expr(expr);
+            }
+            Expression::IsTypeOf { expr, kind: _ } => {
+                self.visit_expr(expr);
+            }
+            Expression::IsTypeAs { lhs, rhs } => {
+                self.visit_expr(lhs);
+                self.visit_expr(rhs);
+            }
+            Expression::GetFnPtr { function_name: _ }
+            | Expression::MakeAtom { atom: _ }
+            | Expression::MakeBytes { bytes: _ }
+            | Expression::MakeInteger { value: _ }
+            | Expression::MakeBoolean { value: _ }
+            | Expression::VarReference { variable: _ }
+            | Expression::GetGlobal
+            | Expression::Unreachable
+            | Expression::RecordNew
+            | Expression::ListNew => {}
+        }
+    }
 }
