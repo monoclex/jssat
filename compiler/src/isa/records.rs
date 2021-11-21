@@ -58,14 +58,13 @@ impl<C: Tag> NewRecord<C> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct RecordHasKey<C: Tag, S = ()> {
+pub struct RecordHasKey<C: Tag> {
     pub result: RegisterId<C>,
-    pub shape: S,
     pub record: RegisterId<C>,
     pub key: RecordKey<C>,
 }
 
-impl<C: Tag, S> ISAInstruction<C> for RecordHasKey<C, S> {
+impl<C: Tag> ISAInstruction<C> for RecordHasKey<C> {
     fn declared_register(&self) -> Option<RegisterId<C>> {
         Some(self.result)
     }
@@ -95,11 +94,10 @@ impl<C: Tag, S> ISAInstruction<C> for RecordHasKey<C, S> {
     }
 }
 
-impl<C: Tag, S> RecordHasKey<C, S> {
+impl<C: Tag> RecordHasKey<C> {
     #[track_caller]
-    pub fn retag<C2: Tag>(self, retagger: &mut impl RegRetagger<C, C2>) -> RecordHasKey<C2, S> {
+    pub fn retag<C2: Tag>(self, retagger: &mut impl RegRetagger<C, C2>) -> RecordHasKey<C2> {
         RecordHasKey {
-            shape: self.shape,
             result: retagger.retag_new(self.result),
             record: retagger.retag_old(self.record),
             key: self.key.retag(retagger),
@@ -108,14 +106,13 @@ impl<C: Tag, S> RecordHasKey<C, S> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct RecordGet<C: Tag, S = ()> {
+pub struct RecordGet<C: Tag> {
     pub result: RegisterId<C>,
-    pub shape: S,
     pub record: RegisterId<C>,
     pub key: RecordKey<C>,
 }
 
-impl<C: Tag, S> ISAInstruction<C> for RecordGet<C, S> {
+impl<C: Tag> ISAInstruction<C> for RecordGet<C> {
     fn declared_register(&self) -> Option<RegisterId<C>> {
         Some(self.result)
     }
@@ -145,11 +142,10 @@ impl<C: Tag, S> ISAInstruction<C> for RecordGet<C, S> {
     }
 }
 
-impl<C: Tag, S> RecordGet<C, S> {
+impl<C: Tag> RecordGet<C> {
     #[track_caller]
-    pub fn retag<C2: Tag>(self, retagger: &mut impl RegRetagger<C, C2>) -> RecordGet<C2, S> {
+    pub fn retag<C2: Tag>(self, retagger: &mut impl RegRetagger<C, C2>) -> RecordGet<C2> {
         RecordGet {
-            shape: self.shape,
             result: retagger.retag_new(self.result),
             record: retagger.retag_old(self.record),
             key: self.key.retag(retagger),
@@ -158,14 +154,13 @@ impl<C: Tag, S> RecordGet<C, S> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct RecordSet<C: Tag, S = ()> {
-    pub shape: S,
+pub struct RecordSet<C: Tag> {
     pub record: RegisterId<C>,
     pub key: RecordKey<C>,
     pub value: Option<RegisterId<C>>,
 }
 
-impl<C: Tag, S> ISAInstruction<C> for RecordSet<C, S> {
+impl<C: Tag> ISAInstruction<C> for RecordSet<C> {
     fn declared_register(&self) -> Option<RegisterId<C>> {
         None
     }
@@ -206,11 +201,10 @@ impl<C: Tag, S> ISAInstruction<C> for RecordSet<C, S> {
     }
 }
 
-impl<C: Tag, S> RecordSet<C, S> {
+impl<C: Tag> RecordSet<C> {
     #[track_caller]
-    pub fn retag<C2: Tag>(self, retagger: &mut impl RegRetagger<C, C2>) -> RecordSet<C2, S> {
+    pub fn retag<C2: Tag>(self, retagger: &mut impl RegRetagger<C, C2>) -> RecordSet<C2> {
         RecordSet {
-            shape: self.shape,
             record: retagger.retag_old(self.record),
             key: self.key.retag(retagger),
             value: self.value.map(|value| retagger.retag_old(value)),

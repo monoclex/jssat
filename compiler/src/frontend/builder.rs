@@ -9,6 +9,8 @@ use crate::UnwrapNone;
 
 use crate::isa::*;
 
+use derive_more::{Deref, DerefMut};
+
 pub type BlockId = crate::id::BlockId<crate::id::IrCtx>;
 pub type FunctionId = crate::id::FunctionId<crate::id::IrCtx>;
 pub type ConstantId = crate::id::ConstantId<crate::id::IrCtx>;
@@ -27,7 +29,10 @@ pub fn panics_on_drop_with_function_start_without_function_end() {
     // builder.end_function(my_fn);
 }
 
+#[derive(Deref, DerefMut)]
 pub struct ProgramBuilder {
+    #[deref]
+    #[deref_mut]
     pub dealer: AtomDealer,
     entrypoint: Option<FunctionId>,
     constants: Vec<Constant>,
@@ -579,7 +584,6 @@ impl DynBlockBuilder {
         let result = self.gen_register_id.next();
         self.instructions.push(Instruction::RecordGet(RecordGet {
             result,
-            shape: (),
             record,
             key: RecordKey::Prop(property),
         }));
@@ -590,7 +594,6 @@ impl DynBlockBuilder {
         self.push_inst(|result| {
             Instruction::RecordGet(RecordGet {
                 result,
-                shape: (),
                 record,
                 key: RecordKey::Atom(atom),
             })
@@ -599,7 +602,6 @@ impl DynBlockBuilder {
 
     pub fn record_set_prop(&mut self, record: RegisterId, property: RegisterId, value: RegisterId) {
         self.instructions.push(Instruction::RecordSet(RecordSet {
-            shape: (),
             record,
             key: RecordKey::Prop(property),
             value: Some(value),
@@ -608,7 +610,6 @@ impl DynBlockBuilder {
 
     pub fn record_set_atom(&mut self, record: RegisterId, atom: Atom, value: RegisterId) {
         self.instructions.push(Instruction::RecordSet(RecordSet {
-            shape: (),
             record,
             key: RecordKey::Atom(atom),
             value: Some(value),
@@ -617,7 +618,6 @@ impl DynBlockBuilder {
 
     pub fn record_del_prop(&mut self, record: RegisterId, property: RegisterId) {
         self.instructions.push(Instruction::RecordSet(RecordSet {
-            shape: (),
             record,
             key: RecordKey::Prop(property),
             value: None,
@@ -626,7 +626,6 @@ impl DynBlockBuilder {
 
     pub fn record_del_atom(&mut self, record: RegisterId, atom: Atom) {
         self.instructions.push(Instruction::RecordSet(RecordSet {
-            shape: (),
             record,
             key: RecordKey::Atom(atom),
             value: None,
@@ -638,7 +637,6 @@ impl DynBlockBuilder {
         self.instructions
             .push(Instruction::RecordHasKey(RecordHasKey {
                 result,
-                shape: (),
                 record,
                 key: RecordKey::Prop(property),
             }));
@@ -649,7 +647,6 @@ impl DynBlockBuilder {
         self.push_inst(|result| {
             Instruction::RecordHasKey(RecordHasKey {
                 result,
-                shape: (),
                 record,
                 key: RecordKey::Atom(atom),
             })
