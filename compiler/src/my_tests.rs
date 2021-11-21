@@ -23,7 +23,8 @@ pub fn can_lift_registers_in_near_blocks() {
     let mut block1 = main.start_block_main();
     let (block2, []) = main.start_block();
 
-    let undefined = block1.make_undefined();
+    let undefined = program.dealer.deal("undefined");
+    let undefined = block1.make_atom(undefined);
     main.end_block(block1.jmp(block2.signature(), []));
     main.end_block(block2.ret(Some(undefined)));
 
@@ -64,7 +65,8 @@ pub fn can_lift_registers_in_far_blocks() {
     let (block4, []) = main.start_block();
     let (block5, []) = main.start_block();
 
-    let undefined = block1.make_undefined();
+    let undefined = program.dealer.deal("undefined");
+    let undefined = block1.make_atom(undefined);
     main.end_block(block1.jmp(block2.signature(), []));
     main.end_block(block2.jmp(block3.signature(), []));
     main.end_block(block3.jmp(block4.signature(), []));
@@ -123,7 +125,8 @@ pub fn mutations_in_function_propagate_to_caller() {
     let mutate = {
         let (mut mutate, [record]) = program.start_function();
         let mut block = mutate.start_block_main();
-        let null = block.make_null();
+        let null = program.dealer.deal("null");
+        let null = block.make_atom(null);
         block.record_set_slot(record, InternalSlot::Base, null);
         mutate.end_block(block.ret(None));
         program.end_function(mutate)
