@@ -1,5 +1,7 @@
 //! Backend code that abstract interpretation emits for processing.
 
+#![allow(warnings)]
+
 mod lower;
 pub use lower::lower;
 

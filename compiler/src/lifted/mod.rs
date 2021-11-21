@@ -4,7 +4,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use tinyvec::TinyVec;
 
 use crate::{
-    frontend::ir::{self, ControlFlowInstruction, FFIValueType, Instruction, Returns, IR},
+    frontend::ir::{self, ControlFlowInstruction, Instruction, IR},
     id::{IrCtx, LiftedCtx},
     isa::{BlockJump, ISAInstruction, Jump, JumpIf, Return},
     retag::{

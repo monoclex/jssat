@@ -66,17 +66,16 @@ impl<C: Tag> ISAInstruction<C> for ListHasKey<C> {
 
     fn used_registers(&self) -> TinyVec<[RegisterId<C>; 3]> {
         let mut used_registers = tiny_vec![self.list];
-        if let ListKey::Index(register) = self.key {
-            used_registers.push(register);
-        }
+        let ListKey::Index(register) = self.key;
+        used_registers.push(register);
+
         used_registers
     }
 
     fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
         let mut used_registers = vec![&mut self.list];
-        if let ListKey::Index(register) = &mut self.key {
-            used_registers.push(register);
-        }
+        let ListKey::Index(register) = &mut self.key;
+        used_registers.push(register);
         used_registers
     }
 
@@ -114,17 +113,16 @@ impl<C: Tag> ISAInstruction<C> for ListGet<C> {
 
     fn used_registers(&self) -> TinyVec<[RegisterId<C>; 3]> {
         let mut used_registers = tiny_vec![self.list];
-        if let ListKey::Index(register) = self.key {
-            used_registers.push(register);
-        }
+        let ListKey::Index(register) = self.key;
+        used_registers.push(register);
+
         used_registers
     }
 
     fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
         let mut used_registers = vec![&mut self.list];
-        if let ListKey::Index(register) = &mut self.key {
-            used_registers.push(register);
-        }
+        let ListKey::Index(register) = &mut self.key;
+        used_registers.push(register);
         used_registers
     }
 
@@ -161,9 +159,8 @@ impl<C: Tag> ISAInstruction<C> for ListSet<C> {
         if let Some(register) = self.value {
             used_registers.push(register);
         }
-        if let ListKey::Index(register) = self.key {
-            used_registers.push(register);
-        }
+        let ListKey::Index(register) = self.key;
+        used_registers.push(register);
         used_registers
     }
 
@@ -172,9 +169,8 @@ impl<C: Tag> ISAInstruction<C> for ListSet<C> {
         if let Some(register) = &mut self.value {
             used_registers.push(register);
         }
-        if let ListKey::Index(register) = &mut self.key {
-            used_registers.push(register);
-        }
+        let ListKey::Index(register) = &mut self.key;
+        used_registers.push(register);
         used_registers
     }
 
@@ -215,13 +211,11 @@ impl<C: Tag> ISAInstruction<C> for ListLen<C> {
     }
 
     fn used_registers(&self) -> TinyVec<[RegisterId<C>; 3]> {
-        let mut used_registers = tiny_vec![self.list];
-        used_registers
+        tiny_vec![self.list]
     }
 
     fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
-        let mut used_registers = vec![&mut self.list];
-        used_registers
+        vec![&mut self.list]
     }
 
     fn display(&self, w: &mut impl Write) -> std::fmt::Result {

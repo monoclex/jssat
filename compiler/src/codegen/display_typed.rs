@@ -1,6 +1,6 @@
 use crate::{
     codegen::EndInstruction,
-    frontend::ir::{ControlFlowInstruction, FFIValueType},
+    frontend::ir::FFIValueType,
     id::AssemblerCtx,
     isa::{ISAInstruction, Unreachable},
     symbolic_execution::types::InstIdx,

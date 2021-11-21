@@ -4,7 +4,7 @@ mod stmts;
 use std::convert::TryInto;
 
 use swc_common::{input::StringInput, BytePos};
-use swc_ecmascript::parser::{PResult, Parser, Syntax};
+use swc_ecmascript::parser::{PResult, Parser};
 
 use super::parse_nodes as js;
 use swc_ecmascript::ast as swc;

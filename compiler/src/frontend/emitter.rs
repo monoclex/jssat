@@ -56,20 +56,8 @@ impl<const L: usize> LoopControlFlow<L> {
 }
 
 impl ControlFlow {
-    fn is_fallthrough(&self) -> bool {
-        matches!(self, ControlFlow::Fallthrough)
-    }
-
     fn is_carry(&self) -> bool {
         matches!(self, ControlFlow::Carry(_))
-    }
-
-    fn is_return(&self) -> bool {
-        matches!(self, ControlFlow::Return(_))
-    }
-
-    fn is_unreachable(&self) -> bool {
-        matches!(self, ControlFlow::Unreachable)
     }
 }
 
@@ -162,7 +150,7 @@ impl<'b, const P: usize> Emitter<'b, P> {
         // eventually
         std::mem::swap(&mut self.block_builder, &mut loop_iter);
         let real_self = loop_iter;
-        let real_loop_iter = &mut self.block_builder;
+        let _real_loop_iter = &mut self.block_builder;
 
         // now perform the jump to the loop
         self.function_builder
@@ -184,7 +172,7 @@ impl<'b, const P: usize> Emitter<'b, P> {
         // loop then, jump back to the top of the loop
         let real_loop_iter = &mut self.block_builder;
         std::mem::swap(&mut final_block, real_loop_iter);
-        let real_final_block = real_loop_iter;
+        let _real_final_block = real_loop_iter;
         let mut real_loop_iter = final_block;
 
         self.function_builder.end_block_dyn(match new_values {
@@ -331,7 +319,7 @@ impl<'bo, 'bu, const P: usize> EmitterIf<'bo, 'bu, P> {
                 current_path.unreachable();
                 current_path.ret(None)
             }
-            ControlFlow::Next(args) => panic!("improper control flow in if"),
+            ControlFlow::Next(_) => panic!("improper control flow in if"),
         };
         self.emitter.function_builder.end_block_dyn(termination);
 
@@ -386,8 +374,8 @@ where
         let end_clause_id = end_clause.id;
         emitter_if.fallthrough_clause = Some(end_clause_id);
 
-        let path = emitter_if.emitter.block_builder.id;
-        let true_clause_id = emitter_if.true_clause.as_ref().map(|f| f.id).unwrap();
+        let _path = emitter_if.emitter.block_builder.id;
+        let _true_clause_id = emitter_if.true_clause.as_ref().map(|f| f.id).unwrap();
         let false_clause_id = emitter_if.false_clause.as_ref().map(|f| f.id).unwrap();
 
         emitter_if.generate();
@@ -426,7 +414,7 @@ where
                 false_clause.unreachable();
                 false_clause.ret(None)
             }
-            ControlFlow::Next(args) => panic!("improper control flow in if"),
+            ControlFlow::Next(_) => panic!("improper control flow in if"),
         };
         emitter.function_builder.end_block_dyn(finalized);
 
@@ -452,7 +440,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::interpreter::{InstErr, InstResult};
+    use crate::interpreter::InstResult;
     use crate::interpreter::{Interpreter, Value};
     use Value::*;
 

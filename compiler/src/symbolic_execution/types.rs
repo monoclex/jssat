@@ -1345,10 +1345,7 @@ impl TypeBag {
             .flatten();
 
         // we lose any relevent facts as soon as we delete something
-        let facts = facts.take_while(|fact| {
-            let doesMatch = matches!(fact, Fact::Set { .. });
-            doesMatch
-        });
+        let facts = facts.take_while(|fact| matches!(fact, Fact::Set { .. }));
         // facts : [set a => 1, remove a, set a => 2]
         //       = [set a => 1]
         // facts : [set a => 1, set a => 2]

@@ -1,3 +1,5 @@
+#![allow(warnings)]
+
 use std::sync::Arc;
 use std::sync::Mutex;
 

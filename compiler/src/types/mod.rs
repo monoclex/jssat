@@ -7,6 +7,8 @@
 // TODO: only reference the blog post for records? idk
 //! [blog-post]: https://sirjosh3917.com/posts/jssat-typing-objects-in-ssa-form/
 
+#![allow(warnings)]
+
 use core::slice::SlicePattern;
 use std::{cell::RefCell, fmt::Debug, hash::Hash, pin::Pin};
 

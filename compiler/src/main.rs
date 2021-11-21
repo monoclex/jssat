@@ -14,15 +14,14 @@
 #![deny(clippy::disallowed_method)]
 #![feature(slice_pattern)]
 #![feature(associated_type_bounds)]
+// this is to silence `.map_context()` for the time being
+#![allow(deprecated)]
 
 use std::{io::Write, process::Command, time::Instant};
 
 use crate::frontend::{
     builder::ProgramBuilder,
-    js::{
-        ast::parse_nodes::Visitor, ecmascript::ECMA262Methods, hosts::JSSATHostEnvironment,
-        JavaScriptFrontend,
-    },
+    js::{hosts::JSSATHostEnvironment, JavaScriptFrontend},
 };
 
 pub mod backend;
@@ -172,10 +171,6 @@ print('Hello, World!');
 "#
     .to_owned();
 
-    println!("converting script to parse nodes");
-    let script = time(|| frontend::js::ast::parse_script(&content));
-    println!("traversed script");
-
     let mut builder = ProgramBuilder::new();
     let mut f = builder.start_function_main();
     let mut b = f.start_block_main();
@@ -208,7 +203,7 @@ print('Hello, World!');
     println!(
         "executed: {:?}",
         match interpreter_result {
-            Ok(val) => format!("success"),
+            Ok(_) => "success".to_string(),
             Err(err) => format!("error: {}", err),
         }
     );

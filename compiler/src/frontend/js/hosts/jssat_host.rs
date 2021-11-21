@@ -1,5 +1,3 @@
-use crate::isa::InternalSlot;
-
 use super::HostEnvironment;
 
 /// JSSAT host environment - this hooks functions useful
@@ -18,8 +16,8 @@ impl HostEnvironment for JSSATHostEnvironment {
             program,
             block,
             threaded_global,
-            realm,
             global_object,
+            ..
         } = hook;
 
         let print = program.constant_str_utf16("print");
@@ -28,7 +26,7 @@ impl HostEnvironment for JSSATHostEnvironment {
         // TODO: right now we can't capture any state if we need to
         //       this is a function pointer put straight into [[Call]]
         let print_fn = {
-            let (mut print_fn, [threaded_global, function_object, this_value, arguments_list]) =
+            let (mut print_fn, [_threaded_global, _function_object, _this_value, _arguments_list]) =
                 program.start_function();
 
             let mut main = print_fn.start_block_main();

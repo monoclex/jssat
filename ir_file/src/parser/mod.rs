@@ -51,7 +51,6 @@ fn parse_with_rule_application(nodes: Vec<Node>) -> Vec<Node> {
     // this will mean that once we match a rule, it will already be fully expanded
     // which is useful for both performance and for ease of use (as we now mostly
     // don't have to care about the order things are defined in)
-    let old = custom_rules.clone();
     custom_rules = custom_rules
         .iter()
         // for every rewrite rule

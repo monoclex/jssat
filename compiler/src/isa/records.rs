@@ -1,3 +1,5 @@
+#![allow(non_camel_case_types)]
+
 use derive_more::Display;
 use std::fmt::Write;
 use tinyvec::{tiny_vec, TinyVec};

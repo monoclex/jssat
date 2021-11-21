@@ -239,11 +239,11 @@ pub fn ensure_arg_count(expected: usize, got: usize) -> InstResult<()> {
     Ok(())
 }
 
-/// this is only temporary
-///
-/// once interpreter state becomes shared and threaded we can use a local on the
-/// interpreter for the code path flow things
 lazy_static::lazy_static! {
+    /// this is only temporary
+    ///
+    /// once interpreter state becomes shared and threaded we can use a local on the
+    /// interpreter for the code path flow things
     static ref HACKY_MAP: std::sync::Arc<std::sync::Mutex<FxHashMap<usize, crate::isa::Comment>>> = Default::default();
 }
 
@@ -663,7 +663,7 @@ impl<'c> InstExec<'c> {
             Value::FnPtr(value) => RecordKey::FnPtr(*value),
             Value::Trivial(value) => RecordKey::Trivial(*value),
             Value::Number(value) => RecordKey::Number(*value),
-            Value::Symbol(value) => todo!("implement symbol as record key"),
+            Value::Symbol(_) => todo!("implement symbol as record key"),
             // TODO: support using records as keys, as this is possible
             // in python (and i think lua)
             Value::Record(_) => {

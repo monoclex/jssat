@@ -1,4 +1,4 @@
-use std::{array::IntoIter, fmt::Pointer};
+use std::array::IntoIter;
 
 use crate::ast::*;
 use codegen::*;
@@ -9,7 +9,8 @@ pub fn generate(productions: Productions) -> String {
     let len = ast_len + productions.one_of_ast.len();
     eprintln!("{} productions found", len);
 
-    let prelude = "
+    let prelude = "#![allow(unused_variables)]
+
 use derive_more::Display;
 
 #[derive(Debug, Clone)]
@@ -121,58 +122,6 @@ pub fn generate_production(production: &Production, formatter: &mut Formatter) {
         variant_names.push((variant_name, elems));
 
         parse_node.push_variant(variant);
-
-        // if this rule has a child with a single standalone element, we will
-        // implement `From` for it automatically. e.g.
-        //
-        // ```
-        // Rule :
-        //   Child
-        // ```
-        //
-        // will produce a
-        //
-        // impl From<Child> for Rule {}
-        //
-        // meaning we have an `f : Child -> Rule`
-
-        // we don't want to generate the rule if there are *any* other outstanding
-        // tokens around this rule. otherwise, we'll generate from implementations
-        // for things that may mean different things - for example,
-        //
-        // ```
-        // Expr :
-        //   `++` ChildExpr
-        //   `--` ChildExpr
-        // ```
-        //
-        // These two have a single `ChildExpr` for both rules, but we don't want to
-        // auto generate `From` impls as we would imply more than we intend to (i.e.,
-        // that a `ChildExpr -> Expr` is safe and always exists by automatically
-        // coercing it into a `++ChildExpr` which is different from a
-        // `ChildExpr` standalone)
-        let can_generate_from = body.sequence.len() == 1 && {
-            let n = body.sequence[0].as_name();
-            matches!(n.map(|n| n.optional.is_none()), Some(true))
-        };
-
-        if can_generate_from {
-            let child = body.sequence[0].as_name().unwrap();
-
-            // commented out because this isn't very useful
-            // let mut from = Impl::new(&production.name);
-            // from.impl_trait(format!("From<{}>", child.name));
-
-            // let f = from.new_fn("from");
-            // f.arg("child", &child.name);
-            // f.ret("Self");
-            // f.line(format!(
-            //     "{}::{}(child.into())",
-            //     &production.name, &variant_name
-            // ));
-
-            // impls.push(from);
-        }
     }
 
     impls.push({

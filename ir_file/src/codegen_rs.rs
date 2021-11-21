@@ -53,7 +53,7 @@
 
 use std::collections::HashMap;
 
-use codegen::{Block, Field, Formatter, Function, Impl, Scope, Struct};
+use codegen::{Block, Field, Formatter, Function, Impl, Scope};
 
 use crate::{Assign, Expression, Section, Statement, AST};
 
@@ -102,8 +102,6 @@ fn emit_method_new(name: &str, ast: &AST) -> Function {
     f.vis("pub(crate)");
     f.arg("program", "&mut ProgramBuilder");
     f.ret("Self");
-
-    let mut block = Block::new("");
 
     for method in ast.sections.iter() {
         f.line(format!(

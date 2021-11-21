@@ -6,7 +6,7 @@
 //! In addition, whole-program optimization is done after individual
 //! optimizations.
 
-use crate::{codegen::TypedProgram, symbolic_execution::SystemRun};
+use crate::codegen::TypedProgram;
 
 pub fn opt(program: TypedProgram) -> TypedProgram {
     program

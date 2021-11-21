@@ -112,8 +112,7 @@ impl<'p> JavaScriptFrontend<'p> {
             let one = block.make_number_decimal(1);
             let neg_one = block.negate(one);
             let last_minus_one = block.add(last, neg_one);
-            let context = block.list_get(exec_ctx_stack, last_minus_one);
-            context
+            block.list_get(exec_ctx_stack, last_minus_one)
         }
     }
 }
