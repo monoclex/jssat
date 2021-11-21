@@ -8,3 +8,12 @@ members = [
 
 [profile.release]
 lto = true
+
+# Our code generation crates, `ir_file` and `grammar_notation_helper`, take an
+# awful long time to generate code (~11s and ~4s respectively). We have found
+# it to be a significant measurable improvement in incremental compile times to
+# ensure that these crates are optimized in debug mode.
+
+[profile.dev.build-override]
+opt-level = 3
+codegen-units = 16
