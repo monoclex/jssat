@@ -1,4 +1,3 @@
-use derive_more::Display;
 use std::fmt::{Display, Write};
 use tinyvec::TinyVec;
 

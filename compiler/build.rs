@@ -47,7 +47,7 @@ fn compile_irfiles() {
             );
 
             let src = std::fs::read_to_string(entry.path()).unwrap();
-            // println!("cargo:rerun-if-changed={}", entry.path().to_str().unwrap());
+            println!("cargo:rerun-if-changed={}", entry.path().to_str().unwrap());
 
             let code = match kind {
                 GenKind::IrFile => ir_file::generate(&name, &src),
