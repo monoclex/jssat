@@ -9,5 +9,5 @@ name = "jssatrt"
 crate-type = ["staticlib", "cdylib"]
 
 [dependencies]
-mimalloc = "0.1.26"
-widestring = "0.4.3"
+mimalloc = "0.1.27"
+widestring = "0.5.1"

@@ -18,27 +18,25 @@ link-llvm = ["inkwell"]
 link-swc = ["swc_atoms", "swc_common", "swc_ecmascript"]
 
 [dependencies]
-cc = "1.0.67"
-petgraph = "0.5.1"
+cc = "1.0.72"
 rustc-hash = "1.1.0"
-swc_atoms = { version = "0.2.6", optional = true }
-swc_common = { version = "0.10.20", features = ["tty-emitter"], optional = true }
-swc_ecmascript = { version = "0.36.0", features = ["parser", "utils"], optional = true }
+swc_atoms = { version = "0.2.9", optional = true }
+swc_common = { version = "0.14.6", optional = true }
+swc_ecmascript = { version = "0.87.0", features = ["parser"], optional = true }
 tempfile = "3.2.0"
 bimap = "0.6.1"
 ref-cast = "1.0.6"
 assoc = "0.1.2"
-tinyvec = { version = "1.2.0", features = ["alloc", "rustc_1_40"] }
+tinyvec = { version = "1.5.1", features = ["alloc", "rustc_1_40"] }
 derive_more = "0.99.16"
-ordered-float = "2.7.0"
+ordered-float = "2.8.0"
 lasso = { version = "0.6.0", features = ["ahasher", "multi-threaded", "inline-more"] }
-thiserror = "1.0.26"
+thiserror = "1.0.30"
 lazy_static = "1.4.0"
 enum-kinds = "0.5.1"
-ouroboros = "0.10.1"
+ouroboros = "0.13.0"
 bumpalo = { version = "3.8.0", features = ["allocator_api", "boxed", "collections"] }
 gc = { version = "0.4.1", features = ["derive"] }
-serial_test = "0.5.1"
 with_builtin_macros = "0.0.3"
 
 [build-dependencies]
