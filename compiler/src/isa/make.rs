@@ -2,7 +2,7 @@ use derive_more::Display;
 use std::fmt::{Display, Write};
 use tinyvec::TinyVec;
 
-use super::{atom::AtomDealer, Atom, ISAInstruction, InternalSlot};
+use super::{Atom, ISAInstruction};
 use crate::{
     id::*,
     retag::{CnstRetagger, FnRetagger, RegRetagger},

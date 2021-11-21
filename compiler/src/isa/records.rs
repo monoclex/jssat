@@ -4,7 +4,7 @@ use derive_more::Display;
 use std::fmt::Write;
 use tinyvec::{tiny_vec, TinyVec};
 
-use super::ISAInstruction;
+use super::{Atom, ISAInstruction};
 use crate::{id::*, retag::RegRetagger};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Display)]
@@ -12,7 +12,7 @@ pub enum RecordKey<C: Tag> {
     #[display(fmt = "%{}", _0)]
     Prop(RegisterId<C>),
     #[display(fmt = "[[{}]]", _0)]
-    Slot(InternalSlot),
+    Atom(Atom),
 }
 
 impl<C: Tag> RecordKey<C> {
@@ -20,106 +20,9 @@ impl<C: Tag> RecordKey<C> {
     pub fn retag<C2: Tag>(self, retagger: &impl RegRetagger<C, C2>) -> RecordKey<C2> {
         match self {
             RecordKey::Prop(r) => RecordKey::Prop(retagger.retag_old(r)),
-            RecordKey::Slot(s) => RecordKey::Slot(s),
+            RecordKey::Atom(s) => RecordKey::Atom(s),
         }
     }
-}
-
-// TODO(refactor): internal slots should be able to be dynamically created by
-//   some provider, and then get assigned a numeric number (so they're cheap
-//   to copy around and such). for now, i'm just gonna keep sticking stuff here
-//   (this will not come back to bite me as internal slots are pervasively used
-//   throughout the codebase at all :DDD)
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Display)]
-pub enum InternalSlot {
-    JSSATRandomDebugSlot,
-    JSSATHasBinding,
-    JSSATHasVarDeclaration,
-    JSSATHasLexicalDeclaration,
-    JSSATHasRestrictedGlobalProperty,
-    JSSATCreateGlobalFunctionBinding,
-    JSSATGetBindingValue,
-    // TODO: expand this to all ecmascript internal slot types
-    // (should this even be here?)
-    Function,
-    Realm,
-    ScriptOrModule,
-    GlobalObject,
-    GlobalEnv,
-    TemplateMap,
-    Intrinsics,
-    Call,
-    ECMAScriptCode,
-    HostDefined,
-    VariableEnvironment,
-    LexicalEnvironment,
-    PrivateEnvironment,
-    Base,
-    ReferencedName,
-    Strict,
-    ThisValue,
-    Value,
-    Type,
-    Target,
-    BindingObject,
-    DeclarativeRecord,
-    ObjectRecord,
-    OuterEnv,
-    IsWithEnvironment,
-    GlobalThisValue,
-    VarNames,
-    Writable,
-    Enumerable,
-    Configurable,
-    DefineOwnProperty,
-    Prototype,
-    Extensible,
-    GetOwnProperty,
-    IsExtensible,
-    Get,
-    Set,
-    GetPrototypeOf,
-    HasProperty,
-    ClassFieldInitializerName,
-    PrivateMethods,
-    Fields,
-    HomeObject,
-    Environment,
-    IsClassConstructor,
-    ThisMode,
-    Global,
-    FormalParameters,
-    SourceText,
-    ConstructorKind,
-    InitialName,
-    Description,
-    ThisBindingStatus,
-    BooleanData,
-    NumberData,
-    StringData,
-    SymbolData,
-    BigIntData,
-    NewTarget,
-    FunctionObject,
-    WithBaseObject,
-    GetBindingValue,
-    /// `%Function.prototype%`
-    FunctionPrototype,
-    /// `%Object.prototype%`
-    ObjectPrototype,
-    // TODO: auto generate these from the ecmascript IR file
-    JSSATParseNodeEvaluate,
-    JSSATParseNodeSlot1,
-    JSSATParseNodeSlot2,
-    JSSATParseNodeSlot3,
-    JSSATParseNodeSlot4,
-    JSSATParseNodeSlot5,
-    JSSATParseNodeSlot6,
-    JSSATParseNode_Identifier_StringValue,
-    JSSATExecutionContextStack,
-    JSSATParseNodeKind,
-    JSSATParseNodeVariant,
-    JSSATParseNode_StringLiteral_StringValue,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -297,7 +200,7 @@ impl<C: Tag, S> ISAInstruction<C> for RecordSet<C, S> {
             self.key,
             match self.value {
                 Some(r) => format!("%{}", r),
-                None => format!("<remove>"),
+                None => "<remove>".to_string(),
             }
         )
     }

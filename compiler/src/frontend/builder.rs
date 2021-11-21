@@ -586,15 +586,15 @@ impl DynBlockBuilder {
         result
     }
 
-    pub fn record_get_slot(&mut self, record: RegisterId, slot: InternalSlot) -> RegisterId {
-        let result = self.gen_register_id.next();
-        self.instructions.push(Instruction::RecordGet(RecordGet {
-            result,
-            shape: (),
-            record,
-            key: RecordKey::Slot(slot),
-        }));
-        result
+    pub fn record_get_atom(&mut self, record: RegisterId, atom: Atom) -> RegisterId {
+        self.push_inst(|result| {
+            Instruction::RecordGet(RecordGet {
+                result,
+                shape: (),
+                record,
+                key: RecordKey::Atom(atom),
+            })
+        })
     }
 
     pub fn record_set_prop(&mut self, record: RegisterId, property: RegisterId, value: RegisterId) {
@@ -606,11 +606,11 @@ impl DynBlockBuilder {
         }));
     }
 
-    pub fn record_set_slot(&mut self, record: RegisterId, slot: InternalSlot, value: RegisterId) {
+    pub fn record_set_atom(&mut self, record: RegisterId, atom: Atom, value: RegisterId) {
         self.instructions.push(Instruction::RecordSet(RecordSet {
             shape: (),
             record,
-            key: RecordKey::Slot(slot),
+            key: RecordKey::Atom(atom),
             value: Some(value),
         }));
     }
@@ -624,13 +624,13 @@ impl DynBlockBuilder {
         }))
     }
 
-    pub fn record_del_slot(&mut self, record: RegisterId, slot: InternalSlot) {
+    pub fn record_del_atom(&mut self, record: RegisterId, atom: Atom) {
         self.instructions.push(Instruction::RecordSet(RecordSet {
             shape: (),
             record,
-            key: RecordKey::Slot(slot),
+            key: RecordKey::Atom(atom),
             value: None,
-        }))
+        }));
     }
 
     pub fn record_has_prop(&mut self, record: RegisterId, property: RegisterId) -> RegisterId {
@@ -645,16 +645,15 @@ impl DynBlockBuilder {
         result
     }
 
-    pub fn record_has_slot(&mut self, record: RegisterId, slot: InternalSlot) -> RegisterId {
-        let result = self.gen_register_id.next();
-        self.instructions
-            .push(Instruction::RecordHasKey(RecordHasKey {
+    pub fn record_has_atom(&mut self, record: RegisterId, atom: Atom) -> RegisterId {
+        self.push_inst(|result| {
+            Instruction::RecordHasKey(RecordHasKey {
                 result,
                 shape: (),
                 record,
-                key: RecordKey::Slot(slot),
-            }));
-        result
+                key: RecordKey::Atom(atom),
+            })
+        })
     }
 
     pub fn list_new(&mut self) -> RegisterId {

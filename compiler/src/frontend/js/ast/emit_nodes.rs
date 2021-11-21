@@ -1,4 +1,4 @@
-use std::{array::IntoIter, convert::TryInto};
+use std::convert::TryInto;
 
 use rustc_hash::FxHashMap;
 
@@ -7,7 +7,7 @@ use crate::{
         builder::{DynBlockBuilder, FnSignature, ProgramBuilder, RegisterId},
         js::ecmascript::ECMA262Methods,
     },
-    isa::InternalSlot,
+    isa::Atom,
     UnwrapNone,
 };
 
@@ -20,7 +20,7 @@ fn emit_virt_overrides(
     kind: js::ParseNodeKind,
     idx: usize,
     block: &mut DynBlockBuilder,
-    slot: InternalSlot,
+    slot: Atom,
     m: &ECMA262Methods,
 ) -> bool {
     use js::ParseNodeKind::*;
@@ -36,7 +36,7 @@ fn emit_virt_overrides(
     };
 
     let fn_ptr = block.make_fnptr(function.id);
-    block.record_set_slot(parse_node, slot, fn_ptr);
+    block.record_set_atom(parse_node, slot, fn_ptr);
 
     true
 }
@@ -46,9 +46,12 @@ pub struct NodeEmitter<'scope> {
     program: &'scope mut ProgramBuilder,
     stack: Vec<ParseNode>,
     pub last_completed: Option<ParseNode>,
-    simple_fns: FxHashMap<InternalSlot, FnSignature<2>>,
+    simple_fns: FxHashMap<Atom, FnSignature<2>>,
     ecma_methods: &'scope ECMA262Methods,
     dealer: &'scope js::Dealer,
+    slots: [Atom; 3],
+    identifier_name_data: Atom,
+    string_literal_data: Atom,
 }
 
 impl<'s> NodeEmitter<'s> {
@@ -58,7 +61,17 @@ impl<'s> NodeEmitter<'s> {
         ecma_methods: &'s ECMA262Methods,
         dealer: &'s js::Dealer,
     ) -> Self {
-        let simple_fns = Self::generate_simple_fns(program);
+        let simple_fns = Self::generate_simple_fns(
+            ecma_methods.atoms.JSSATParseNodeSlot1,
+            ecma_methods.atoms.JSSATParseNodeEvaluate,
+            program,
+        );
+
+        let slots = [
+            ecma_methods.atoms.JSSATParseNodeSlot1,
+            ecma_methods.atoms.JSSATParseNodeSlot2,
+            ecma_methods.atoms.JSSATParseNodeSlot3,
+        ];
 
         Self {
             block,
@@ -68,6 +81,9 @@ impl<'s> NodeEmitter<'s> {
             simple_fns,
             ecma_methods,
             dealer,
+            slots,
+            identifier_name_data: ecma_methods.atoms.JSSATParseNode_Identifier_StringValue,
+            string_literal_data: ecma_methods.atoms.JSSATParseNode_StringLiteral_StringValue,
         }
     }
 
@@ -95,38 +111,28 @@ impl<'s> NodeEmitter<'s> {
     /// > > ```
     /// > > 1.  Return the result of evaluating StatementList.
     fn generate_simple_fns(
+        node_slot: Atom,
+        eval_slot: Atom,
         program: &mut ProgramBuilder,
-    ) -> FxHashMap<InternalSlot, FnSignature<2>> {
+    ) -> FxHashMap<Atom, FnSignature<2>> {
         let mut map = FxHashMap::default();
 
-        for slot in IntoIter::new(RUNTIME_SEMANTICS) {
-            let (mut f, [threaded_global, x]) = program.start_function();
+        let slot = eval_slot;
+        let (mut f, [threaded_global, x]) = program.start_function();
 
-            let mut e = f.start_block_main();
-            let next = e.record_get_slot(x, InternalSlot::JSSATParseNodeSlot1);
-            let fn_ptr = e.record_get_slot(next, slot);
-            let result = e.call_virt_with_result(fn_ptr, [threaded_global, next]);
-            f.end_block(e.ret(Some(result)));
+        let mut e = f.start_block_main();
+        let next = e.record_get_atom(x, node_slot);
+        let fn_ptr = e.record_get_atom(next, slot);
+        let result = e.call_virt_with_result(fn_ptr, [threaded_global, next]);
+        f.end_block(e.ret(Some(result)));
 
-            let signature = program.end_function(f);
+        let signature = program.end_function(f);
 
-            map.insert(slot, signature).expect_free();
-        }
+        map.insert(slot, signature).expect_free();
 
         map
     }
 }
-
-const PARSE_NODE_SLOTS: [InternalSlot; 6] = [
-    InternalSlot::JSSATParseNodeSlot1,
-    InternalSlot::JSSATParseNodeSlot2,
-    InternalSlot::JSSATParseNodeSlot3,
-    InternalSlot::JSSATParseNodeSlot4,
-    InternalSlot::JSSATParseNodeSlot5,
-    InternalSlot::JSSATParseNodeSlot6,
-];
-
-const RUNTIME_SEMANTICS: [InternalSlot; 1] = [InternalSlot::JSSATParseNodeEvaluate];
 
 pub struct ParseNode {
     pub parse_node: RegisterId,
@@ -141,15 +147,13 @@ impl ParseNode {
         let parse_node = block.record_new();
 
         let node_kind = block.make_atom(emitter.dealer.translate(kind));
-        block.record_set_slot(parse_node, InternalSlot::JSSATParseNodeKind, node_kind);
+        let parse_node_kind_atom = emitter.ecma_methods.atoms.JSSATParseNodeKind;
+        block.record_set_atom(parse_node, parse_node_kind_atom, node_kind);
 
         let variant_i64: i64 = variant_idx.try_into().unwrap();
         let variant_kind = block.make_number_decimal(variant_i64);
-        block.record_set_slot(
-            parse_node,
-            InternalSlot::JSSATParseNodeVariant,
-            variant_kind,
-        );
+        let variant_atom = emitter.ecma_methods.atoms.JSSATParseNodeVariant;
+        block.record_set_atom(parse_node, variant_atom, variant_kind);
 
         Self {
             parse_node,
@@ -159,27 +163,21 @@ impl ParseNode {
         }
     }
 
-    fn on_child_created(&mut self, block: &mut DynBlockBuilder, child: &ParseNode) {
+    fn on_child_created(&mut self, block: &mut DynBlockBuilder, slots: &[Atom], child: &ParseNode) {
         let slot = self.parse_node_slot;
         self.parse_node_slot += 1;
 
-        let slot = *PARSE_NODE_SLOTS
-            .get(slot)
-            .expect("expected slot (increase -> 6+)");
+        let slot = *slots.get(slot).expect("expected slot");
 
-        block.record_set_slot(self.parse_node, slot, child.parse_node);
+        block.record_set_atom(self.parse_node, slot, child.parse_node);
     }
 
     fn finish(
         self,
         block: &mut DynBlockBuilder,
-        simple_fns: &FxHashMap<InternalSlot, FnSignature<2>>,
+        simple_fns: &FxHashMap<Atom, FnSignature<2>>,
         ecma_methods: &ECMA262Methods,
     ) -> Self {
-        debug_assert!({
-            IntoIter::new(RUNTIME_SEMANTICS).all(|slot| simple_fns.contains_key(&slot))
-        });
-
         for (slot, fn_id) in simple_fns {
             let did_emit_overrides = emit_virt_overrides(
                 self.parse_node,
@@ -194,7 +192,7 @@ impl ParseNode {
             // emit the default function
             if !did_emit_overrides {
                 let virt_fn = block.make_fnptr(fn_id.id);
-                block.record_set_slot(self.parse_node, *slot, virt_fn);
+                block.record_set_atom(self.parse_node, *slot, virt_fn);
             }
         }
 
@@ -219,7 +217,7 @@ impl<'b> Visitor for NodeEmitter<'b> {
         let node = node.finish(self.block, &self.simple_fns, self.ecma_methods);
 
         if let Some(parent) = self.stack.last_mut() {
-            parent.on_child_created(self.block, &node);
+            parent.on_child_created(self.block, &self.slots, &node);
         }
 
         self.last_completed = Some(node);
@@ -233,11 +231,8 @@ impl<'b> Visitor for NodeEmitter<'b> {
         let constant = self.program.constant_str_utf16(string);
         let string = self.block.make_string(constant);
 
-        self.block.record_set_slot(
-            parse_node.parse_node,
-            InternalSlot::JSSATParseNode_Identifier_StringValue,
-            string,
-        );
+        self.block
+            .record_set_atom(parse_node.parse_node, self.identifier_name_data, string);
     }
 
     fn visit_string_literal(&mut self, node: &js::StringLiteral) {
@@ -248,11 +243,8 @@ impl<'b> Visitor for NodeEmitter<'b> {
         let constant = self.program.constant_str_utf16(string);
         let string = self.block.make_string(constant);
 
-        self.block.record_set_slot(
-            parse_node.parse_node,
-            InternalSlot::JSSATParseNode_StringLiteral_StringValue,
-            string,
-        );
+        self.block
+            .record_set_atom(parse_node.parse_node, self.string_literal_data, string);
     }
 
     // rust doesn't have calling `super` so we have to sort of implement `visit_x`

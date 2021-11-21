@@ -185,7 +185,6 @@ gen_id!(FunctionId);
 gen_id!(ExternalFunctionId);
 gen_id!(BlockId);
 gen_id!(RegisterId);
-gen_id!(InternalSlotId);
 gen_id!(StructId);
 gen_id!(OpaqueStructId);
 gen_id!(AllocationId);

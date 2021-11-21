@@ -262,10 +262,11 @@ pub trait Visitor {
             }
             Statement::RecordSetSlot {
                 record,
-                slot: _,
+                slot,
                 value,
             } => {
                 self.visit_expr(record);
+                self.visit_slot(slot);
                 self.visit_maybe_expr(value.as_mut());
             }
             Statement::ListSet { list, prop, value } => {
@@ -359,15 +360,17 @@ pub trait Visitor {
                 self.visit_expr(record);
                 self.visit_expr(property);
             }
-            Expression::RecordGetSlot { record, slot: _ } => {
+            Expression::RecordGetSlot { record, slot } => {
                 self.visit_expr(record);
+                self.visit_slot(slot);
             }
             Expression::RecordHasProp { record, property } => {
                 self.visit_expr(record);
                 self.visit_expr(property);
             }
-            Expression::RecordHasSlot { record, slot: _ } => {
+            Expression::RecordHasSlot { record, slot } => {
                 self.visit_expr(record);
+                self.visit_slot(slot);
             }
             Expression::ListGet { list, property } => {
                 self.visit_expr(list);
@@ -404,8 +407,10 @@ pub trait Visitor {
                 self.visit_expr(lhs);
                 self.visit_expr(rhs);
             }
+            Expression::MakeAtom { atom } => {
+                self.visit_slot(atom);
+            }
             Expression::GetFnPtr { function_name: _ }
-            | Expression::MakeAtom { atom: _ }
             | Expression::MakeBytes { bytes: _ }
             | Expression::MakeInteger { value: _ }
             | Expression::MakeBoolean { value: _ }
@@ -416,4 +421,6 @@ pub trait Visitor {
             | Expression::ListNew => {}
         }
     }
+
+    fn visit_slot(&mut self, _slot: &mut String) {}
 }

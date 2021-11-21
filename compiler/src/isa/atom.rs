@@ -8,13 +8,6 @@ use std::{convert::TryInto, num::NonZeroU16};
 #[derive(Clone, Copy, Debug, Display, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Atom(pub NonZeroU16);
 
-impl Atom {
-    fn next(self) -> Self {
-        let next = (self.0.checked_add(1)).expect("shouldn't overflow in our lifetimes");
-        Self(next)
-    }
-}
-
 unsafe impl Key for Atom {
     fn into_usize(self) -> usize {
         self.0.get() as usize - 1

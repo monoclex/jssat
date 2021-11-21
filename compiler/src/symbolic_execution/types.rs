@@ -12,7 +12,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::collections::{FxBiHashMap, StrictZip};
 use crate::id::{IdCompat, LiftedCtx, SymbolicCtx, UniqueRecordId};
-use crate::isa::{Atom, InternalSlot};
+use crate::isa::Atom;
 use crate::UnwrapNone;
 
 type AllocationId = crate::id::AllocationId<LiftedCtx>;
@@ -26,14 +26,13 @@ type WorkRecordKey = crate::isa::RecordKey<LiftedCtx>;
 #[derive(Clone, Copy, Hash, Debug)]
 enum RecordKey {
     Key(RegisterType),
-    Slot(InternalSlot),
 }
 
 impl RecordKey {
     fn into_record_key_eq(self) -> RecordKeyEq {
         match self {
             RecordKey::Key(a) => RecordKeyEq::Key(a),
-            RecordKey::Slot(a) => RecordKeyEq::Slot(a),
+            // RecordKey::Slot(a) => RecordKeyEq::Slot(a),
         }
     }
 }
@@ -48,14 +47,13 @@ impl RecordKey {
 #[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
 enum RecordKeyEq {
     Key(RegisterType),
-    Slot(InternalSlot),
 }
 
 impl RecordKeyEq {
     fn into_record_key(self) -> RecordKey {
         match self {
             RecordKeyEq::Key(a) => RecordKey::Key(a),
-            RecordKeyEq::Slot(a) => RecordKey::Slot(a),
+            // RecordKeyEq::Slot(a) => RecordKey::Slot(a),
         }
     }
 }
@@ -888,13 +886,14 @@ impl TypeBag {
 
         let field = match field {
             WorkRecordKey::Prop(register) => RecordKey::Key(self.get(register)),
-            WorkRecordKey::Slot(slot) => RecordKey::Slot(slot),
+            // WorkRecordKey::Slot(slot) => RecordKey::Slot(slot),
+            _ => todo!(),
         };
 
         let keys_eq = |a, b| {
             use RecordKey::*;
             match (a, b) {
-                (Slot(a), Slot(b)) => a == b,
+                // (Slot(a), Slot(b)) => a == b,
                 (Key(a), Key(b)) => self.typ_eq(a, b),
                 _ => false,
             }
@@ -960,7 +959,8 @@ impl TypeBag {
 
         let field = match field {
             WorkRecordKey::Prop(register) => RecordKey::Key(self.get(register)),
-            WorkRecordKey::Slot(slot) => RecordKey::Slot(slot),
+            // WorkRecordKey::Slot(slot) => RecordKey::Slot(slot),
+            _ => todo!(),
         };
 
         match value {
@@ -979,13 +979,14 @@ impl TypeBag {
 
         let field = match field {
             WorkRecordKey::Prop(register) => RecordKey::Key(self.get(register)),
-            WorkRecordKey::Slot(slot) => RecordKey::Slot(slot),
+            // WorkRecordKey::Slot(slot) => RecordKey::Slot(slot),
+            _ => todo!(),
         };
 
         let keys_eq = |a, b| {
             use RecordKey::*;
             match (a, b) {
-                (Slot(a), Slot(b)) => a == b,
+                // (Slot(a), Slot(b)) => a == b,
                 (Key(a), Key(b)) => self.typ_eq(a, b),
                 _ => false,
             }
@@ -1296,7 +1297,7 @@ impl TypeBag {
 
             use RecordKey::*;
             match (a, b) {
-                (Slot(a), Slot(b)) => a == b,
+                // (Slot(a), Slot(b)) => a == b,
                 // a <: b
                 (Key(a), Key(b)) => self.is_subtype(a, b),
                 _ => false,
@@ -1578,7 +1579,7 @@ impl DisplayContext<'_> {
 
         match key {
             RecordKey::Key(k) => self.display_typ(w, k),
-            RecordKey::Slot(s) => write!(w, "[[{}]]", s),
+            // RecordKey::Slot(s) => write!(w, "[[{}]]", s),
         }
     }
 

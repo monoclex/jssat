@@ -118,7 +118,7 @@ use crate::{{
         emitter::{{ControlFlow, Emitter, LoopControlFlow}},
         js::ast::parse_nodes::ParseNodeKind,
     }},
-    isa::{{Atom, AtomDealer, InternalSlot, ValueType}},
+    isa::{{Atom, AtomDealer, ValueType}},
 }};
 
 {}",
@@ -317,13 +317,13 @@ fn emit_stmts(
                     Some(value) => {
                         let value = emit_expr(counter, block, value);
                         block.line(format!(
-                            "e.record_set_slot({}, InternalSlot::{}, {});",
+                            "e.record_set_atom({}, self.atoms.{}, {});",
                             record, slot, value
                         ));
                     }
                     None => {
                         block.line(format!(
-                            "e.record_del_slot({}, InternalSlot::{});",
+                            "e.record_del_atom({}, self.atoms.{});",
                             record, slot
                         ));
                     }
@@ -581,7 +581,7 @@ fn emit_expr(counter: &mut usize, block: &mut Block, expr: &Expression) -> Strin
         Expression::RecordGetSlot { record, slot } => {
             let record = emit_expr(counter, block, record);
             block.line(format!(
-                "let {} = e.record_get_slot({}, InternalSlot::{});",
+                "let {} = e.record_get_atom({}, self.atoms.{});",
                 result, record, slot
             ));
         }
@@ -596,7 +596,7 @@ fn emit_expr(counter: &mut usize, block: &mut Block, expr: &Expression) -> Strin
         Expression::RecordHasSlot { record, slot } => {
             let expr = emit_expr(counter, block, record);
             block.line(format!(
-                "let {} = e.record_has_slot({}, InternalSlot::{});",
+                "let {} = e.record_has_atom({}, self.atoms.{});",
                 result, expr, slot
             ));
         }
@@ -749,5 +749,9 @@ impl Visitor for AtomVisitor {
         }
 
         self.visit_expr_impl(expr);
+    }
+
+    fn visit_slot(&mut self, slot: &mut String) {
+        self.atoms.insert(slot.clone());
     }
 }

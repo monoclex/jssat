@@ -3,7 +3,6 @@
 #[cfg(test)]
 use crate::{
     frontend::builder::ProgramBuilder,
-    isa::InternalSlot,
     isa::{BlockJump, Jump},
     lifted::EndInstruction,
     symbolic_execution::{
@@ -121,13 +120,14 @@ pub fn mutations_in_function_propagate_to_caller() {
     todo!("TODO: annotate test with `#[serial]` from `serial_test`");
 
     let mut program = ProgramBuilder::new();
+    let base = program.dealer.deal("base");
 
     let mutate = {
         let (mut mutate, [record]) = program.start_function();
         let mut block = mutate.start_block_main();
         let null = program.dealer.deal("null");
         let null = block.make_atom(null);
-        block.record_set_slot(record, InternalSlot::Base, null);
+        block.record_set_atom(record, base, null);
         mutate.end_block(block.ret(None));
         program.end_function(mutate)
     };
@@ -138,7 +138,7 @@ pub fn mutations_in_function_propagate_to_caller() {
 
         let record = block.record_new();
         block.call(mutate, [record]);
-        let has_key = block.record_has_slot(record, InternalSlot::Base);
+        let has_key = block.record_has_atom(record, base);
 
         main.end_block(block.ret(Some(has_key)));
 
@@ -196,13 +196,15 @@ pub fn shape_weirdness_does_not_happen() {
     todo!("TODO: annotate test with `#[serial]` from `serial_test`");
 
     let mut program = ProgramBuilder::new();
+    let base = program.dealer.deal("Base");
+    let binding_object = program.dealer.deal("BindingObject");
 
     let mutate = {
         let (mut mutate, [record]) = program.start_function();
         let mut block = mutate.start_block_main();
 
         let one = block.make_number_decimal(1);
-        block.record_set_slot(record, InternalSlot::Base, one);
+        block.record_set_atom(record, base, one);
 
         mutate.end_block(block.ret(None));
         program.end_function(mutate)
@@ -215,10 +217,10 @@ pub fn shape_weirdness_does_not_happen() {
         let one = block.make_number_decimal(1);
 
         let big = block.record_new();
-        block.record_set_slot(big, InternalSlot::Base, one);
-        block.record_set_slot(big, InternalSlot::BindingObject, one);
-        block.record_del_slot(big, InternalSlot::Base);
-        block.record_del_slot(big, InternalSlot::BindingObject);
+        block.record_set_atom(big, base, one);
+        block.record_set_atom(big, binding_object, one);
+        block.record_del_atom(big, base);
+        block.record_del_atom(big, binding_object);
 
         let small = block.record_new();
 

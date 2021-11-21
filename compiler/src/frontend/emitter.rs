@@ -112,9 +112,9 @@ impl<'b, const P: usize> Emitter<'b, P> {
 
     /// Creates a loop with a set of initialization expressions, a condition
     // TODO: thorough documentation
-    pub fn do_loop<const R: usize>(
+    pub fn do_loop<'closure, const R: usize>(
         &mut self,
-        init_exprs: [Box<dyn FnOnce(&mut Self) -> RegisterId>; R],
+        init_exprs: [Box<dyn FnOnce(&mut Self) -> RegisterId + 'closure>; R],
         cond_expr: impl FnOnce(&mut Self, [RegisterId; R]) -> RegisterId,
         body: impl FnOnce(&mut Self, [RegisterId; R]) -> LoopControlFlow<R>,
     ) {
@@ -126,9 +126,9 @@ impl<'b, const P: usize> Emitter<'b, P> {
     }
 
     /// See [`do_loop`] for more documentation
-    pub fn do_loop_dyn(
+    pub fn do_loop_dyn<'closure>(
         &mut self,
-        init_exprs: Vec<Box<dyn FnOnce(&mut Self) -> RegisterId>>,
+        init_exprs: Vec<Box<dyn FnOnce(&mut Self) -> RegisterId + 'closure>>,
         cond_expr: impl FnOnce(&mut Self, Vec<RegisterId>) -> RegisterId,
         body: impl FnOnce(&mut Self, Vec<RegisterId>) -> ControlFlow,
     ) {
@@ -684,5 +684,23 @@ mod tests {
         });
 
         value_is_bytes("added", run([]).get());
+    }
+
+    #[test]
+    fn compiles() {
+        // this makes sure we have the `<'closure>` thing on the function
+        fn _get_active_script_or_module(
+            me: &crate::frontend::js::ecmascript::ECMA262Methods,
+            mut e: Emitter<1>,
+        ) -> FnSignature<1> {
+            e.do_loop(
+                [Box::new(move |e| {
+                    e.make_atom(me.atoms.JSSATExecutionContextStack)
+                })],
+                |_, [x]| x,
+                |_, [x]| LoopControlFlow::Next([x]),
+            );
+            e.finish(None)
+        }
     }
 }

@@ -8,10 +8,7 @@ use rustc_hash::FxHashMap;
 use tinyvec::{Array, ArrayVec, TinyVec};
 
 use super::{Type, TypeCtx};
-use crate::{
-    id::{RecordId, Tag, UniqueRecordId},
-    isa::InternalSlot,
-};
+use crate::id::{RecordId, Tag, UniqueRecordId};
 
 #[derive(Clone, Default)]
 pub struct Record<'ctx, T: Tag> {
@@ -35,7 +32,6 @@ impl<'ctx, T: Tag> Default for Facts<'ctx, T> {
 #[derive(Clone, Copy, Hash)]
 enum RecordKey<'ctx, T: Tag> {
     Key(Type<'ctx, T>),
-    Slot(InternalSlot),
 }
 
 /// we need a number to determine when a fact was added so that optimization

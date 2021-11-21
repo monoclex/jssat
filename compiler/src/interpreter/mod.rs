@@ -27,7 +27,6 @@ use crate::{collections::StrictZip, isa::BinaryOperator};
 use crate::{
     frontend::ir::Instruction,
     id::LiftedCtx,
-    isa::InternalSlot,
     lifted::{
         ConstantId, EndInstruction, ExternalFunctionId, FunctionId, LiftedProgram, RegisterId,
     },
@@ -45,7 +44,6 @@ pub struct ExtFnImpl {
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum RecordKey {
-    Slot(InternalSlot),
     Atom(Atom),
     // TODO: use GC'd Vec<u8>s to prevent excessive cloning
     Bytes(Vec<u8>),
@@ -180,14 +178,7 @@ impl Record {
     pub fn try_get(&self, key: &RecordKey) -> InstResult<&Value> {
         self.get(key).ok_or_else(|| {
             #[cfg(debug_assertions)]
-            println!(
-                "failed to get record key on parse node kind: {:?}",
-                self.get(&RecordKey::Slot(InternalSlot::JSSATParseNodeKind))
-                    .map(|x| match x {
-                        Value::Atom(x) => x,
-                        _ => unreachable!(),
-                    }),
-            );
+            println!("failed to get record key");
             InstErr::RecordDNCKey(key.clone(), Location::caller())
         })
     }
@@ -630,7 +621,7 @@ impl<'c> InstExec<'c> {
             GetRuntime(i) => {
                 self.registers.insert(i.result, Value::Runtime);
             }
-            Unreachable(i) => {
+            Unreachable(_) => {
                 return Err(InstErr::Unreachable(Location::caller()));
             }
         }
@@ -642,7 +633,7 @@ impl<'c> InstExec<'c> {
     fn to_key(&self, key: crate::isa::RecordKey<LiftedCtx>) -> InstResult<RecordKey> {
         match key {
             crate::isa::RecordKey::Prop(register) => self.value_to_key(self.get(register)?),
-            crate::isa::RecordKey::Slot(slot) => Ok(RecordKey::Slot(slot)),
+            crate::isa::RecordKey::Atom(atom) => Ok(RecordKey::Atom(atom)),
         }
     }
 

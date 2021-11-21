@@ -1,11 +1,12 @@
 use crate::frontend::{builder::*, ir::*};
 
-use crate::isa::InternalSlot;
-
 // might be vaguely useful in the future as tutorial code or something
 #[allow(dead_code)]
 pub fn traverse(_source: String) -> IR {
     let mut builder = ProgramBuilder::new();
+
+    let host_defined = builder.dealer.deal("host_defined");
+    let call = builder.dealer.deal("call");
 
     let print_stub = {
         let (mut print_stub, [any]) = builder.start_function();
@@ -96,8 +97,8 @@ pub fn traverse(_source: String) -> IR {
 
         let key = block.make_string(builder.constant_str_utf16("key"));
         let prop_at_key = block.record_get_prop(record, key);
-        let prop_at_slot = block.record_get_slot(record, InternalSlot::HostDefined);
-        let call_it = block.record_get_slot(record, InternalSlot::Call);
+        let prop_at_slot = block.record_get_atom(record, host_defined);
+        let call_it = block.record_get_atom(record, call);
         block.call(print_stub, [prop_at_key]);
         block.call(print_stub, [prop_at_slot]);
         block.call_virt(call_it, [key]);
@@ -123,9 +124,9 @@ pub fn traverse(_source: String) -> IR {
         let value = block.make_number_decimal(69);
         block.record_set_prop(obj, key, value);
         let value = block.make_number_decimal(1);
-        block.record_set_slot(obj, InternalSlot::HostDefined, value);
+        block.record_set_atom(obj, host_defined, value);
         let fnptr = block.make_fnptr(print_stub.id);
-        block.record_set_slot(obj, InternalSlot::Call, fnptr);
+        block.record_set_atom(obj, call, fnptr);
 
         block.call(print_is_cool_and_key, [obj]);
 

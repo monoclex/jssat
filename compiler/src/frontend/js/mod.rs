@@ -4,7 +4,7 @@ mod frontend_pseudo;
 pub use frontend_pseudo::traverse;
 use swc_ecmascript::parser::PResult;
 
-use crate::{frontend::js::ast::parse_nodes::Dealer, isa::InternalSlot};
+use crate::{frontend::js::ast::parse_nodes::Dealer, isa::Atom};
 
 use self::{ast::parse_nodes::Visitor, ecmascript::ECMA262Methods};
 
@@ -72,12 +72,16 @@ impl<'p> JavaScriptFrontend<'p> {
 
         // for some reason, ecmascript spec doesn't have initializehostdefinedrealm
         // return the execution context :/
-        let exec_ctx = get_execution_context(block, threaded_global);
+        let exec_ctx = get_execution_context(
+            self.ecma_methods.atoms.JSSATExecutionContextStack,
+            block,
+            threaded_global,
+        );
 
         // the last step in "InitializeHostDefinedRealm" states:
         // 11. Create any host-defined global object properties on globalObj.
-        let realm = block.record_get_slot(exec_ctx, InternalSlot::Realm);
-        let global_object = block.record_get_slot(realm, InternalSlot::GlobalObject);
+        let realm = block.record_get_atom(exec_ctx, self.ecma_methods.atoms.Realm);
+        let global_object = block.record_get_atom(realm, self.ecma_methods.atoms.GlobalObject);
 
         let hook = hosts::HostHookState {
             ecma_methods: &self.ecma_methods,
@@ -107,11 +111,11 @@ impl<'p> JavaScriptFrontend<'p> {
         return Ok(result);
 
         fn get_execution_context(
+            atom: Atom,
             block: &mut DynBlockBuilder,
             threaded_global: RegisterId,
         ) -> RegisterId {
-            let exec_ctx_stack =
-                block.record_get_slot(threaded_global, InternalSlot::JSSATExecutionContextStack);
+            let exec_ctx_stack = block.record_get_atom(threaded_global, atom);
             let last = block.list_len(exec_ctx_stack);
             let one = block.make_number_decimal(1);
             let neg_one = block.negate(one);
