@@ -50,6 +50,9 @@ pub trait ISAInstruction<C: Tag> {
     fn display(&self, w: &mut impl Write) -> std::fmt::Result;
 }
 
+mod atom;
+pub use atom::Atom;
+
 mod noop;
 pub use noop::Noop;
 
@@ -95,6 +98,9 @@ pub use assert::Assert;
 
 mod is_type;
 pub use is_type::{CompareType, IsType, ValueType};
+
+mod get_runtime;
+pub use get_runtime::GetRuntime;
 
 pub struct Registers<'a, R: Tag>(pub &'a Vec<RegisterId<R>>);
 

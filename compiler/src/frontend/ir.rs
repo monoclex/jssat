@@ -106,7 +106,7 @@ pub enum Instruction<C: Tag = crate::id::IrCtx, F: Tag = crate::id::IrCtx> {
     // FAR FUTURE: GcEndRegion(RegisterId),
     // FAR FUTURE: GcTracingMarkRoot(RegisterId),
     // FAR FUTURE: GcTracingUnmarkRoot(RegisterId),
-    MakeTrivial(Make<C, TrivialItem>),
+    MakeTrivial(Make<C, Atom>),
     /// # `MakeString`
     ///
     /// Will instantiate a string, using the constant referenced as payload for
@@ -130,6 +130,7 @@ pub enum Instruction<C: Tag = crate::id::IrCtx, F: Tag = crate::id::IrCtx> {
     Generalize(Generalize<C>),
     Assert(Assert<C>),
     IsType(IsType<C>),
+    GetRuntime(GetRuntime<C>),
 }
 
 pub struct DisplayInst<'instruction, C: Tag, F: Tag>(&'instruction Instruction<C, F>);
@@ -186,6 +187,7 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::Generalize(inst) => Instruction::Generalize(inst.retag(retagger)),
             Instruction::Assert(inst) => Instruction::Assert(inst.retag(retagger)),
             Instruction::IsType(inst) => Instruction::IsType(inst.retag(retagger)),
+            Instruction::GetRuntime(inst) => Instruction::GetRuntime(inst.retag(retagger)),
         }
     }
 }
@@ -236,6 +238,7 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::ListSet(inst) => inst.declared_register(),
             Instruction::ListHasKey(inst) => inst.declared_register(),
             Instruction::ListLen(inst) => inst.declared_register(),
+            Instruction::GetRuntime(inst) => inst.declared_register(),
         }
     }
 
@@ -264,6 +267,7 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::ListSet(inst) => inst.used_registers(),
             Instruction::ListHasKey(inst) => inst.used_registers(),
             Instruction::ListLen(inst) => inst.used_registers(),
+            Instruction::GetRuntime(inst) => inst.used_registers(),
         }
     }
 
@@ -292,6 +296,7 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::ListSet(inst) => inst.used_registers_mut(),
             Instruction::ListHasKey(inst) => inst.used_registers_mut(),
             Instruction::ListLen(inst) => inst.used_registers_mut(),
+            Instruction::GetRuntime(inst) => inst.used_registers_mut(),
         }
     }
 
@@ -324,6 +329,7 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::ListSet(inst) => inst.display(w),
             Instruction::ListHasKey(inst) => inst.display(w),
             Instruction::ListLen(inst) => inst.display(w),
+            Instruction::GetRuntime(inst) => inst.display(w),
         }
     }
 }

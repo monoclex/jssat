@@ -56,7 +56,7 @@ macro_rules! gen_id {
                 convert::<Self, I>(*self)
             }
 
-            #[deprecated]
+            // #[deprecated]
             pub fn map_context<C2: Tag>(&self) -> $name<C2> {
                 $name::<C2>::new_with_value_const(self.value())
             }

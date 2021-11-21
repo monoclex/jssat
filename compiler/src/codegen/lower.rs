@@ -50,8 +50,8 @@ impl<'a> Lowerer<'a> {
     fn lower(&mut self) -> FxHashMap<FunctionId<LowerCtx>, Function<LowerCtx>> {
         // first, we need to explore all the functions
         // this is so we can use `fn_id_mapper`'s `retag_old` in our code
-        // otherwise when retagging `CallStatic` instructions for functions we haven't visited,
-        // we'd be unable to retag those instructions
+        // otherwise when retagging `CallStatic` instructions for functions we haven't
+        // visited, we'd be unable to retag those instructions
 
         let pre_explore = self.explore_queue.clone();
         while let Some(typed_program_fn_id) = self.explore_queue.next() {
@@ -74,7 +74,8 @@ impl<'a> Lowerer<'a> {
         functions
     }
 
-    /// Explores a function's blocks and adds functions to visit to the `explore_queue`.
+    /// Explores a function's blocks and adds functions to visit to the
+    /// `explore_queue`.
     fn explore_fn(&mut self, typed_program_fn_id: FunctionId<AssemblerCtx>) {
         let mut block_list = ExploreQueue::default();
         block_list.enqueue(typed_program_fn_id);
@@ -105,13 +106,15 @@ impl<'a> Lowerer<'a> {
     /// Takes a lifted function, and produces a lowered function.
     fn map_fn(&mut self, typed_program_fn_id: FunctionId<AssemblerCtx>) -> Function<LowerCtx> {
         // every lifted function has their own unique id
-        // we want to map these into lowered function block ids, which are local to a lowered function
-        // so since every lifted function id is unique, we can map them all into a local block id
+        // we want to map these into lowered function block ids, which are local to a
+        // lowered function so since every lifted function id is unique, we can
+        // map them all into a local block id
         let mut block_id_mapper = BlkMapRetagger::<AssemblerCtx, LowerCtx>::default();
 
         // we want to fill `block_id_mapper` with the mapped IDs
-        // this is because when mapping an `EndInstruction`, we need to `retag_new` the ID at the end
-        // but also need to `retag_new` at the beginning for `typed_program_fn_id`
+        // this is because when mapping an `EndInstruction`, we need to `retag_new` the
+        // ID at the end but also need to `retag_new` at the beginning for
+        // `typed_program_fn_id`
         let mut block_list = ExploreQueue::default();
         block_list.enqueue(typed_program_fn_id);
 
@@ -144,13 +147,15 @@ impl<'a> Lowerer<'a> {
         let mut block_list = ExploreQueue::default();
         block_list.enqueue(typed_program_fn_id);
 
-        // a lifted function has its own set of registers that start from 0. since a lowered function
-        // is composed of multiple lifted functions, we use a regmapretagger for each lifted function, and
-        // then create a new regmapretagger with the same counter as the previous one, so that new registers
-        // don't overlap with old ones
+        // a lifted function has its own set of registers that start from 0. since a
+        // lowered function is composed of multiple lifted functions, we use a
+        // regmapretagger for each lifted function, and then create a new
+        // regmapretagger with the same counter as the previous one, so that new
+        // registers don't overlap with old ones
         let mut prev_reg_retagger = RegMapRetagger::default();
 
-        // we don't change or modify constants or external functions, so we'll just set up stubs here
+        // we don't change or modify constants or external functions, so we'll just set
+        // up stubs here
         let mut const_retagger = CnstPassRetagger::default();
         const_retagger.ignore_checks();
 
@@ -194,12 +199,13 @@ impl<'a> Lowerer<'a> {
                     CallVirt(_) => panic!("virtual instructions not supported"),
                     // CallVirt(i.retag(&mut reg_retagger)),
                     GetFnPtr(i) => GetFnPtr(i.retag(&mut reg_retagger, &fnptr_retagger)),
-                    MakeTrivial(i) => MakeTrivial(i.retag(&mut reg_retagger)),
+                    // MakeTrivial(i) => MakeTrivial(i.retag(&mut reg_retagger)),
                     MakeBytes(i) => MakeBytes(i.retag(&mut reg_retagger, &const_retagger)),
                     MakeInteger(i) => MakeInteger(i.retag(&mut reg_retagger)),
                     MakeBoolean(i) => MakeBoolean(i.retag(&mut reg_retagger)),
                     BinOp(i) => BinOp(i.retag(&mut reg_retagger)),
                     Negate(i) => Negate(i.retag(&mut reg_retagger)),
+                    _ => todo!(),
                 };
                 instructions.push(new_inst);
             }

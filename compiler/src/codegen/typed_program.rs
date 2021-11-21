@@ -235,9 +235,9 @@ impl<'r> FnTyper<'r, '_> {
                         .collect(),
                 })
             }
-            ir::Instruction::MakeTrivial(i) => {
-                Instruction::MakeTrivial(i.retag(&mut self.reg_retagger))
-            }
+            // ir::Instruction::MakeTrivial(i) => {
+            //     Instruction::MakeTrivial(i.retag(&mut self.reg_retagger))
+            // }
             ir::Instruction::MakeBytes(i) => {
                 let const_retagger = self.constant_id_mapper;
                 let reg_retagger = &mut self.reg_retagger;
@@ -259,6 +259,7 @@ impl<'r> FnTyper<'r, '_> {
             ir::Instruction::ListSet(_) => todo!(),
             ir::Instruction::ListHasKey(_) => todo!(),
             ir::Instruction::ListLen(_) => todo!(),
+            _ => todo!(),
         }
     }
 

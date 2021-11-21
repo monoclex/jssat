@@ -7,15 +7,15 @@ use crate::{id::*, retag::RegRetagger};
 
 #[derive(Clone, Copy, Debug, Display, PartialEq, Eq, Hash)]
 pub enum ValueType {
-    Trivial,
+    Atom,
     Bytes,
     Number,
     Boolean,
     FnPtr,
     Record,
-    Symbol,
     BigNumber,
     List,
+    Runtime,
 }
 
 // TODO(isa/specification): add a new 'type' value to allow carrying around and

@@ -14,8 +14,9 @@
 #![deny(clippy::disallowed_method)]
 #![feature(slice_pattern)]
 #![feature(associated_type_bounds)]
+#![feature(nonzero_ops)]
 // this is to silence `.map_context()` for the time being
-#![allow(deprecated)]
+// #![allow(deprecated)]
 
 use std::{io::Write, process::Command, time::Instant};
 

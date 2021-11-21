@@ -21,7 +21,7 @@ use gc::{custom_trace, BorrowError, BorrowMutError, Finalize, Gc, GcCell, Trace}
 use rustc_hash::FxHashMap;
 use thiserror::Error;
 
-use crate::isa::{CompareType, ValueType};
+use crate::isa::{Atom, CompareType, ValueType};
 use crate::{collections::StrictZip, isa::BinaryOperator};
 
 use crate::{
@@ -46,7 +46,7 @@ pub struct ExtFnImpl {
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum RecordKey {
     Slot(InternalSlot),
-    Trivial(TrivialItem),
+    Atom(Atom),
     // TODO: use GC'd Vec<u8>s to prevent excessive cloning
     Bytes(Vec<u8>),
     Number(i64),
@@ -63,28 +63,28 @@ pub enum ListKey {
 
 #[derive(Clone, Debug, Trace, Finalize)]
 pub enum Value {
-    Trivial(#[unsafe_ignore_trace] TrivialItem),
+    Atom(#[unsafe_ignore_trace] Atom),
     // TODO: use GC'd Vec<u8>s to prevent excessive cloning
     Bytes(Vec<u8>),
     Number(i64),
     Boolean(bool),
     FnPtr(#[unsafe_ignore_trace] FunctionId),
     Record(Gc<GcCell<Record>>),
-    Symbol(()),
     List(Gc<GcCell<List>>),
+    Runtime,
 }
 
 impl Value {
     pub fn kind(&self) -> ValueType {
         match self {
-            Value::Trivial(_) => ValueType::Trivial,
+            Value::Atom(_) => ValueType::Atom,
             Value::Bytes(_) => ValueType::Bytes,
             Value::Number(_) => ValueType::Number,
             Value::Boolean(_) => ValueType::Boolean,
             Value::FnPtr(_) => ValueType::FnPtr,
             Value::Record(_) => ValueType::Record,
-            Value::Symbol(_) => ValueType::Symbol,
             Value::List(_) => ValueType::List,
+            Value::Runtime => ValueType::Runtime,
         }
     }
 }
@@ -102,7 +102,7 @@ macro_rules! value_unwrap {
 }
 
 impl Value {
-    value_unwrap!(try_into_trivial, Trivial, TrivialItem);
+    value_unwrap!(try_into_atom, Atom, Atom);
     // TODO(refactor): would it be possible to make `value_unwrap!` macro detect
     //     if a type is trivially copyable, and if so, copy the value for us
     //     within the macro? that would allow us to re-use the macro
@@ -184,7 +184,7 @@ impl Record {
                 "failed to get record key on parse node kind: {:?}",
                 self.get(&RecordKey::Slot(InternalSlot::JSSATParseNodeKind))
                     .map(|x| match x {
-                        Value::Trivial(x) => x,
+                        Value::Atom(x) => x,
                         _ => unreachable!(),
                     }),
             );
@@ -473,7 +473,7 @@ impl<'c> InstExec<'c> {
                 self.call_fn(&i.args, fn_id, i.result)?;
             }
             MakeTrivial(i) => {
-                self.registers.insert(i.result, Value::Trivial(i.item));
+                self.registers.insert(i.result, Value::Atom(i.item));
             }
             MakeBytes(i) => {
                 let bytes = self.lookup_constant(i.item)?;
@@ -524,8 +524,8 @@ impl<'c> InstExec<'c> {
                         (Number(lhs), Number(rhs)) => lhs == rhs,
                         (Bytes(lhs), Bytes(rhs)) => lhs == rhs,
                         (Boolean(lhs), Boolean(rhs)) => lhs == rhs,
-                        (Trivial(lhs), Trivial(rhs)) => lhs == rhs,
-                        (Record(_), Trivial(_)) | (Trivial(_), Record(_)) => false,
+                        (Atom(lhs), Atom(rhs)) => lhs == rhs,
+                        (Record(_), Atom(_)) | (Atom(_), Record(_)) => false,
                         _ => return fail(),
                     }),
                     LessThan => Boolean(match (lhs, rhs) {
@@ -572,14 +572,14 @@ impl<'c> InstExec<'c> {
                 };
 
                 let is_type = match (value, target_kind) {
-                    (Value::Trivial(_), ValueType::Trivial)
+                    (Value::Atom(_), ValueType::Atom)
                     | (Value::Bytes(_), ValueType::Bytes)
                     | (Value::Number(_), ValueType::Number)
                     | (Value::Boolean(_), ValueType::Boolean)
                     | (Value::FnPtr(_), ValueType::FnPtr)
                     | (Value::Record(_), ValueType::Record)
-                    | (Value::Symbol(_), ValueType::Symbol)
-                    | (Value::List(_), ValueType::List) => Value::Boolean(true),
+                    | (Value::List(_), ValueType::List)
+                    | (Value::Runtime, ValueType::Runtime) => Value::Boolean(true),
                     _ => Value::Boolean(false),
                 };
 
@@ -624,6 +624,9 @@ impl<'c> InstExec<'c> {
                 drop(list);
                 self.registers.insert(i.result, Value::Number(len as i64));
             }
+            GetRuntime(i) => {
+                self.registers.insert(i.result, Value::Runtime);
+            }
         }
 
         Ok(())
@@ -661,15 +664,18 @@ impl<'c> InstExec<'c> {
             Value::Boolean(value) => RecordKey::Boolean(*value),
             Value::Bytes(value) => RecordKey::Bytes(value.clone()),
             Value::FnPtr(value) => RecordKey::FnPtr(*value),
-            Value::Trivial(value) => RecordKey::Trivial(*value),
+            Value::Atom(value) => RecordKey::Atom(*value),
             Value::Number(value) => RecordKey::Number(*value),
-            Value::Symbol(_) => todo!("implement symbol as record key"),
             // TODO: support using records as keys, as this is possible
             // in python (and i think lua)
             Value::Record(_) => {
                 return Err(InstErr::InvalidRecKey(value.clone(), Location::caller()))
             }
             Value::List(_) => {
+                return Err(InstErr::InvalidRecKey(value.clone(), Location::caller()))
+            }
+            // will never be possible
+            Value::Runtime => {
                 return Err(InstErr::InvalidRecKey(value.clone(), Location::caller()))
             }
         })

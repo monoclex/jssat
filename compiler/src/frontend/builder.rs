@@ -452,6 +452,16 @@ impl DynBlockBuilder {
         }
     }
 
+    fn with_result(&mut self, inst: impl FnOnce(&mut Self, RegisterId)) -> RegisterId {
+        let result = self.gen_register_id.next();
+        inst(self, result);
+        result
+    }
+
+    fn push_inst(&mut self, inst: impl FnOnce(RegisterId) -> Instruction) -> RegisterId {
+        self.with_result(|me, result| me.instructions.push(inst(result)))
+    }
+
     /// Used in the emitter API. Basically a hacky workaround, shouldn't need to
     /// exist but /shrug
     pub(crate) fn add_parameter(&mut self) -> RegisterId {
@@ -506,10 +516,8 @@ impl DynBlockBuilder {
     pub fn get_runtime(&mut self) -> RegisterId {
         let result = self.gen_register_id.next();
 
-        self.instructions.push(Instruction::MakeTrivial(Make {
-            result,
-            item: TrivialItem::Runtime,
-        }));
+        self.instructions
+            .push(Instruction::GetRuntime(GetRuntime { result }));
 
         result
     }
@@ -541,29 +549,36 @@ impl DynBlockBuilder {
         result
     }
 
-    pub fn make_trivial(&mut self, item: TrivialItem) -> RegisterId {
-        let result = self.gen_register_id.next();
-        self.instructions
-            .push(Instruction::MakeTrivial(Make { result, item }));
-        result
+    pub fn make_atom(&mut self, atom: Atom) -> RegisterId {
+        self.push_inst(|result| Instruction::MakeTrivial(Make { result, item: atom }))
     }
 
+    #[deprecated]
+    pub fn make_trivial(&mut self, item: TrivialItem) -> RegisterId {
+        todo!("phase me out")
+    }
+
+    #[deprecated]
     pub fn make_null(&mut self) -> RegisterId {
         self.make_trivial(TrivialItem::Null)
     }
 
+    #[deprecated]
     pub fn make_undefined(&mut self) -> RegisterId {
         self.make_trivial(TrivialItem::Undefined)
     }
 
+    #[deprecated]
     pub fn make_throw(&mut self) -> RegisterId {
         self.make_trivial(TrivialItem::Throw)
     }
 
+    #[deprecated]
     pub fn make_empty(&mut self) -> RegisterId {
         self.make_trivial(TrivialItem::Empty)
     }
 
+    #[deprecated]
     pub fn make_normal(&mut self) -> RegisterId {
         self.make_trivial(TrivialItem::Normal)
     }

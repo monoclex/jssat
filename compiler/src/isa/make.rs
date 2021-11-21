@@ -2,7 +2,7 @@ use derive_more::Display;
 use std::fmt::{Display, Write};
 use tinyvec::TinyVec;
 
-use super::{ISAInstruction, InternalSlot};
+use super::{atom::AtomDealer, Atom, ISAInstruction, InternalSlot};
 use crate::{
     id::*,
     retag::{CnstRetagger, FnRetagger, RegRetagger},
@@ -34,6 +34,50 @@ impl<C: Tag, I: Display> ISAInstruction<C> for Make<C, I> {
     }
 }
 
+#[allow(non_snake_case)]
+#[derive(Clone, Copy)]
+pub struct TrivialItemCompat {
+    pub Runtime: Atom,
+    pub Null: Atom,
+    pub Undefined: Atom,
+    pub Empty: Atom,
+    pub Throw: Atom,
+    pub Unresolvable: Atom,
+    pub Lexical: Atom,
+    pub Strict: Atom,
+    pub Global: Atom,
+    pub LexicalThis: Atom,
+    pub Return: Atom,
+    pub Initialized: Atom,
+    pub Uninitialized: Atom,
+    pub Sync: Atom,
+}
+
+impl TrivialItemCompat {
+    pub fn new(dealer: &mut AtomDealer) -> Self {
+        let [runtime, null, undefined, empty, throw, unresolvable, lexical, strict, global, lexical_this, r#return, initialized, uninitialized, sync] =
+            [(); 14].map(|_| dealer.next());
+
+        Self {
+            Runtime: runtime,
+            Null: null,
+            Undefined: undefined,
+            Empty: empty,
+            Throw: throw,
+            Unresolvable: unresolvable,
+            Lexical: lexical,
+            Strict: strict,
+            Global: global,
+            LexicalThis: lexical_this,
+            Return: r#return,
+            Initialized: initialized,
+            Uninitialized: uninitialized,
+            Sync: sync,
+        }
+    }
+}
+
+#[deprecated]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Display)]
 pub enum TrivialItem {
     /// JSSAT Runtime
@@ -68,9 +112,9 @@ pub enum TrivialItem {
     Sync,
 }
 
-impl<T: Tag> Make<T, TrivialItem> {
+impl<T: Tag> Make<T, Atom> {
     #[track_caller]
-    pub fn retag<T2: Tag>(self, retagger: &mut impl RegRetagger<T, T2>) -> Make<T2, TrivialItem> {
+    pub fn retag<T2: Tag>(self, retagger: &mut impl RegRetagger<T, T2>) -> Make<T2, Atom> {
         Make {
             result: retagger.retag_new(self.result),
             item: self.item,
