@@ -235,8 +235,8 @@ impl<'r> FnTyper<'r, '_> {
                         .collect(),
                 })
             }
-            // ir::Instruction::MakeTrivial(i) => {
-            //     Instruction::MakeTrivial(i.retag(&mut self.reg_retagger))
+            // ir::Instruction::MakeAtom(i) => {
+            //     Instruction::MakeAtom(i.retag(&mut self.reg_retagger))
             // }
             ir::Instruction::MakeBytes(i) => {
                 let const_retagger = self.constant_id_mapper;

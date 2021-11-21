@@ -103,7 +103,7 @@ impl<'ctx, T: Tag> EqualityResolver<'ctx, T> {
                 MaybeEqual::Maybe
             }
             (Any, Any) | (Bytes, Bytes) | (Number, Number) | (Boolean, Boolean) => MaybeEqual::Yes,
-            (Trivial(a), Trivial(b)) => MaybeEqual::from(a == b),
+            (Atom(a), Atom(b)) => MaybeEqual::from(a == b),
             (Int(a), Int(b)) => MaybeEqual::from(a == b),
             (Float(a), Float(b)) => MaybeEqual::from(a == b),
             (Bool(a), Bool(b)) => MaybeEqual::from(a == b),

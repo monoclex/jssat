@@ -199,7 +199,7 @@ impl<'a> Lowerer<'a> {
                     CallVirt(_) => panic!("virtual instructions not supported"),
                     // CallVirt(i.retag(&mut reg_retagger)),
                     GetFnPtr(i) => GetFnPtr(i.retag(&mut reg_retagger, &fnptr_retagger)),
-                    // MakeTrivial(i) => MakeTrivial(i.retag(&mut reg_retagger)),
+                    // MakeAtom(i) => MakeAtom(i.retag(&mut reg_retagger)),
                     MakeBytes(i) => MakeBytes(i.retag(&mut reg_retagger, &const_retagger)),
                     MakeInteger(i) => MakeInteger(i.retag(&mut reg_retagger)),
                     MakeBoolean(i) => MakeBoolean(i.retag(&mut reg_retagger)),

@@ -17,7 +17,7 @@ use ordered_float::OrderedFloat;
 
 use crate::{
     id::{FunctionId, LiftedCtx, Tag, UnionId},
-    isa::TrivialItem,
+    isa::Atom,
 };
 
 use derive_more::{Deref, DerefMut};
@@ -92,10 +92,10 @@ pub enum Type<'ctx, T: Tag> {
     /// interpreter must take both paths when trying to decide which path to
     /// take for a [`Type::Boolean`].
     Boolean,
-    /// [`Type::Trivial`] represents a variable with a symbolic value. This is
+    /// [`Type::Atom`] represents a variable with a symbolic value. This is
     /// used to represent `null` and `undefined`, and is also used to represent
     /// any other sentinals.
-    Trivial(TrivialItem),
+    Atom(Atom),
     /// [`Type::Int`] represents an integer of exactly the specified value. A
     /// variable of this type can only hold one possible value, which is the
     /// integer specified.

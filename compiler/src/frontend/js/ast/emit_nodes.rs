@@ -7,7 +7,7 @@ use crate::{
         builder::{DynBlockBuilder, FnSignature, ProgramBuilder, RegisterId},
         js::ecmascript::ECMA262Methods,
     },
-    isa::{InternalSlot, TrivialItem},
+    isa::InternalSlot,
     UnwrapNone,
 };
 
@@ -140,8 +140,8 @@ impl ParseNode {
         let block = &mut emitter.block;
         let parse_node = block.record_new();
 
-        let trivial_kind = block.make_atom(emitter.dealer.translate(kind));
-        block.record_set_slot(parse_node, InternalSlot::JSSATParseNodeKind, trivial_kind);
+        let node_kind = block.make_atom(emitter.dealer.translate(kind));
+        block.record_set_slot(parse_node, InternalSlot::JSSATParseNodeKind, node_kind);
 
         let variant_i64: i64 = variant_idx.try_into().unwrap();
         let variant_kind = block.make_number_decimal(variant_i64);

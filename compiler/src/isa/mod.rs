@@ -66,7 +66,7 @@ mod control_flow;
 pub use control_flow::{BlockJump, Jump, JumpIf, Return};
 
 mod make;
-pub use make::{Make, TrivialItem};
+pub use make::Make;
 
 mod negate;
 pub use negate::Negate;

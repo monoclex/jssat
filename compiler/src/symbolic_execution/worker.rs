@@ -158,7 +158,7 @@ impl SymbWorker<'_> {
                 };
             }
             &ir::Instruction::GetFnPtr(i) => self.make(i, RegisterType::FnPtr),
-            &ir::Instruction::MakeTrivial(i) => todo!(),
+            &ir::Instruction::MakeAtom(i) => todo!(),
             &ir::Instruction::MakeInteger(i) => self.make(i, RegisterType::Int),
             &ir::Instruction::MakeBoolean(i) => self.make(i, RegisterType::Bool),
             ir::Instruction::MakeBytes(i) => {

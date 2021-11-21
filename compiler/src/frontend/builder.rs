@@ -549,37 +549,7 @@ impl DynBlockBuilder {
     }
 
     pub fn make_atom(&mut self, atom: Atom) -> RegisterId {
-        self.push_inst(|result| Instruction::MakeTrivial(Make { result, item: atom }))
-    }
-
-    #[deprecated]
-    pub fn make_trivial(&mut self, item: TrivialItem) -> RegisterId {
-        todo!("phase me out")
-    }
-
-    #[deprecated]
-    pub fn make_null(&mut self) -> RegisterId {
-        self.make_trivial(TrivialItem::Null)
-    }
-
-    #[deprecated]
-    pub fn make_undefined(&mut self) -> RegisterId {
-        self.make_trivial(TrivialItem::Undefined)
-    }
-
-    #[deprecated]
-    pub fn make_throw(&mut self) -> RegisterId {
-        self.make_trivial(TrivialItem::Throw)
-    }
-
-    #[deprecated]
-    pub fn make_empty(&mut self) -> RegisterId {
-        self.make_trivial(TrivialItem::Empty)
-    }
-
-    #[deprecated]
-    pub fn make_normal(&mut self) -> RegisterId {
-        self.make_trivial(TrivialItem::Normal)
+        self.push_inst(|result| Instruction::MakeAtom(Make { result, item: atom }))
     }
 
     pub fn make_fnptr(&mut self, function: FunctionId) -> RegisterId {

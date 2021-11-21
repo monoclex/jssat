@@ -118,7 +118,7 @@ use crate::{{
         emitter::{{ControlFlow, Emitter, LoopControlFlow}},
         js::ast::parse_nodes::ParseNodeKind,
     }},
-    isa::{{Atom, AtomDealer, InternalSlot, TrivialItem, ValueType}},
+    isa::{{Atom, AtomDealer, InternalSlot, ValueType}},
 }};
 
 {}",
@@ -643,10 +643,6 @@ fn emit_expr(counter: &mut usize, block: &mut Block, expr: &Expression) -> Strin
                 "let {} = e.make_atom(self.atoms.{});",
                 result, atom
             ));
-            // block.line(format!(
-            //     "let {} = e.make_trivial(TrivialItem::{});",
-            //     result, trivial_item
-            // ));
         }
         Expression::MakeBytes { bytes } => {
             block.line(format!(

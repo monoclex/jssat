@@ -12,7 +12,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::collections::{FxBiHashMap, StrictZip};
 use crate::id::{IdCompat, LiftedCtx, SymbolicCtx, UniqueRecordId};
-use crate::isa::{InternalSlot, TrivialItem};
+use crate::isa::{Atom, InternalSlot};
 use crate::UnwrapNone;
 
 type AllocationId = crate::id::AllocationId<LiftedCtx>;
@@ -82,7 +82,7 @@ impl ReturnType {
 #[derive(Clone, Copy, Debug, Display, PartialEq, Eq, Hash)]
 pub enum RegisterType {
     Any,
-    Trivial(TrivialItem),
+    Atom(Atom),
     Bytes,
     Byts(ConstantId),
     Number,
@@ -563,7 +563,7 @@ impl<'a, R: SyncResolver> Syncer<'a, R> {
     pub fn sync_type(&mut self, typ: RegisterType) -> RegisterType {
         match typ {
             RegisterType::Any
-            | RegisterType::Trivial(_)
+            | RegisterType::Atom(_)
             | RegisterType::Bytes
             | RegisterType::Number
             | RegisterType::Int(_)
@@ -1483,7 +1483,7 @@ impl DisplayContext<'_> {
             | RegisterType::Bytes
             | RegisterType::Number
             | RegisterType::Boolean => write!(w, "{:?}", reg_typ)?,
-            RegisterType::Trivial(t) => write!(w, "{:?}", t)?,
+            RegisterType::Atom(t) => write!(w, "{:?}", t)?,
             RegisterType::Byts(p) => {
                 w.push_str("Bytes(");
                 self.display_cnst(w, p)?;

@@ -116,8 +116,8 @@ impl BinOpExecutor<'_> {
             }
             (Boolean, Boolean) | (Boolean, Bool(_)) | (Bool(_), Boolean) => Boolean,
             (Bool(a), Bool(b)) => Bool(a == b),
-            (Trivial(a), Trivial(b)) => Bool(a == b),
-            (Trivial(_), Record(_)) | (Record(_), Trivial(_)) => Bool(false),
+            (Atom(a), Atom(b)) => Bool(a == b),
+            (Atom(_), Record(_)) | (Record(_), Atom(_)) => Bool(false),
             _ => return Err(BinaryOperatorExecutionError::Unimplemented),
         })
     }

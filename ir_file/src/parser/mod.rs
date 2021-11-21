@@ -528,9 +528,9 @@ fn parse_expression(node: Node<&str>) -> Expression {
                         .map(|node| parse_expression(node.as_ref()))
                         .collect(),
                 },
-                (Some(Node::Word("atom", _)), Some(Node::Word(trivial_item, _)), None) => {
+                (Some(Node::Word("atom", _)), Some(Node::Word(atom, _)), None) => {
                     Expression::MakeAtom {
-                        atom: trivial_item.to_string(),
+                        atom: atom.to_string(),
                     }
                 }
                 (

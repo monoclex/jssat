@@ -27,7 +27,7 @@ use crate::{collections::StrictZip, isa::BinaryOperator};
 use crate::{
     frontend::ir::Instruction,
     id::LiftedCtx,
-    isa::{InternalSlot, TrivialItem},
+    isa::InternalSlot,
     lifted::{
         ConstantId, EndInstruction, ExternalFunctionId, FunctionId, LiftedProgram, RegisterId,
     },
@@ -475,7 +475,7 @@ impl<'c> InstExec<'c> {
 
                 self.call_fn(&i.args, fn_id, i.result)?;
             }
-            MakeTrivial(i) => {
+            MakeAtom(i) => {
                 self.registers.insert(i.result, Value::Atom(i.item));
             }
             MakeBytes(i) => {

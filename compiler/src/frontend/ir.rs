@@ -106,7 +106,7 @@ pub enum Instruction<C: Tag = crate::id::IrCtx, F: Tag = crate::id::IrCtx> {
     // FAR FUTURE: GcEndRegion(RegisterId),
     // FAR FUTURE: GcTracingMarkRoot(RegisterId),
     // FAR FUTURE: GcTracingUnmarkRoot(RegisterId),
-    MakeTrivial(Make<C, Atom>),
+    MakeAtom(Make<C, Atom>),
     /// # `MakeString`
     ///
     /// Will instantiate a string, using the constant referenced as payload for
@@ -122,7 +122,6 @@ pub enum Instruction<C: Tag = crate::id::IrCtx, F: Tag = crate::id::IrCtx> {
     // /// This is used to implement functions that recurse an unknown amount of
     // /// times.
     // Unreachable,
-    // TODO: should these be TrivialItems?
     MakeInteger(Make<C, i64>),
     MakeBoolean(Make<C, bool>),
     BinOp(BinOp<C>),
@@ -181,7 +180,7 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
                 Instruction::CallExtern(inst.retag(retagger, ext_fn_retagger))
             }
             Instruction::CallVirt(inst) => Instruction::CallVirt(inst.retag(retagger)),
-            Instruction::MakeTrivial(inst) => Instruction::MakeTrivial(inst.retag(retagger)),
+            Instruction::MakeAtom(inst) => Instruction::MakeAtom(inst.retag(retagger)),
             Instruction::MakeInteger(inst) => Instruction::MakeInteger(inst.retag(retagger)),
             Instruction::MakeBoolean(inst) => Instruction::MakeBoolean(inst.retag(retagger)),
             Instruction::Negate(inst) => Instruction::Negate(inst.retag(retagger)),
@@ -225,7 +224,7 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::CallStatic(inst) => inst.declared_register(),
             Instruction::CallExtern(inst) => inst.declared_register(),
             Instruction::CallVirt(inst) => inst.declared_register(),
-            Instruction::MakeTrivial(inst) => inst.declared_register(),
+            Instruction::MakeAtom(inst) => inst.declared_register(),
             Instruction::RecordGet(inst) => inst.declared_register(),
             Instruction::RecordSet(inst) => inst.declared_register(),
             Instruction::RecordHasKey(inst) => inst.declared_register(),
@@ -255,7 +254,7 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::CallStatic(inst) => inst.used_registers(),
             Instruction::CallExtern(inst) => inst.used_registers(),
             Instruction::CallVirt(inst) => inst.used_registers(),
-            Instruction::MakeTrivial(inst) => inst.used_registers(),
+            Instruction::MakeAtom(inst) => inst.used_registers(),
             Instruction::RecordGet(inst) => inst.used_registers(),
             Instruction::RecordSet(inst) => inst.used_registers(),
             Instruction::RecordHasKey(inst) => inst.used_registers(),
@@ -285,7 +284,7 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::CallStatic(inst) => inst.used_registers_mut(),
             Instruction::CallExtern(inst) => inst.used_registers_mut(),
             Instruction::CallVirt(inst) => inst.used_registers_mut(),
-            Instruction::MakeTrivial(inst) => inst.used_registers_mut(),
+            Instruction::MakeAtom(inst) => inst.used_registers_mut(),
             Instruction::RecordGet(inst) => inst.used_registers_mut(),
             Instruction::RecordSet(inst) => inst.used_registers_mut(),
             Instruction::RecordHasKey(inst) => inst.used_registers_mut(),
@@ -319,7 +318,7 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::CallStatic(inst) => inst.display(w),
             Instruction::CallExtern(inst) => inst.display(w),
             Instruction::CallVirt(inst) => inst.display(w),
-            Instruction::MakeTrivial(inst) => inst.display(w),
+            Instruction::MakeAtom(inst) => inst.display(w),
             Instruction::RecordGet(inst) => inst.display(w),
             Instruction::RecordSet(inst) => inst.display(w),
             Instruction::RecordHasKey(inst) => inst.display(w),

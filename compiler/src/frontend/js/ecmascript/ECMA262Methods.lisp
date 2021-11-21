@@ -18,11 +18,6 @@
 ; For more information on JSSAT IR Files, see the `ir_file` crate.
 ;
 
-; compat
-(def (trivial :x) (atom :x))
-(def (trivial-node :x) (atom :x))
-(def (trivial-slot :x) (atom :x))
-
 (def (and :a :b) (:a and :b))
 (def (or :a :b) (:a or :b))
 (def (and3 :a :b :c) (and (and :a :b) :c))
@@ -116,20 +111,20 @@
 (def String Bytes)
 (def BigInt BigNumber)
 
-(def null (trivial Null))
-(def undefined (trivial Undefined))
-(def normal (trivial Normal))
-(def empty (trivial Empty))
-(def sync (trivial Sync))
-(def unresolvable (trivial Unresolvable))
-(def lexical-this (trivial LexicalThis))
-(def lexical (trivial Lexical))
-(def initialized (trivial Initialized))
-(def uninitialized (trivial Uninitialized))
-(def trivial-strict (trivial Strict))
-(def trivial-global (trivial Global))
-(def trivial-return (trivial Return))
-(def (trivial throw) (trivial Throw))
+(def null (atom Null))
+(def undefined (atom Undefined))
+(def normal (atom Normal))
+(def empty (atom Empty))
+(def sync (atom Sync))
+(def unresolvable (atom Unresolvable))
+(def lexical-this (atom LexicalThis))
+(def lexical (atom Lexical))
+(def initialized (atom Initialized))
+(def uninitialized (atom Uninitialized))
+(def atom-strict (atom Strict))
+(def atom-global (atom Global))
+(def atom-return (atom Return))
+(def (atom throw) (atom Throw))
 
 (def (is-undef :x) (:x == undefined))
 (def (isnt-undef :x) (:x != undefined))
@@ -158,7 +153,7 @@
 
 (def
   (is-pn :kind :variant_idx)
-  (match-pn :parseNode (trivial-node :kind) :variant_idx))
+  (match-pn :parseNode (atom :kind) :variant_idx))
 
 (def (isnt-type-as :x :y) (not (is-type-as :x :y)))
 
@@ -302,7 +297,7 @@
   (ThrowCompletion :x)
   (expr-block
    ((jssat_throw_completion = record-new)
-    (:jssat_throw_completion Type <- (trivial throw))
+    (:jssat_throw_completion Type <- (atom throw))
     (:jssat_throw_completion Value <- :x)
     (:jssat_throw_completion Target <- empty)
     (:jssat_throw_completion))))
@@ -354,21 +349,21 @@
 (def (inject-table-34 :list)
   (_dontCare =
              (expr-block
-              ((list-push :internalSlotsList (trivial-slot Environment))
-               (list-push :internalSlotsList (trivial-slot PrivateEnvironment))
-               (list-push :internalSlotsList (trivial-slot FormalParameters))
-               (list-push :internalSlotsList (trivial-slot ECMAScriptCode))
-               (list-push :internalSlotsList (trivial-slot ConstructorKind))
-               (list-push :internalSlotsList (trivial-slot Realm))
-               (list-push :internalSlotsList (trivial-slot ScriptOrModule))
-               (list-push :internalSlotsList (trivial-slot ThisMode))
-               (list-push :internalSlotsList (trivial-slot Strict))
-               (list-push :internalSlotsList (trivial-slot HomeObject))
-               (list-push :internalSlotsList (trivial-slot SourceText))
-               (list-push :internalSlotsList (trivial-slot Fields))
-               (list-push :internalSlotsList (trivial-slot PrivateMethods))
-               (list-push :internalSlotsList (trivial-slot ClassFieldInitializerName))
-               (list-push :internalSlotsList (trivial-slot IsClassConstructor))
+              ((list-push :internalSlotsList (atom Environment))
+               (list-push :internalSlotsList (atom PrivateEnvironment))
+               (list-push :internalSlotsList (atom FormalParameters))
+               (list-push :internalSlotsList (atom ECMAScriptCode))
+               (list-push :internalSlotsList (atom ConstructorKind))
+               (list-push :internalSlotsList (atom Realm))
+               (list-push :internalSlotsList (atom ScriptOrModule))
+               (list-push :internalSlotsList (atom ThisMode))
+               (list-push :internalSlotsList (atom Strict))
+               (list-push :internalSlotsList (atom HomeObject))
+               (list-push :internalSlotsList (atom SourceText))
+               (list-push :internalSlotsList (atom Fields))
+               (list-push :internalSlotsList (atom PrivateMethods))
+               (list-push :internalSlotsList (atom ClassFieldInitializerName))
+               (list-push :internalSlotsList (atom IsClassConstructor))
                (undefined)))))
 
 ;;;;;;;;;;;;;;;;;;
@@ -748,15 +743,15 @@
 (section
   (:8.1.1 BoundNames (parseNode))
   (; BindingIdentifier : Identifier
-   (if (match-pn :parseNode (trivial-node BindingIdentifier) 0)
+   (if (match-pn :parseNode (atom BindingIdentifier) 0)
        (;;; 1. Return a List whose sole element is the StringValue of Identifier.
         (return (list-new-1 (:parseNode -> JSSATParseNodeSlot1 -> JSSATParseNode_Identifier_StringValue)))))
    ; BindingIdentifier : yield
-   (if (match-pn :parseNode (trivial-node BindingIdentifier) 1)
+   (if (match-pn :parseNode (atom BindingIdentifier) 1)
        (;;; 1. Return a List whose sole element "yield".
         (return (list-new-1 "yield"))))
    ; BindingIdentifier : await
-   (if (match-pn :parseNode (trivial-node BindingIdentifier) 2)
+   (if (match-pn :parseNode (atom BindingIdentifier) 2)
        (;;; 1. Return a List whose sole element "await".
         (return (list-new-1 "await"))))
    (return list-new)))
@@ -779,7 +774,7 @@
    ; productions, that productions that do so are omitted.
    ;
    ; StatementList : StatementList StatementListItem
-   (if (match-pn :parseNode (trivial-node StatementList) 1)
+   (if (match-pn :parseNode (atom StatementList) 1)
        (;;; 1. Let declarations1 be VarScopedDeclarations of StatementList.
         (declarations1 = (call VarScopedDeclarations (:parseNode -> JSSATParseNodeSlot1)))
         ;;; 2. Let declarations2 be VarScopedDeclarations of StatementListItem.
@@ -787,7 +782,7 @@
         ;;; 3. Return the list-concatenation of declarations1 and declarations2.
         (return (list-concat :declarations1 :declarations2))))
    ; VariableDeclarationList : VariableDeclaration
-   (if (match-pn :parseNode (trivial-node VariableDeclarationList) 0)
+   (if (match-pn :parseNode (atom VariableDeclarationList) 0)
        ((return (list-new-1 (:parseNode -> JSSATParseNodeSlot1)))))
    ; VariableDeclarationList : VariableDeclarationList , VariableDeclaration
    (if (is-pn VariableDeclarationList 1)
@@ -1397,7 +1392,7 @@
 (section
   (:10.1.12 OrdinaryObjectCreate (proto, additionalInternalSlotsList))
   (;;; 1. Let internalSlotsList be « [[Prototype]], [[Extensible]] ».
-   (internalSlotsList = (list-new-2 (trivial-slot Prototype) (trivial-slot Extensible)))
+   (internalSlotsList = (list-new-2 (atom Prototype) (atom Extensible)))
    ;;; 2. If additionalInternalSlotsList is present, append each of its elements to internalSlotsList.
    (for :additionalInternalSlotsList
         ((list-push :internalSlotsList for-item)))
@@ -1434,7 +1429,7 @@
    (exec-ctx-stack-pop)
    (exec-ctx-stack-push :callerContext)
    ;;; 8. If result.[[Type]] is return, return NormalCompletion(result.[[Value]]).
-   (if ((:result -> Type) == trivial-return)
+   (if ((:result -> Type) == atom-return)
        ((return (NormalCompletion (:result -> Value)))))
    ;;; 9. ReturnIfAbrupt(result).
    (dontCare = (? :result))
@@ -1485,7 +1480,7 @@
    ;;; 5. If thisMode is strict, let thisValue be thisArgument.
    (thisValue =
               (expr-block
-               ((if (:thisMode == trivial-strict)
+               ((if (:thisMode == atom-strict)
                     ((:thisArgument))
                     ;;; 6. Else,
                     (;;; a. If thisArgument is undefined or null, then
@@ -1539,9 +1534,9 @@
        ((:F ThisMode <- lexical))
        ;;; 10. Else if Strict is true, set F.[[ThisMode]] to strict.
        (elif (is-true :Strict)
-             ((:F ThisMode <- trivial-strict))
+             ((:F ThisMode <- atom-strict))
              (;;; 11. Else, set F.[[ThisMode]] to global.
-              (:F ThisMode <- trivial-global))))
+              (:F ThisMode <- atom-global))))
    ;;; 12. Set F.[[IsClassConstructor]] to false.
    (:F IsClassConstructor <- false)
    ;;; 13. Set F.[[Environment]] to Scope.
@@ -1641,10 +1636,10 @@
    ;;; 3. Let internalSlotsList be a List containing the names of all the internal slots that 10.3 requires for the built-in
    ;;;    function object that is about to be created.
    (internalSlotsList = list-new)
-   (list-push :internalSlotsList (trivial-slot Prototype))
-   (list-push :internalSlotsList (trivial-slot Extensible))
+   (list-push :internalSlotsList (atom Prototype))
+   (list-push :internalSlotsList (atom Extensible))
    (inject-table-34 :internalSlotsList)
-   (list-push :internalSlotsList (trivial-slot InitialName))
+   (list-push :internalSlotsList (atom InitialName))
    ;;; 4. Append to internalSlotsList the elements of additionalInternalSlotsList.
    (for :additionalInternalSlotsList
         ((list-push :internalSlotsList for-item)))

@@ -8,8 +8,7 @@ use crate::{
     retag::{CnstRetagger, FnRetagger, RegRetagger},
 };
 
-/// [`MakeTrivial`] creates trivial items. Trivial items are elements with a
-/// single possible value.
+/// [`Make`] creates simple items.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Make<T: Tag, I> {
     pub result: RegisterId<T>,
@@ -32,81 +31,6 @@ impl<C: Tag, I: Display> ISAInstruction<C> for Make<C, I> {
     fn display(&self, w: &mut impl Write) -> std::fmt::Result {
         write!(w, "%{} = Make {};", self.result, self.item)
     }
-}
-
-#[allow(non_snake_case)]
-#[derive(Clone, Copy)]
-pub struct TrivialItemCompat {
-    pub Runtime: Atom,
-    pub Null: Atom,
-    pub Undefined: Atom,
-    pub Empty: Atom,
-    pub Throw: Atom,
-    pub Unresolvable: Atom,
-    pub Lexical: Atom,
-    pub Strict: Atom,
-    pub Global: Atom,
-    pub LexicalThis: Atom,
-    pub Return: Atom,
-    pub Initialized: Atom,
-    pub Uninitialized: Atom,
-    pub Sync: Atom,
-}
-
-impl TrivialItemCompat {
-    pub fn new(dealer: &mut AtomDealer) -> Self {
-        Self {
-            Runtime: dealer.deal("runtime"),
-            Null: dealer.deal("null"),
-            Undefined: dealer.deal("undefined"),
-            Empty: dealer.deal("empty"),
-            Throw: dealer.deal("throw"),
-            Unresolvable: dealer.deal("unresolvable"),
-            Lexical: dealer.deal("lexical"),
-            Strict: dealer.deal("strict"),
-            Global: dealer.deal("global"),
-            LexicalThis: dealer.deal("lexical_this"),
-            Return: dealer.deal("r#return"),
-            Initialized: dealer.deal("initialized"),
-            Uninitialized: dealer.deal("uninitialized"),
-            Sync: dealer.deal("sync"),
-        }
-    }
-}
-
-#[deprecated]
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Display)]
-pub enum TrivialItem {
-    /// JSSAT Runtime
-    Runtime,
-    /// JS null
-    Null,
-    /// JS undefined
-    Undefined,
-    /// ECMAScript "empty"
-    Empty,
-    /// Completion record "throw"
-    Throw,
-    /// Reference Record "unresolvable"
-    Unresolvable,
-    /// Completion record "normal"
-    Normal,
-    /// The kind of a parse node
-    ParseNodeKind(crate::frontend::js::ast::parse_nodes::ParseNodeKind),
-    /// An internal slot (needed for OrdinaryObjectCreate)
-    InternalSlot(InternalSlot),
-    /// ECMAScript "lexical"
-    Lexical,
-    /// ECMAScript "strict"
-    Strict,
-    /// ECMAScript "global"
-    Global,
-    /// ECMAScript "lexical-this"
-    LexicalThis,
-    Return,
-    Initialized,
-    Uninitialized,
-    Sync,
 }
 
 impl<T: Tag> Make<T, Atom> {
