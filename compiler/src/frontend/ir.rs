@@ -131,6 +131,7 @@ pub enum Instruction<C: Tag = crate::id::IrCtx, F: Tag = crate::id::IrCtx> {
     Assert(Assert<C>),
     IsType(IsType<C>),
     GetRuntime(GetRuntime<C>),
+    Unreachable(Unreachable<C>),
 }
 
 pub struct DisplayInst<'instruction, C: Tag, F: Tag>(&'instruction Instruction<C, F>);
@@ -188,6 +189,7 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::Assert(inst) => Instruction::Assert(inst.retag(retagger)),
             Instruction::IsType(inst) => Instruction::IsType(inst.retag(retagger)),
             Instruction::GetRuntime(inst) => Instruction::GetRuntime(inst.retag(retagger)),
+            Instruction::Unreachable(inst) => Instruction::Unreachable(inst.retag(retagger)),
         }
     }
 }
@@ -239,6 +241,7 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::ListHasKey(inst) => inst.declared_register(),
             Instruction::ListLen(inst) => inst.declared_register(),
             Instruction::GetRuntime(inst) => inst.declared_register(),
+            Instruction::Unreachable(inst) => inst.declared_register(),
         }
     }
 
@@ -268,6 +271,7 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::ListHasKey(inst) => inst.used_registers(),
             Instruction::ListLen(inst) => inst.used_registers(),
             Instruction::GetRuntime(inst) => inst.used_registers(),
+            Instruction::Unreachable(inst) => inst.used_registers(),
         }
     }
 
@@ -297,6 +301,7 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::ListHasKey(inst) => inst.used_registers_mut(),
             Instruction::ListLen(inst) => inst.used_registers_mut(),
             Instruction::GetRuntime(inst) => inst.used_registers_mut(),
+            Instruction::Unreachable(inst) => inst.used_registers_mut(),
         }
     }
 
@@ -330,6 +335,7 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
             Instruction::ListHasKey(inst) => inst.display(w),
             Instruction::ListLen(inst) => inst.display(w),
             Instruction::GetRuntime(inst) => inst.display(w),
+            Instruction::Unreachable(inst) => inst.display(w),
         }
     }
 }

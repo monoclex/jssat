@@ -4,7 +4,7 @@ mod frontend_pseudo;
 pub use frontend_pseudo::traverse;
 use swc_ecmascript::parser::PResult;
 
-use crate::isa::InternalSlot;
+use crate::{frontend::js::ast::parse_nodes::Dealer, isa::InternalSlot};
 
 use self::{ast::parse_nodes::Visitor, ecmascript::ECMA262Methods};
 
@@ -52,9 +52,12 @@ impl<'p> JavaScriptFrontend<'p> {
     ) -> PResult<RegisterId> {
         let script = ast::parse_script(source_text)?;
 
-        let entry_parse_node = ast::emit_nodes(self.program, block, &self.ecma_methods, |v| {
-            v.visit_script(&script)
-        });
+        let dealer = Dealer::new(self.program);
+
+        let entry_parse_node =
+            ast::emit_nodes(self.program, block, &self.ecma_methods, &dealer, |v| {
+                v.visit_script(&script)
+            });
 
         let threaded_global = block.record_new();
         block.call(
@@ -83,12 +86,13 @@ impl<'p> JavaScriptFrontend<'p> {
             block,
             realm,
             global_object,
+            parse_nodes: &dealer,
         };
 
         host_environment.inject(hook);
 
         // we don't care about the parameters we pass null to for ParseScript
-        let null = block.make_null();
+        let null = block.make_atom(self.ecma_methods.atoms.Null);
 
         let script_context = block.call_with_result(
             self.ecma_methods.ParseScript,

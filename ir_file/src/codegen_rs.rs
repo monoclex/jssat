@@ -64,7 +64,7 @@ pub fn gen(name: &str, mut ast: AST) -> String {
     let r#struct = scope.new_struct(name);
     r#struct.vis("pub");
 
-    r#struct.push_field(Field::new("atoms", format!("{}Atoms", name)));
+    r#struct.push_field(Field::new("pub atoms", format!("{}Atoms", name)));
 
     for method in ast.sections.iter() {
         r#struct.push_field(Field::new(
@@ -95,7 +95,7 @@ pub fn gen(name: &str, mut ast: AST) -> String {
 
     let mut fields = Block::new("");
     for atom in &visitor.atoms {
-        fields.line(format!("{}: dealer.deal(),", atom));
+        fields.line(format!("{}: dealer.deal({:?}),", atom, atom));
     }
     new.push_block(fields);
 

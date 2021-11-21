@@ -1,5 +1,6 @@
 use derive_more::Display;
-use std::num::NonZeroU16;
+use lasso::{Key, Rodeo};
+use std::{convert::TryInto, num::NonZeroU16};
 
 /// An atom represents a unique value that can be generated at compile time.
 /// These are very similar to atoms in Erlang/Elixir, or Symbols in JavaScript.
@@ -14,12 +15,22 @@ impl Atom {
     }
 }
 
+unsafe impl Key for Atom {
+    fn into_usize(self) -> usize {
+        self.0.get() as usize - 1
+    }
+
+    fn try_from_usize(int: usize) -> Option<Self> {
+        let u16: Option<u16> = (int + 1).try_into().ok();
+        u16.and_then(|u16| u16.try_into().ok()).map(Atom)
+    }
+}
+
 /// Assists in ensuring unique atoms are given on request. If all requests for
 /// new atoms go through an [`AtomDealer`], the API will prevent duplicate atoms
 /// from being issued.
-#[derive(Clone, Copy)]
 pub struct AtomDealer {
-    current: Atom,
+    rodeo: Rodeo<Atom>,
 }
 
 impl AtomDealer {
@@ -28,18 +39,16 @@ impl AtomDealer {
         Default::default()
     }
 
-    /// Issues a unique [`Atom`] that this dealer has not given out before.
-    pub fn deal(&mut self) -> Atom {
-        let result = self.current;
-        self.current = self.current.next();
-        result
+    /// Issues a unique [`Atom`] that corresponds to only the string given.
+    pub fn deal(&mut self, name: &'static str) -> Atom {
+        self.rodeo.get_or_intern_static(name)
     }
 }
 
 impl Default for AtomDealer {
     fn default() -> Self {
         Self {
-            current: Atom(NonZeroU16::new(1).unwrap()),
+            rodeo: Rodeo::new(),
         }
     }
 }

@@ -6,12 +6,13 @@ pub use jssat_host::JSSATHostEnvironment;
 
 use crate::frontend::builder::{DynBlockBuilder, ProgramBuilder, RegisterId};
 
-use super::ecmascript::ECMA262Methods;
+use super::{ast::parse_nodes::Dealer, ecmascript::ECMA262Methods};
 
 /// State necessary for hosts to hook their own features into a JavaScript JSSAT
 /// program.
 pub struct HostHookState<'scope> {
     pub ecma_methods: &'scope ECMA262Methods,
+    pub parse_nodes: &'scope Dealer,
     pub program: &'scope mut ProgramBuilder,
     pub block: &'scope mut DynBlockBuilder,
     pub threaded_global: RegisterId,
@@ -22,5 +23,5 @@ pub struct HostHookState<'scope> {
 /// Trait that represents something that modifies the environment of an
 /// ECMAScript program to be suitable for a particular host.
 pub trait HostEnvironment {
-    fn inject<'s>(&mut self, hook: HostHookState<'s>);
+    fn inject(&mut self, hook: HostHookState);
 }

@@ -10,6 +10,8 @@ use swc_ecmascript::parser::PResult;
 
 use crate::frontend::builder::{DynBlockBuilder, ProgramBuilder, RegisterId};
 
+use self::parse_nodes::Dealer;
+
 use super::ecmascript::ECMA262Methods;
 
 pub mod emit_nodes;
@@ -24,9 +26,10 @@ pub fn emit_nodes(
     program: &mut ProgramBuilder,
     block: &mut DynBlockBuilder,
     ecma_methods: &ECMA262Methods,
+    dealer: &Dealer,
     visit_initial_node: impl FnOnce(&mut emit_nodes::NodeEmitter),
 ) -> RegisterId {
-    let mut node_emitter = emit_nodes::NodeEmitter::new(block, program, ecma_methods);
+    let mut node_emitter = emit_nodes::NodeEmitter::new(block, program, ecma_methods, dealer);
     visit_initial_node(&mut node_emitter);
 
     let last_visited = node_emitter

@@ -10,6 +10,10 @@ pub fn generate(productions: Productions) -> String {
     eprintln!("{} productions found", len);
 
     let prelude = "#![allow(unused_variables)]
+#![allow(non_snake_case)]
+
+use crate::isa::Atom;
+use crate::frontend::builder::ProgramBuilder;
 
 use derive_more::Display;
 
@@ -55,6 +59,8 @@ pub struct TemplateTail(pub String);
     let mut formatter = Formatter::new(&mut str);
 
     generate_combinatory_enum(&productions, &mut formatter);
+
+    generate_atoms(&productions, &mut formatter);
 
     for production in productions.ast.iter() {
         generate_production(production, &mut formatter);
@@ -201,6 +207,28 @@ fn symbols_to_ascii(symbols: &str) -> String {
     s
 }
 
+fn all_names(productions: &Productions) -> impl Iterator<Item = &str> {
+    let builtin_names = [
+        "LineTerminator",
+        "IdentifierName",
+        "RegularExpressionLiteral",
+        "NullLiteral",
+        "StringLiteral",
+        "NumericLiteral",
+        "BooleanLiteral",
+        "NoSubstitutionTemplate",
+        "TemplateHead",
+        "TemplateMiddle",
+        "TemplateTail",
+    ];
+    let production_names = productions.ast.iter().map(|x| x.name.as_str());
+    let one_of_names = productions.one_of_ast.iter().map(|x| x.name.as_str());
+
+    IntoIter::new(builtin_names)
+        .chain(production_names)
+        .chain(one_of_names)
+}
+
 fn generate_combinatory_enum(productions: &Productions, formatter: &mut Formatter) {
     let mut combinatory = Enum::new("ParseNodeKind");
     combinatory.vis("pub");
@@ -219,27 +247,7 @@ fn generate_combinatory_enum(productions: &Productions, formatter: &mut Formatte
         combinatory.derive(name);
     });
 
-    let builtin_names = [
-        "LineTerminator",
-        "IdentifierName",
-        "RegularExpressionLiteral",
-        "NullLiteral",
-        "StringLiteral",
-        "NumericLiteral",
-        "BooleanLiteral",
-        "NoSubstitutionTemplate",
-        "TemplateHead",
-        "TemplateMiddle",
-        "TemplateTail",
-    ];
-    let production_names = productions.ast.iter().map(|x| x.name.as_str());
-    let one_of_names = productions.one_of_ast.iter().map(|x| x.name.as_str());
-
-    let names = IntoIter::new(builtin_names)
-        .chain(production_names)
-        .chain(one_of_names);
-
-    for name in names {
+    for name in all_names(productions) {
         combinatory.push_variant(Variant::new(name));
     }
 
@@ -365,4 +373,51 @@ fn generate_visitor_ast(productions: &Productions, formatter: &mut Formatter) {
     }
 
     visitor.fmt(formatter).unwrap();
+}
+
+fn generate_atoms(productions: &Productions, formatter: &mut Formatter) {
+    let mut dealer = Struct::new("Dealer");
+    dealer.vis("pub");
+
+    for name in all_names(productions) {
+        dealer.field(&format!("pub {}", name), "Atom");
+    }
+
+    dealer.fmt(formatter).unwrap();
+
+    let mut dealer_impl = Impl::new("Dealer");
+
+    let new = dealer_impl
+        .new_fn("new")
+        .arg("program", "&mut ProgramBuilder")
+        .ret("Self")
+        .vis("pub");
+
+    new.line("Self");
+    let mut fields = Block::new("");
+
+    for name in all_names(productions) {
+        fields.line(format!("{0}: program.dealer.deal({0:?}),", name));
+    }
+
+    new.push_block(fields);
+
+    let translate = dealer_impl
+        .new_fn("translate")
+        .arg_ref_self()
+        .arg("node", "ParseNodeKind")
+        .ret("Atom")
+        .vis("pub");
+
+    translate.line("match node");
+
+    let mut patterns = Block::new("");
+
+    for name in all_names(productions) {
+        patterns.line(format!("ParseNodeKind::{0} => self.{0},", name));
+    }
+
+    translate.push_block(patterns);
+
+    dealer_impl.fmt(formatter).unwrap();
 }

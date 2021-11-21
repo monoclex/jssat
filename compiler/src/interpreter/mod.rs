@@ -393,6 +393,9 @@ pub enum InstErr {
     // parameters it wants and then can do something with interpreter state idk
     #[error("Unable to perform external function calls at this time")]
     ExternalFnCall,
+
+    #[error("An `unreachable` instruction, which is suppose to be unreachable, was reached.")]
+    Unreachable(PanicLocation),
 }
 
 #[derive(Error, Debug)]
@@ -626,6 +629,9 @@ impl<'c> InstExec<'c> {
             }
             GetRuntime(i) => {
                 self.registers.insert(i.result, Value::Runtime);
+            }
+            Unreachable(i) => {
+                return Err(InstErr::Unreachable(Location::caller()));
             }
         }
 

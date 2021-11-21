@@ -10,7 +10,7 @@ impl JSSATHostEnvironment {
 }
 
 impl HostEnvironment for JSSATHostEnvironment {
-    fn inject<'s>(&mut self, hook: super::HostHookState<'s>) {
+    fn inject(&mut self, hook: super::HostHookState) {
         let super::HostHookState {
             ecma_methods,
             program,
@@ -44,7 +44,7 @@ impl HostEnvironment for JSSATHostEnvironment {
         let length = block.make_number_decimal(1);
         let name = print;
         let additional_slots = block.list_new();
-        let undef = block.make_undefined();
+        let undef = block.make_atom(ecma_methods.atoms.Undefined);
         let print_fn = block.call_with_result(
             ecma_methods.CreateBuiltinFunction,
             [

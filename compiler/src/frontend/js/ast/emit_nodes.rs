@@ -48,6 +48,7 @@ pub struct NodeEmitter<'scope> {
     pub last_completed: Option<ParseNode>,
     simple_fns: FxHashMap<InternalSlot, FnSignature<2>>,
     ecma_methods: &'scope ECMA262Methods,
+    dealer: &'scope js::Dealer,
 }
 
 impl<'s> NodeEmitter<'s> {
@@ -55,6 +56,7 @@ impl<'s> NodeEmitter<'s> {
         block: &'s mut DynBlockBuilder,
         program: &'s mut ProgramBuilder,
         ecma_methods: &'s ECMA262Methods,
+        dealer: &'s js::Dealer,
     ) -> Self {
         let simple_fns = Self::generate_simple_fns(program);
 
@@ -65,6 +67,7 @@ impl<'s> NodeEmitter<'s> {
             last_completed: None,
             simple_fns,
             ecma_methods,
+            dealer,
         }
     }
 
@@ -133,10 +136,11 @@ pub struct ParseNode {
 }
 
 impl ParseNode {
-    fn new(block: &mut DynBlockBuilder, kind: js::ParseNodeKind, variant_idx: usize) -> Self {
+    fn new(emitter: &mut NodeEmitter, kind: js::ParseNodeKind, variant_idx: usize) -> Self {
+        let block = &mut emitter.block;
         let parse_node = block.record_new();
 
-        let trivial_kind = block.make_trivial(TrivialItem::ParseNodeKind(kind));
+        let trivial_kind = block.make_atom(emitter.dealer.translate(kind));
         block.record_set_slot(parse_node, InternalSlot::JSSATParseNodeKind, trivial_kind);
 
         let variant_i64: i64 = variant_idx.try_into().unwrap();
@@ -202,7 +206,7 @@ impl<'b> Visitor for NodeEmitter<'b> {
     fn pre_visit(&mut self, kind: js::ParseNodeKind, variant_idx: usize) {
         println!("-> {:?}", kind);
 
-        let node = ParseNode::new(self.block, kind, variant_idx);
+        let node = ParseNode::new(self, kind, variant_idx);
         self.stack.push(node);
     }
 

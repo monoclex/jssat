@@ -212,7 +212,7 @@ pub enum EndInstruction<T: Tag, B = BlockId<T>>
 where
     B: crate::id::IdCompat,
 {
-    Unreachable(Unreachable),
+    Unreachable(Unreachable<T>),
     Jump(Jump<B, T>),
     JumpIf(JumpIf<B, T>),
     Return(Return<T>),

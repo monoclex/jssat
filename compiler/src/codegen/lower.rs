@@ -215,7 +215,7 @@ impl<'a> Lowerer<'a> {
             use super::EndInstruction::*;
 
             let end = match block.end.clone() {
-                Unreachable(i) => Unreachable(i),
+                Unreachable(i) => todo!(),
                 Return(i) => Return(i.retag(&reg_retagger)),
                 Jump(inst) => {
                     let BlockJump(target, args) = inst.0;

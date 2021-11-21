@@ -85,9 +85,10 @@ pub fn display_typed(program: &TypedProgram) -> String {
             EndInstruction::Jump(inst) => inst.display(&mut text),
             EndInstruction::JumpIf(inst) => inst.display(&mut text),
             EndInstruction::Return(inst) => inst.display(&mut text),
-            EndInstruction::Unreachable(inst) => {
-                <Unreachable as ISAInstruction<AssemblerCtx>>::display(inst, &mut text)
-            }
+            _ => todo!(),
+            /* EndInstruction::Unreachable(inst) => {
+             *     <Unreachable as ISAInstruction<AssemblerCtx>>::display(inst, &mut text)
+             * } */
         }
         .unwrap();
         iwl!(text);

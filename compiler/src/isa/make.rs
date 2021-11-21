@@ -55,24 +55,21 @@ pub struct TrivialItemCompat {
 
 impl TrivialItemCompat {
     pub fn new(dealer: &mut AtomDealer) -> Self {
-        let [runtime, null, undefined, empty, throw, unresolvable, lexical, strict, global, lexical_this, r#return, initialized, uninitialized, sync] =
-            [(); 14].map(|_| dealer.deal());
-
         Self {
-            Runtime: runtime,
-            Null: null,
-            Undefined: undefined,
-            Empty: empty,
-            Throw: throw,
-            Unresolvable: unresolvable,
-            Lexical: lexical,
-            Strict: strict,
-            Global: global,
-            LexicalThis: lexical_this,
-            Return: r#return,
-            Initialized: initialized,
-            Uninitialized: uninitialized,
-            Sync: sync,
+            Runtime: dealer.deal("runtime"),
+            Null: dealer.deal("null"),
+            Undefined: dealer.deal("undefined"),
+            Empty: dealer.deal("empty"),
+            Throw: dealer.deal("throw"),
+            Unresolvable: dealer.deal("unresolvable"),
+            Lexical: dealer.deal("lexical"),
+            Strict: dealer.deal("strict"),
+            Global: dealer.deal("global"),
+            LexicalThis: dealer.deal("lexical_this"),
+            Return: dealer.deal("r#return"),
+            Initialized: dealer.deal("initialized"),
+            Uninitialized: dealer.deal("uninitialized"),
+            Sync: dealer.deal("sync"),
         }
     }
 }
