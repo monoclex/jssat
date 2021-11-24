@@ -187,14 +187,18 @@ f(print);
 
     println!("executing program");
     // let program = time(|| symbolic_execution::execute(&program));
-    let interpreter_result = time(|| {
-        let builder = crate::interpreter::InterpreterBuilder::new(&program);
-        let interpreter = builder.build();
+    let builder = crate::interpreter::InterpreterBuilder::new(&program);
+    let mut interpreter = builder.build();
 
-        interpreter.execute_fn_id(program.entrypoint, vec![])
+    let (interpreter, interpreter_result) = time(|| {
+        let result = interpreter.execute_fn_id(program.entrypoint, vec![]);
+        (interpreter, result)
     });
 
     println!("executed");
+    let callstack = interpreter.print_callstack_depth(200);
+    let graph = interpreter.construct_callstack_graph(200);
+    std::fs::write("graph.dot", &graph).unwrap();
 
     println!(
         "executed: {:?}",

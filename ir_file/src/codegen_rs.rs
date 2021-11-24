@@ -133,17 +133,19 @@ fn emit_method_new(name: &str, ast: &AST) -> Function {
     f.ret("Self");
 
     for method in ast.sections.iter() {
-        f.line(format!(
-            "let {} = program.start_function();",
-            &method.header.method_name.replace(':', "_")
-        ));
-    }
+        let fn_name = &method.header.method_name.replace(':', "_");
 
-    for method in ast.sections.iter() {
         f.line(format!(
-            "let signature_{} = {0}.0.signature();",
-            &method.header.method_name.replace(':', "_")
+            "let (mut {0}, {0}_args) = program.start_function();",
+            fn_name
         ));
+
+        f.line(format!(
+            r#"{}.with_name("{}".to_string());"#,
+            fn_name, method.header.method_name,
+        ));
+
+        f.line(format!("let signature_{0} = {0}.signature();", fn_name));
     }
 
     let mut fields = Block::new("");
@@ -160,7 +162,7 @@ fn emit_method_new(name: &str, ast: &AST) -> Function {
 
     for method in ast.sections.iter() {
         f.line(format!(
-            "methods.{}(Emitter::new(program, {0}.0), {0}.1);",
+            "methods.{}(Emitter::new(program, {0}), {0}_args);",
             &method.header.method_name.replace(':', "_")
         ));
     }

@@ -47,7 +47,7 @@ macro_rules! list {
 
 #[test]
 fn can_add() {
-    let (tests, run) = prepare();
+    let (tests, mut run) = prepare();
     let results = run
         .execute_fn_id(tests.Add.id.map_context(), vec![Number(2), Number(3)])
         .unwrap();
@@ -56,7 +56,7 @@ fn can_add() {
 
 #[test]
 fn can_get() {
-    let (tests, run) = prepare();
+    let (tests, mut run) = prepare();
 
     let results = run
         .execute_fn_id(

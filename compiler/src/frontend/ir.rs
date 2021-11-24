@@ -66,6 +66,7 @@ pub type FFIReturnType = Returns<FFIValueType>;
 
 #[derive(Debug, Clone)]
 pub struct Function {
+    pub name: Option<String>,
     pub parameters: Vec<Parameter>,
     // require that the entry block has 0 parameters
     pub entry_block: BlockId,

@@ -34,6 +34,7 @@ pub type ExternalFunction = crate::frontend::ir::ExternalFunction;
 
 #[derive(Debug, Clone)]
 pub struct Function {
+    pub name: Option<String>,
     pub ir_fn_id: crate::id::FunctionId<IrCtx>,
     pub ir_blk_id: crate::id::BlockId<IrCtx>,
     pub parameters: Vec<RegisterId>,
@@ -176,6 +177,7 @@ fn lift_function(
     e_retagger: &impl ExtFnRetagger<IrCtx, LiftedCtx>,
     c_retagger: &impl CnstRetagger<IrCtx, LiftedCtx>,
 ) -> FxHashMap<FunctionId, Function> {
+    let name = function.name;
     let mut lifted_ids = FxHashMap::default();
     for (id, _) in function.blocks.iter() {
         // if this block is the entry block, we don't want to generate a unique
@@ -208,6 +210,7 @@ fn lift_function(
         }
 
         let mut lifted_blk = fn_block_to_fn(
+            name.clone(),
             ir_fn_id,
             id,
             blk,
@@ -241,6 +244,7 @@ fn lift_function(
 
 #[allow(clippy::too_many_arguments)]
 fn fn_block_to_fn(
+    name: Option<String>,
     ir_fn_id: crate::id::FunctionId<IrCtx>,
     ir_blk_id: crate::id::BlockId<IrCtx>,
     fn_blk: ir::FunctionBlock,
@@ -269,6 +273,7 @@ fn fn_block_to_fn(
     };
 
     Function {
+        name,
         ir_fn_id,
         ir_blk_id,
         parameters,
@@ -393,6 +398,40 @@ fn patch_child_flow(
     fn_params_modified
 }
 
+pub fn display(id: FunctionId, function: &Function) -> String {
+    use std::fmt::Write;
+    let mut s = String::new();
+
+    s.push_str("fn ");
+    if let Some(name) = &function.name {
+        s.push_str(name);
+    }
+    write!(
+        s,
+        "@{} IR @{}.${} (",
+        id, function.ir_fn_id, function.ir_blk_id
+    )
+    .unwrap();
+
+    for arg in &function.parameters {
+        write!(s, "%{}, ", arg).unwrap();
+    }
+
+    s.push_str(") {\n");
+
+    for inst in &function.instructions {
+        s.push_str("    ");
+        inst.display(&mut s).unwrap();
+        s.push_str(";\n");
+    }
+
+    s.push_str("    ");
+    function.end.display(&mut s).unwrap();
+    s.push_str("\n}");
+
+    s
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{
@@ -451,8 +490,8 @@ mod tests {
         let lifted = lift(ir);
 
         let ext_fns = Default::default();
-        let interpreter = Interpreter::new(&lifted, &ext_fns);
 
+        let mut interpreter = Interpreter::new(&lifted, &ext_fns);
         let true_branch = interpreter
             .execute_fn_id(f.id.map_context(), vec![Boolean(true), Boolean(true)])
             .expect("expected to execute function")
@@ -462,6 +501,7 @@ mod tests {
 
         assert!(true_branch);
 
+        let mut interpreter = Interpreter::new(&lifted, &ext_fns);
         let false_branch = interpreter
             .execute_fn_id(f.id.map_context(), vec![Boolean(true), Boolean(false)])
             .expect("expected to execute function")

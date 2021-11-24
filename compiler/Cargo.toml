@@ -40,6 +40,7 @@ gc = { version = "0.4.1", features = ["derive"] }
 with_builtin_macros = "0.0.3"
 tokio = { version = "1.14.0", features = ["rt", "sync"] }
 stacker = "0.1.14"
+petgraph = "0.6.0"
 
 [build-dependencies]
 ir_file = { path = "../ir_file" }

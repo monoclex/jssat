@@ -477,10 +477,12 @@ mod tests {
         // println!("{:#?}", lifted);
 
         let ext_fns = Box::leak(Box::new(Default::default()));
-        let interpreter = Interpreter::new(lifted, ext_fns);
 
         // TODO: have lifted phase give information about ir -> fn id mappings
-        move |args| interpreter.execute_fn_id(fn_signature.id.map_context(), args.to_vec())
+        move |args| {
+            let mut interpreter = Interpreter::new(lifted, ext_fns);
+            interpreter.execute_fn_id(fn_signature.id.map_context(), args.to_vec())
+        }
     }
 
     #[track_caller]

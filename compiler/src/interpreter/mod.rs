@@ -9,6 +9,7 @@
 
 mod build;
 pub use build::*;
+use petgraph::graph::DiGraph;
 
 #[cfg(test)]
 mod tests;
@@ -22,6 +23,7 @@ use rustc_hash::FxHashMap;
 use thiserror::Error;
 
 use crate::isa::{Atom, CompareType, ValueType};
+use crate::lifted::Function;
 use crate::{collections::StrictZip, isa::BinaryOperator};
 
 use crate::{
@@ -35,6 +37,15 @@ use crate::{
 pub struct Interpreter<'parent> {
     code: &'parent LiftedProgram,
     external_fns: &'parent FxHashMap<ExternalFunctionId, ExtFnImpl>,
+    current_comment: FxHashMap<usize, crate::isa::Comment>,
+    top: Option<FunctionId>,
+    callstack_path: Vec<Edge>,
+}
+
+pub struct Edge {
+    pub goes_in: bool,
+    pub from: Option<FunctionId>,
+    pub to: Option<FunctionId>,
 }
 
 /// Implement an external function call from within pure rust code for JSSAT
@@ -230,14 +241,6 @@ pub fn ensure_arg_count(expected: usize, got: usize) -> InstResult<()> {
     Ok(())
 }
 
-lazy_static::lazy_static! {
-    /// this is only temporary
-    ///
-    /// once interpreter state becomes shared and threaded we can use a local on the
-    /// interpreter for the code path flow things
-    static ref HACKY_MAP: std::sync::Arc<std::sync::Mutex<FxHashMap<usize, crate::isa::Comment>>> = Default::default();
-}
-
 impl<'p> Interpreter<'p> {
     pub fn new(
         code: &'p LiftedProgram,
@@ -246,16 +249,43 @@ impl<'p> Interpreter<'p> {
         Interpreter {
             code,
             external_fns: ext_fns,
+            current_comment: Default::default(),
+            top: None,
+            callstack_path: Vec::new(),
         }
     }
 
-    pub fn execute_fn_id(&self, id: FunctionId, args: Vec<Value>) -> InstResult<Option<Value>> {
+    pub fn execute_fn_id(&mut self, id: FunctionId, args: Vec<Value>) -> InstResult<Option<Value>> {
+        let parent = self.top;
+
+        let edge = Edge {
+            goes_in: true,
+            from: parent,
+            to: Some(id),
+        };
+        self.callstack_path.push(edge);
+        self.top = Some(id);
+
         const KiB: usize = 1024;
         const MiB: usize = 1024 * KiB;
-        stacker::maybe_grow(32 * KiB, 4 * MiB, || self.execute_fn_id_impl(id, args))
+        let results = stacker::maybe_grow(32 * KiB, 4 * MiB, || self.execute_fn_id_impl(id, args));
+
+        let edge = Edge {
+            goes_in: false,
+            from: Some(id),
+            to: parent,
+        };
+        self.callstack_path.push(edge);
+        self.top = parent;
+
+        results
     }
 
-    fn execute_fn_id_impl(&self, id: FunctionId, args: Vec<Value>) -> InstResult<Option<Value>> {
+    fn execute_fn_id_impl(
+        &mut self,
+        id: FunctionId,
+        args: Vec<Value>,
+    ) -> InstResult<Option<Value>> {
         let function = (self.code.functions)
             .get(&id)
             .expect("expected valid function id");
@@ -273,27 +303,10 @@ impl<'p> Interpreter<'p> {
         let mut inst_exec = InstExec {
             registers,
             interpreter: self,
+            function,
         };
 
         for inst in function.instructions.iter() {
-            #[cfg(debug_assertions)]
-            if let Instruction::Comment(comment) = inst {
-                HACKY_MAP
-                    .lock()
-                    .unwrap()
-                    .insert(function.ir_fn_id.get_the_value(), *comment);
-            }
-
-            #[cfg(debug_assertions)]
-            if let Some(c) = HACKY_MAP
-                .lock()
-                .unwrap()
-                .get(&function.ir_fn_id.get_the_value())
-            {
-                println!(":: {:?}", c);
-            }
-
-            println!("{:?}", inst);
             inst_exec.exec(inst)?;
         }
 
@@ -334,9 +347,120 @@ impl<'p> Interpreter<'p> {
     }
 }
 
-struct InstExec<'interpreter> {
+impl<'p> Interpreter<'p> {
+    pub fn print_callstack_depth(&self, mut depth: usize) -> String {
+        if depth == 0 {
+            depth = usize::MAX
+        };
+
+        let mut s = String::new();
+        let mut indent = String::new();
+
+        let name = |x| match x {
+            Some(x) => match &self.code.functions.get(&x).unwrap().name {
+                Some(y) => format!("{}({})", y, x),
+                None => format!("{}", x),
+            },
+            None => "".to_string(),
+        };
+        let arrow = |x| if x { "->" } else { "<-" };
+
+        for Edge { from, goes_in, to } in self.callstack_path.iter().rev().take(depth).rev() {
+            let path = format!("{}{}{}", name(*from), arrow(*goes_in), name(*to));
+
+            if !*goes_in {
+                indent.pop();
+            }
+
+            s.push_str(&format!("{}{}\n", indent, path));
+
+            if *goes_in {
+                indent.push(' ');
+            }
+        }
+
+        s
+    }
+
+    pub fn construct_callstack_graph(&self, mut depth: usize) -> String {
+        if depth == 0 {
+            depth = usize::MAX
+        };
+        let mut graph = DiGraph::new();
+
+        struct DebugIsDisplay<T>(T);
+        impl<T> std::fmt::Debug for DebugIsDisplay<T>
+        where
+            T: std::fmt::Display,
+        {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "{}", self.0)
+            }
+        }
+
+        let root = graph.add_node(DebugIsDisplay("ROOT".to_string()));
+
+        let mut nodes = FxHashMap::default();
+
+        let mut add_node = |id| {
+            if nodes.get(&id).is_some() {
+                return;
+            }
+
+            let body = self.code.functions.get(&id).unwrap();
+            let code = crate::lifted::display(id, body);
+            let node = graph.add_node(DebugIsDisplay(code));
+            nodes.insert(id, node);
+        };
+
+        for Edge { from, to, .. } in self.callstack_path.iter().rev().take(depth).rev() {
+            if let Some(id) = from {
+                add_node(*id);
+            }
+
+            if let Some(id) = from {
+                add_node(*id);
+            }
+        }
+
+        let get_node = |id| {
+            if let Some(id) = nodes.get(&id) {
+                return *id;
+            }
+
+            unreachable!("wat");
+        };
+
+        for (
+            edge_num,
+            Edge {
+                from,
+                goes_in: _,
+                to,
+            },
+        ) in self
+            .callstack_path
+            .iter()
+            .enumerate()
+            .rev()
+            .take(depth)
+            .rev()
+        {
+            let from = from.map(&get_node).unwrap_or(root);
+            let to = to.map(&get_node).unwrap_or(root);
+
+            graph.add_edge(from, to, edge_num);
+        }
+
+        let dot = petgraph::dot::Dot::with_config(&graph, &[petgraph::dot::Config::EdgeIndexLabel]);
+        format!("{:?}", dot)
+    }
+}
+
+struct InstExec<'interpreter, 'code> {
     registers: FxHashMap<RegisterId, Value>,
-    interpreter: &'interpreter Interpreter<'interpreter>,
+    interpreter: &'interpreter mut Interpreter<'code>,
+    function: &'code Function,
 }
 
 pub type InstResult<T> = Result<T, InstErr>;
@@ -406,8 +530,24 @@ pub enum BorrowErrorWrapper {
 
 use InstErr::*;
 
-impl<'c> InstExec<'c> {
+impl<'i, 'c> InstExec<'i, 'c> {
     pub fn exec(&mut self, inst: &Instruction<LiftedCtx, LiftedCtx>) -> InstResult<()> {
+        #[cfg(debug_assertions)]
+        if let Instruction::Comment(comment) = inst {
+            self.interpreter
+                .current_comment
+                .insert(self.function.ir_fn_id.get_the_value(), *comment);
+        }
+
+        #[cfg(debug_assertions)]
+        if let Some(c) = self
+            .interpreter
+            .current_comment
+            .get(&self.function.ir_fn_id.get_the_value())
+        {
+            println!(":: {:?}", c);
+        }
+
         if let Some(result) = inst.assigned_to() {
             assert!(
                 !self.registers.contains_key(&result),
@@ -606,9 +746,13 @@ impl<'c> InstExec<'c> {
                     for (k, v) in rec.iter() {
                         if let RecordKey::Atom(a) = k {
                             println!(
-                                "{} |-> {:?}",
+                                "{} |-> {}",
                                 self.interpreter.code.dealer.resolve_name(*a),
-                                v
+                                match v {
+                                    Value::Atom(a) =>
+                                        self.interpreter.code.dealer.resolve_name(*a).to_string(),
+                                    other => format!("{:?}", other),
+                                }
                             );
                         }
                     }
@@ -829,8 +973,7 @@ impl<'c> InstExec<'c> {
         //
         // A*: at this point we'd want more detailed error information
         // about the stack trace
-        let interpreter = self.interpreter;
-        let result = interpreter.execute_fn_id(fn_id, args)?; // <- A*
+        let result = self.interpreter.execute_fn_id(fn_id, args)?; // <- A*
 
         self.store_fn_result(result, register)
     }

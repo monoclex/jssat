@@ -189,6 +189,7 @@ impl Default for ProgramBuilder {
 
 pub struct FunctionBuilder<const PARAMETERS: usize> {
     pub id: FunctionId,
+    name: Option<String>,
     gen_block_id: Counter<BlockId>,
     gen_register_id: Arc<Counter<RegisterId>>,
     entrypoint: Option<BlockId>,
@@ -208,6 +209,7 @@ impl<const P: usize> FunctionBuilder<P> {
     pub(crate) fn new(id: FunctionId) -> Self {
         Self {
             id,
+            name: None,
             gen_block_id: Counter::new(),
             gen_register_id: Arc::new(Counter::new_with_value(P)),
             entrypoint: None,
@@ -216,8 +218,13 @@ impl<const P: usize> FunctionBuilder<P> {
         }
     }
 
+    pub fn with_name(&mut self, name: String) {
+        self.name = Some(name);
+    }
+
     fn finish(self) -> Function {
         Function {
+            name: self.name.clone(),
             parameters: (0..P)
                 .into_iter()
                 .map(|p| Parameter {
