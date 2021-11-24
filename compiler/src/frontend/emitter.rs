@@ -442,6 +442,7 @@ mod tests {
     use super::*;
     use crate::interpreter::InstResult;
     use crate::interpreter::{Interpreter, Value};
+    use crate::isa::AtomDealer;
     use Value::*;
 
     trait GetInner {
@@ -457,7 +458,7 @@ mod tests {
     }
 
     fn create_interpreter<const P: usize>(
-        program: fn(&mut Emitter<P>, [RegisterId; P]) -> Option<RegisterId>,
+        program: impl FnOnce(&mut Emitter<P>, [RegisterId; P]) -> Option<RegisterId>,
     ) -> impl Fn([Value; P]) -> InstResult<Option<Value>> {
         let mut builder = ProgramBuilder::new();
         builder.create_blank_entrypoint();
@@ -486,6 +487,12 @@ mod tests {
     fn value_is_bytes(str: &str, value: Value) {
         let bytes = value.try_into_bytes().unwrap();
         assert_eq!(bytes, str.as_bytes());
+    }
+
+    #[track_caller]
+    fn value_is_number(num: i64, value: Value) {
+        let bytes = value.try_into_number().unwrap();
+        assert_eq!(bytes, num);
     }
 
     #[test]
@@ -684,6 +691,59 @@ mod tests {
         });
 
         value_is_bytes("added", run([]).get());
+    }
+
+    /// Implements a simple for loop:
+    ///
+    /// ```text
+    /// let tally = { timesInLoop: 0 }
+    ///
+    /// for (let i = 0; i < MAX; i++) {
+    ///     tally.timesInLoop += 1;
+    /// }
+    ///
+    /// return tally.timesInLoop
+    /// ```
+    ///
+    /// and ensure that it behaves as expected
+    #[test]
+    #[ntest::timeout(1_000)]
+    pub fn loop_iterates_exactly() {
+        fn times(max: i64) {
+            let mut dealer = AtomDealer::new();
+            let times_in_loop = dealer.deal("times in loop");
+
+            let run = create_interpreter(|e, []| {
+                let tally = e.record_new();
+                let zero = e.make_number_decimal(0);
+                e.record_set_atom(tally, times_in_loop, zero);
+
+                e.do_loop(
+                    [Box::new(|e| e.make_number_decimal(0))],
+                    |e, [i]| {
+                        let max = e.make_number_decimal(max);
+                        e.compare_less_than(i, max)
+                    },
+                    |e, [i]| {
+                        let one = e.make_number_decimal(1);
+
+                        let current = e.record_get_atom(tally, times_in_loop);
+                        let another = e.add(current, one);
+                        e.record_set_atom(tally, times_in_loop, another);
+
+                        LoopControlFlow::Next([e.add(one, i)])
+                    },
+                );
+
+                Some(e.record_get_atom(tally, times_in_loop))
+            });
+
+            value_is_number(max, run([]).get());
+        }
+
+        for i in 0..10 {
+            times(i);
+        }
     }
 
     #[test]

@@ -250,6 +250,12 @@ impl<'p> Interpreter<'p> {
     }
 
     pub fn execute_fn_id(&self, id: FunctionId, args: Vec<Value>) -> InstResult<Option<Value>> {
+        const KiB: usize = 1024;
+        const MiB: usize = 1024 * KiB;
+        stacker::maybe_grow(32 * KiB, 4 * MiB, || self.execute_fn_id_impl(id, args))
+    }
+
+    fn execute_fn_id_impl(&self, id: FunctionId, args: Vec<Value>) -> InstResult<Option<Value>> {
         let function = (self.code.functions)
             .get(&id)
             .expect("expected valid function id");
@@ -287,6 +293,7 @@ impl<'p> Interpreter<'p> {
                 println!(":: {:?}", c);
             }
 
+            println!("{:?}", inst);
             inst_exec.exec(inst)?;
         }
 
@@ -519,6 +526,7 @@ impl<'c> InstExec<'c> {
                         (Bytes(lhs), Bytes(rhs)) => lhs == rhs,
                         (Boolean(lhs), Boolean(rhs)) => lhs == rhs,
                         (Atom(lhs), Atom(rhs)) => lhs == rhs,
+                        (Record(lhs), Record(rhs)) => Gc::ptr_eq(lhs, rhs),
                         (Record(_), Atom(_)) | (Atom(_), Record(_)) => false,
                         _ => return fail(),
                     }),
@@ -558,6 +566,20 @@ impl<'c> InstExec<'c> {
                     );
                 }
 
+                #[cfg(debug_assertions)]
+                if let Ok(rec) = value.try_into_record() {
+                    println!("the record asserting is: {:?}", &rec);
+                    for (k, v) in rec.iter() {
+                        if let RecordKey::Atom(a) = k {
+                            println!(
+                                "{} |-> {:?}",
+                                self.interpreter.code.dealer.resolve_name(*a),
+                                v
+                            );
+                        }
+                    }
+                }
+
                 let assertion = value.try_into_boolean()?;
 
                 if !assertion {
@@ -573,6 +595,11 @@ impl<'c> InstExec<'c> {
                         value.kind()
                     }
                 };
+
+                println!("===");
+                println!("   = {:?}", i.kind);
+                println!("{} = {}", value.kind(), target_kind);
+                println!("===");
 
                 let is_type = match (value, target_kind) {
                     (Value::Atom(_), ValueType::Atom)

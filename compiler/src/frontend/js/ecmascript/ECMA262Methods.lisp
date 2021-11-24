@@ -147,10 +147,12 @@
 (def atom-base (atom Base))
 (def (atom throw) (atom Throw))
 
-(def (is-undef :x) (:x == undefined))
-(def (isnt-undef :x) (:x != undefined))
-(def (is-null :x) (:x == null))
-(def (isnt-null :x) (:x != null))
+(def (ifAtom :x :y) (lazyAnd (is-type-of Atom :x) :y))
+
+(def (is-undef :x) (ifAtom :x (:x == undefined)))
+(def (isnt-undef :x) (not (is-undef :x)))
+(def (is-null :x) (ifAtom :x (:x == null)))
+(def (isnt-null :x) (not (is-null :x)))
 (def (is-true :x) (:x == true))
 (def (is-false :x) (:x == false))
 (def (is-normal :x) (:x == normal))
@@ -307,14 +309,14 @@
 (def
   (sole-element :x)
   ((let
-     jssat_list
+     sole_element_jssat_list
      =
      :x
      in
      (; assert that the list is a list with a singular element
-      (assert ((list-len :jssat_list) == 1) "to get the 'sole element' of a list, it must be a singleton list")
-      (assert (list-has :jssat_list 0) "sanity check")
-      (list-get :jssat_list 0)))))
+      (assert ((list-len :sole_element_jssat_list) == 1) "to get the 'sole element' of a list, it must be a singleton list")
+      (assert (list-has :sole_element_jssat_list 0) "sanity check")
+      (list-get :sole_element_jssat_list 0)))))
 
 ; 5.2.3.4 ReturnIfAbrupt Shorthands
 (def
