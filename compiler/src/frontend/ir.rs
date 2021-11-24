@@ -1,5 +1,6 @@
 use std::fmt::Display;
 use std::hash::Hash;
+use std::sync::Arc;
 
 use rustc_hash::FxHashMap;
 use tinyvec::TinyVec;
@@ -17,6 +18,7 @@ type ExternalFunctionId = crate::id::ExternalFunctionId<IrCtx>;
 
 #[derive(Debug, Clone)]
 pub struct IR {
+    pub dealer: Arc<AtomDealer>,
     pub entrypoint: FunctionId,
     pub constants: FxHashMap<ConstantId, Constant>,
     pub external_functions: FxHashMap<ExternalFunctionId, ExternalFunction>,

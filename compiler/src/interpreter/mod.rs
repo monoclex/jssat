@@ -549,6 +549,15 @@ impl<'c> InstExec<'c> {
             }
             Assert(i) => {
                 let value = self.get(i.condition)?;
+
+                #[cfg(debug_assertions)]
+                if let Ok(atom) = value.try_into_atom() {
+                    println!(
+                        "the value asserting is: {}",
+                        self.interpreter.code.dealer.resolve_name(atom)
+                    );
+                }
+
                 let assertion = value.try_into_boolean()?;
 
                 if !assertion {

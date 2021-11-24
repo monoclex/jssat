@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{fmt::Display, sync::Arc};
 
 use rustc_hash::{FxHashMap, FxHashSet};
 use tinyvec::TinyVec;
@@ -6,7 +6,7 @@ use tinyvec::TinyVec;
 use crate::{
     frontend::ir::{self, ControlFlowInstruction, Instruction, IR},
     id::{IrCtx, LiftedCtx},
-    isa::{BlockJump, ISAInstruction, Jump, JumpIf, Return},
+    isa::{AtomDealer, BlockJump, ISAInstruction, Jump, JumpIf, Return},
     retag::{
         BlkToFn, CnstPassRetagger, CnstRetagger, ExtFnPassRetagger, ExtFnRetagger, FnGenRetagger,
         FnMapRetagger, FnRetagger, RegPassRetagger, RegRetagger,
@@ -21,6 +21,7 @@ pub type RegisterId = crate::id::RegisterId<LiftedCtx>;
 
 #[derive(Debug, Clone)]
 pub struct LiftedProgram {
+    pub dealer: Arc<AtomDealer>,
     pub entrypoint: FunctionId,
     pub constants: FxHashMap<ConstantId, Constant>,
     pub external_functions: FxHashMap<ExternalFunctionId, ExternalFunction>,
@@ -156,7 +157,10 @@ pub fn lift(ir: IR) -> LiftedProgram {
 
     let entrypoint = fn_retagger.retag_old(ir.entrypoint);
 
+    let dealer = ir.dealer;
+
     LiftedProgram {
+        dealer,
         entrypoint,
         constants,
         external_functions,

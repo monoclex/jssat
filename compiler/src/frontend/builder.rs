@@ -80,6 +80,7 @@ impl ProgramBuilder {
         }
 
         IR {
+            dealer: Arc::new(self.dealer),
             entrypoint,
             constants: into_map(self.constants),
             external_functions: into_map(self.external_functions),

@@ -50,6 +50,7 @@ unsafe impl Key for Atom {
 /// Assists in ensuring unique atoms are given on request. If all requests for
 /// new atoms go through an [`AtomDealer`], the API will prevent duplicate atoms
 /// from being issued.
+#[derive(Debug)]
 pub struct AtomDealer {
     rodeo: Rodeo<Atom>,
     gen_unused: Atom,
@@ -59,6 +60,11 @@ impl AtomDealer {
     /// Creates an instance of an [`AtomDealer`].
     pub fn new() -> Self {
         Default::default()
+    }
+
+    /// Resolves the name of an [`Atom`], if it was dealt with [`deal`].
+    pub fn resolve_name(&self, atom: Atom) -> &str {
+        self.rodeo.resolve(&atom)
     }
 
     /// Issues a unique [`Atom`] that corresponds to only the string given.

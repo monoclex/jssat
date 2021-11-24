@@ -172,6 +172,7 @@
         ((:x))
         ((:y))))))
 
+(def (:1 = :2 -> :3) (:1 = (:2 -> :3)))
 (def (:1 -> :2) (record-get-slot :1 :2))
 (def (:1 -> :2 == :3) ((:1 -> :2) == :3))
 (def (:1 -> :2 -> :3) ((:1 -> :2) -> :3))
@@ -292,7 +293,7 @@
      in
      (; assert that the list is a list with a singular element
       (assert ((list-len :jssat_list) == 1) "to get the 'sole element' of a list, it must be a singleton list")
-      (assert (list-has :jssat_list 1) "sanity check")
+      (assert (list-has :jssat_list 0) "sanity check")
       (list-get :jssat_list 0)))))
 
 ; 5.2.3.4 ReturnIfAbrupt Shorthands
@@ -817,7 +818,34 @@
    (if (match-pn :parseNode (atom BindingIdentifier) 2)
        (;;; 1. Return a List whose sole element "await".
         (return (list-new-1 "await"))))
+   ; FunctionDeclaration : function BindingIdentifier ( FormalParameters ) { FunctionBody }
+   (if (is-pn FunctionDeclaration 0)
+       (;;; 1. Return the BoundNames of BindingIdentifier.
+        (return (call BoundNames (:parseNode -> JSSATParseNodeSlot1)))))
+   ; FunctionDeclaration : function ( FormalParameters ) { FunctionBody }
+   (if (is-pn FunctionDeclaration 1)
+       (;;; 1. Return « "*default*" ».
+        (return (list-new-1 "*default*"))))
    (return list-new)))
+
+(section
+  (:8.1.2 DeclarationPart (parseNode))
+  (; HoistableDeclaration : FunctionDeclaration
+   ;;; 1. Return FunctionDeclaration.
+   ; HoistableDeclaration : GeneratorDeclaration
+   ;;; 1. Return GeneratorDeclaration.
+   ; HoistableDeclaration : AsyncFunctionDeclaration
+   ;;; 1. Return AsyncFunctionDeclaration.
+   ; HoistableDeclaration : AsyncGeneratorDeclaration
+   ;;; 1. Return AsyncGeneratorDeclaration.
+   ; Declaration : ClassDeclaration
+   ;;; 1. Return ClassDeclaration.
+   ; Declaration : LexicalDeclaration
+   ;;; 1. Return LexicalDeclaration.
+
+   ; key observation: every single production involes returning the first rule
+   ; due to how JSSAT is set up, we can simply get the parse node in the first slot
+   (return (:parseNode -> JSSATParseNodeSlot1))))
 
 (section
   (:8.1.4 LexicallyDeclaredNames (parseNode))
@@ -846,7 +874,8 @@
         (return (list-concat :declarations1 :declarations2))))
    ; VariableDeclarationList : VariableDeclaration
    (if (match-pn :parseNode (atom VariableDeclarationList) 0)
-       ((return (list-new-1 (:parseNode -> JSSATParseNodeSlot1)))))
+       (;;; 1. Return a List whose sole element is VariableDeclaration.
+        (return (list-new-1 (:parseNode -> JSSATParseNodeSlot1)))))
    ; VariableDeclarationList : VariableDeclarationList , VariableDeclaration
    (if (is-pn VariableDeclarationList 1)
        (;;; 1. Let declarations1 be VarScopedDeclarations of VariableDeclarationList.
@@ -857,6 +886,11 @@
    (if (is-pn ScriptBody 0)
        (;;; 1. Return TopLevelVarScopedDeclarations of StatementList.
         (return (call TopLevelVarScopedDeclarations (:parseNode -> JSSATParseNodeSlot1)))))
+
+   ; TODO: the default path should fall through to calling `VarScopedDeclarations` again
+   ; for now im too lazy to do that
+   (if (is-pn Script 0)
+       ((return (call VarScopedDeclarations (:parseNode -> JSSATParseNodeSlot1)))))
    (return list-new)))
 
 (section
@@ -868,9 +902,9 @@
   (; StatementList : StatementList StatementListItem
    (if (is-pn StatementList 1)
        (;;; 1. Let declarations1 be TopLevelVarScopedDeclarations of StatementList.
-        (declarations1 = (call VarScopedDeclarations (:parseNode -> JSSATParseNodeSlot1)))
+        (declarations1 = (call TopLevelVarScopedDeclarations (:parseNode -> JSSATParseNodeSlot1)))
         ;;; 2. Let declarations2 be TopLevelVarScopedDeclarations of StatementListItem.
-        (declarations2 = (call VarScopedDeclarations (:parseNode -> JSSATParseNodeSlot2)))
+        (declarations2 = (call TopLevelVarScopedDeclarations (:parseNode -> JSSATParseNodeSlot2)))
         ;;; 3. Return the list-concatenation of declarations1 and declarations2.
         (return (list-concat :declarations1 :declarations2))))
    ; StatementListItem : Statement
@@ -878,6 +912,19 @@
        (;;; 1. If Statement is Statement : LabelledStatement , return TopLevelVarScopedDeclarations of Statement.
         ;;; 2. Return VarScopedDeclarations of Statement.
         (return (call VarScopedDeclarations (:parseNode -> JSSATParseNodeSlot1)))))
+   ; StatementListItem : Declaration
+   (if (is-pn StatementListItem 1)
+       (;;; 1. If Declaration is Declaration : HoistableDeclaration , then
+        (Declaration = :parseNode -> JSSATParseNodeSlot1)
+        ; Declaration : HoistableDeclaration
+        (if (match-pn :Declaration Declaration 0)
+            (;;; a. Let declaration be DeclarationPart of HoistableDeclaration.
+             (HoistableDeclaration = :Declaration -> JSSATParseNodeSlot1)
+             (declaration = (call DeclarationPart :HoistableDeclaration))
+             ;;; b. Return « declaration ».
+             (return (list-new-1 :declaration))))
+        ;;; 2. Return a new empty List.
+        (return list-new)))
    (return list-new)))
 
 (section
@@ -2132,6 +2179,7 @@
              ((throw (SyntaxError :env "If env.HasLexicalDeclaration(name) is true"))))))
    ;;; 6. Let varDeclarations be the VarScopedDeclarations of script.
    (varDeclarations = (call VarScopedDeclarations :script))
+   (numVarDecls = (list-len :varDeclarations))
    ;;; 7. Let functionsToInitialize be a new empty List.
    (functionsToInitialize = list-new)
    ;;; 8. Let declaredFunctionNames be a new empty List.
@@ -2210,9 +2258,9 @@
          ;;; a. Let fn be the sole element of the BoundNames of f.
          (fn = (sole-element (call BoundNames :f)))
          ;;; b. Let fo be InstantiateFunctionObject of f with argument env.
-         (assert false "got to Let fo be InstantiateFunctionObject of f with argument env.")
+         (fo = (call InstantiateFunctionObject :f :env))
          ;;; c. Perform ? env.CreateGlobalFunctionBinding(fn, fo, false).
-        ))
+         (_dontCare = (? (:env .. CreateGlobalFunctionBinding :fn :fo false)))))
    ;;; 17. For each String vn of declaredVarNames, do
    (for :declaredVarNames
         ((vn = for-item)
