@@ -9,9 +9,9 @@
 // now, it must contain additional code to handle panics, and is ugly.
 #![allow(clippy::type_complexity)]
 
-// TODO: there's heaves of unsafe here to support getting mutable access to workers
-// after a panic occurs. there's also probably a lot of UB here too.
-// HOWEVER, consider the following: BUT, it compiles :)
+// TODO: there's heaves of unsafe here to support getting mutable access to
+// workers after a panic occurs. there's also probably a lot of UB here too.
+// HOWEVER, consider the following: it compiles :)
 
 use std::{
     cell::UnsafeCell,

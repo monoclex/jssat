@@ -117,7 +117,41 @@ use crate::{
 /// [`std::pin::Pin`] and [`Box`] is used to use the _address of the record_ as
 /// the hash. This prevents cyclicity problems when deeply hashing a record (as
 /// it is possible for them to be cyclic).
-pub struct TypeCtx<T: Tag>(TypeCtxImpl<T>);
+pub struct TypeCtx<T: Tag = crate::id::LiftedCtx>(TypeCtxImpl<T>);
+
+/// # Safety
+///
+/// The error we run into when attempting to send this to another thread, can be
+/// reproduced with the following code example below:
+///
+/// ```no_run
+/// struct Problematic<'ctx> {
+///     problem: &'ctx std::cell::RefCell<Problematic<'ctx>>,
+/// }
+///
+/// fn problem<'ctx>() {
+///     // no worky
+///     is_send::<std::sync::Mutex<Problematic<'ctx>>>()
+/// }
+///
+/// fn is_send<T: Send>() {}
+/// ```
+///
+/// However, we know that for a given [`TypeCtx`] that anything created within
+/// it will *stay* within it, and that the [`RefCell`] will be "closed" if we
+/// own a [`TypeCtx`] that we want to send across threads. Thus, we choose to
+/// implement [`Send`].
+unsafe impl<T: Tag> Send for TypeCtx<T> {}
+
+fn x() {
+    let id = |x| x;
+
+    consume(&id);
+}
+
+fn consume(it: &dyn FnOnce(String) -> String) {
+    //
+}
 
 impl<T: Tag> TypeCtx<T> {
     /// Constructs a new, blank [`TypeCtx`].
@@ -125,7 +159,8 @@ impl<T: Tag> TypeCtx<T> {
     /// # Examples
     ///
     /// ```
-    /// let type_ctx = TypeCtx::new();
+    /// # use crate::id::NoContext;
+    /// let type_ctx = TypeCtx::<NoContext>::new();
     /// ```
     pub fn new() -> Self {
         let ctx_impl = TypeCtxImplBuilder {

@@ -30,9 +30,7 @@ impl<'ctx, T: Tag> Default for Facts<'ctx, T> {
 }
 
 #[derive(Clone, Copy, Hash)]
-enum RecordKey<'ctx, T: Tag> {
-    Key(Type<'ctx, T>),
-}
+struct RecordKey<'ctx, T: Tag>(Type<'ctx, T>);
 
 /// we need a number to determine when a fact was added so that optimization
 /// passes acting on the list of facts can know at the instruction it's looking

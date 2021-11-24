@@ -64,15 +64,13 @@ pub enum Type<'ctx, T: Tag> {
     /// otherwise the abstract interpreter will produce an error.
     Any,
     /// [`Type::Nothing`] does not represent anything at all. It is, by
-    /// definition, purely nothing.
-    //
-    // (why does rust doc not allow me to put an empty triple comment up above)
-    // TODO: i'm tired, does these docs make sense? should they be in the abstract
-    // interpreter module? the world may never know!
+    /// definition, purely nothing. Observing a value of [`Type::Nothing`] is an
+    /// error.
     ///
     /// Attempts to use [`Type::Nothing`] will result in errors. It exists to
-    /// simplify checking if a record has a value present at a key or not. A
-    /// single instruction can be emitted to ensure that the value is not
+    /// simplify checking if a record has a value present at a key or not.
+    // TODO: this section could probably be removed
+    /// A single instruction can be emitted to ensure that the value is not
     /// nothing, and it will often be more performant as there is no preliminary
     /// "does it exists" followed by a "get the value" check, which could
     /// potentially involve two hashes and lookups for a single field.
@@ -92,9 +90,11 @@ pub enum Type<'ctx, T: Tag> {
     /// interpreter must take both paths when trying to decide which path to
     /// take for a [`Type::Boolean`].
     Boolean,
-    /// [`Type::Atom`] represents a variable with a symbolic value. This is
-    /// used to represent `null` and `undefined`, and is also used to represent
-    /// any other sentinals.
+    /// [`Type::Atom`] represents a unique symbolic value. These are often used
+    /// to represent unique values (such as `null` or `undefined`), and are
+    /// usable as the keys of records. Using an [`Atom`] as a record key is
+    /// often preferable to a string, as it is impossible to produce a duplicate
+    /// [`Atom`] from within JSSAT IR unintentionally.
     Atom(Atom),
     /// [`Type::Int`] represents an integer of exactly the specified value. A
     /// variable of this type can only hold one possible value, which is the
@@ -124,10 +124,12 @@ pub enum Type<'ctx, T: Tag> {
     /// program in its entirety, it is capable of converting all virtual calls
     /// into static calls to prevent dynamic dispatch.
     ///
-    /// Function pointers are often tagged as being in the [`LiftedCtx`] phase
-    /// due to it being impossible to attribute a specific function to a
-    /// function pointer in all cases. This is because two virtual calls to the
-    /// same function pointer may supply different argument types.
+    /// Function pointers are tagged as being in the [`LiftedCtx`] phase due to
+    /// it being impossible to attribute a specific monomorphized version of a
+    /// function to a function pointer in all cases. This is because two virtual
+    /// calls to the same function pointer may supply different argument types,
+    /// requiring a call to two different monomorphized versions of that
+    /// function.
     FnPtr(FunctionId<LiftedCtx>),
     /// [`Type::Byts`] represents a series of bytes of exactly the specified
     /// value. A variable of this type can only hold one possible value, which
@@ -135,7 +137,7 @@ pub enum Type<'ctx, T: Tag> {
     ///
     /// This type is difficult to construct manually. To construct one, use a
     /// [`TypeCtx`], call the `borrow` method to borrow it immutably, then call
-    /// `make_bytes`.
+    /// `make_bytes`. See `make_type_byts` on [`type_ctx::TypeCtxImmut`].
     Byts(BytsHandle<'ctx>),
     /// [`Type::Record`] represents a JSSAT record, which is a key-value mapping
     /// of JSSAT types to JSSAT types.
@@ -146,7 +148,7 @@ pub enum Type<'ctx, T: Tag> {
     ///
     /// This type is difficult to construct manually. To construct one, use a
     /// [`TypeCtx`], call the `borrow` method to borrow it immutably, then call
-    /// `make_record`.
+    /// `make_record`. See `make_type_record` on [`type_ctx::TypeCtxImmut`].
     Record(RecordHandle<'ctx, T>),
     /// [`Type::Union`] represents a possible range of different types. For
     /// example, the TypeScript type `"asdf" | 1` would be cleanly represented
@@ -203,21 +205,21 @@ impl<'ctx, T: Tag> Debug for RecordHandle<'ctx, T> {
 /// &'ctx Pin<Box<'ctx, T>>
 /// ```
 ///
-/// ## 1 &mdash; Reference that lives in `&'ctx`
+/// ## 1. Reference that lives in `&'ctx`
 ///
 /// This enables [`CtxBox`] to be used as [`Copy`]. Since the `T` must be
 /// already valid for `'ctx`, it is not difficult to require a `&'ctx`. This is
 /// easily possible as the [`bumpalo::Bump`] arena will allow allocation into it
 /// for arbitrary types, such as a [`Pin`].
 ///
-/// ## 2 &mdash; Data pinning
+/// ## 2. Data pinning
 ///
 /// By pinning the data, we are being guaranteed that the underlying address is
 /// stable. Although it is not strictly correct to implement [`Hash`], it is
 /// being done here as the address is being considered the "id" of something,
 /// that there should only be one unique version of this type.
 ///
-/// ## 3 &mdash; [`Box`]ed data
+/// ## 3. [`Box`]ed data
 ///
 /// It is debatable whether or not [`Box`] is necessary, but it allows for easy
 /// usage of the [`Box::pin_in`] API. In addition, the destructors of `T` will

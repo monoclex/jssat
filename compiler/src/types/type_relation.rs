@@ -61,7 +61,7 @@ impl TypeRelation {
         match self {
             Subtype => Supertype,
             Supertype => Subtype,
-            other => other,
+            Equal => Equal,
         }
     }
 }
@@ -124,7 +124,7 @@ impl<'ctx, T1: Tag> Type<'ctx, T1> {
     /// - If `A` is a supertype of `B`, then `B` is a subtype of `A`
     ///
     /// Any relationship that does not fall into this set of rules produces
-    /// [`TypeRelation::None`].
+    /// [`None`].
     pub fn relation_to<U: Tag>(&self, other: &Type<U>) -> Option<TypeRelation> {
         use Type::*;
         use TypeRelation::*;
@@ -134,11 +134,13 @@ impl<'ctx, T1: Tag> Type<'ctx, T1> {
             return Some(Equal);
         }
 
+        // Perform the algorithm specified in the doc comment
         if let Some(relation) = algo(self, other) {
             return Some(relation);
         }
 
         // If `A` is a supertype of `B`, then `B` is a subtype of `A`
+        // Thus, we can perform the algorithm specified in the doc comment in reverse.
         if let Some(relation) = algo(other, self) {
             return Some(relation.reverse());
         }

@@ -23,6 +23,7 @@ use crate::frontend::{
     js::{hosts::JSSATHostEnvironment, JavaScriptFrontend},
 };
 
+pub mod abst_interp;
 pub mod backend;
 pub mod codegen;
 pub mod collections;
