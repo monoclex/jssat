@@ -24,6 +24,7 @@
 (def (and4 :a :b :c :d) (and3 :a :b (and :c :d)))
 (def (and6 :1 :2 :3 :4 :5 :6) (and (and3 :1 :2 :3) (and3 :4 :5 :6)))
 (def (or3 :1 :2 :3) (or (or :1 :2) :3))
+(def (or4 :1 :2 :3 :4) ((:1 or :2) or (:3 or :4)))
 (def (or7 :1 :2 :3 :4 :5 :6 :7) (or3 (or3 :1 :2 :3) (or3 :4 :5 :6) :7))
 (def (both :a :b (:x :y)) (and (:a :x :y) (:b :x :y)))
 (def (both :1 :2 :f) (and (:f :1) (:f :2)))
@@ -147,13 +148,20 @@
 (def (is-object :x) (is-record :x))
 (def (isnt-object :x) (not (is-object :x)))
 
+(def (pn-kind-is :parseNode :kind) (:parseNode -> JSSATParseNodeKind == (atom :kind)))
+(def (pn-kind-isnt :parseNode :kind) (not (pn-kind-is :parseNode :kind)))
+(def (pn-variant-is :parseNode :variant_idx) (:parseNode -> JSSATParseNodeVariant == :variant_idx))
+(def (pn-variant-isnt :parseNode :variant_idx) (not (pn-variant-is :parseNode :variant_idx)))
+
 (def
-  (match-pn :parseNode :kind :variant_idx)
-  (and (:parseNode -> JSSATParseNodeKind == :kind) (:parseNode -> JSSATParseNodeVariant == :variant_idx)))
+  (match-pn :parseNode (atom :kind) :variant_idx)
+  (and (pn-kind-is :parseNode :kind) (pn-variant-is :parseNode :variant_idx)))
+
+(def (match-pn :parseNode :kind :variant_idx) (match-pn :parseNode (atom :kind) :variant_idx))
 
 (def
   (is-pn :kind :variant_idx)
-  (match-pn :parseNode (atom :kind) :variant_idx))
+  (match-pn :parseNode :kind :variant_idx))
 
 (def (isnt-type-as :x :y) (not (is-type-as :x :y)))
 
@@ -220,6 +228,49 @@
    (record-has-slot :x Type)
    (record-has-slot :x Value)
    (record-has-slot :x Target)))
+
+; TODO: implement these as an intrinsic for more performance
+(def (list-contains :list :element) (call JSSATListContains :list :element))
+(section
+  (:0.0.0.0 JSSATListContains (list, element))
+  ((for :list
+        ((i = for-item)
+         (if (:i == :element)
+             ((return true)))))
+   (return false)))
+
+(def (list-insert-front :list :element) (call JSSATListInsertFront :list :element))
+(section
+  (:0.0.0.0 JSSATListInsertFront (list, element))
+  (; list looks like [1, 2, ..., n]
+   ; 1. reverse list
+   ;    [n, ..., 2, 1]
+   (list-reverse :list)
+   ; 1. push `element` onto list
+   ;    [n, ..., 2, 1, element]
+   (list-push :list :element)
+   ; 2. reverse list
+   ;    [element, 1, 2, ..., n]
+   (list-reverse :list)
+   (return)))
+
+(def (list-reverse :list) (call JSSATListReverse :list))
+(section
+  (:0.0.0.0 JSSATListReverse (list))
+  (; list : [1, 2, ..., n]
+   ; tmp  : []
+   (tmp = list-new)
+   ; 1. copy list to tmp
+   ; list : [1, 2, ..., n]
+   ; tmp  : [1, 2, ..., n]
+   (for :list
+        ((list-push :tmp for-item)))
+   ; 2. iterate tmp in reverse, copy to list
+   (for :tmp
+        ((i = for-item-rev)
+         (target-i = :jssat_i)
+         (list-set :list :target-i :i)))
+   (return)))
 
 ; TODO: use some kind of `Kind`/`Type` key to identify it
 ;       for now we just try to check if one of the virtual methods exists
@@ -325,6 +376,8 @@
 (def (:env .. HasRestrictedGlobalProperty :N) (call-virt (:env -> JSSATHasRestrictedGlobalProperty) :env :N))
 (def (:env .. HasBinding :N) (call-virt (:env -> JSSATHasBinding) :env :N))
 
+(def (:env .. CanDeclareGlobalVar :N) (call CanDeclareGlobalVar :env :N))
+(def (:env .. CanDeclareGlobalFunction :N) (call CanDeclareGlobalFunction :env :N))
 (def (:env .. WithBaseObject) (virt0 :env WithBaseObject))
 (def (:O .. GetBindingValue :1 :2) (virt2 :O GetBindingValue :1 :2))
 
@@ -664,6 +717,16 @@
    (return (? (:O .. HasProperty :P)))))
 
 (section
+  (:7.3.13 HasOwnProperty (O, P))
+  (;;; 1. Let desc be ? O.[[GetOwnProperty]](P).
+   (desc = (? (:O .. GetOwnProperty :P)))
+   ;;; 2. If desc is undefined, return false.
+   (if (is-undef :desc)
+       ((return false)))
+   ;;; 3. Return true.
+   (return true)))
+
+(section
   (:7.3.14 Call (F, V, argumentsList))
   (;;; 1. If argumentsList is not present, set argumentsList to a new empty List.
    ; the caller should be expected to do this
@@ -925,6 +988,40 @@
   (:9.1.1.4.10 GlobalEnvironmentRecord_WithBaseObject (envRec))
   (;;; 1. Return undefined.
    (return undefined)))
+
+(section
+  (:9.1.1.4.15 CanDeclareGlobalVar (envRec, N))
+  (;;; 1. Let ObjRec be envRec.[[ObjectRecord]].
+   (ObjRec = (:envRec -> ObjectRecord))
+   ;;; 2. Let globalObject be ObjRec.[[BindingObject]].
+   (globalObject = (:ObjRec -> BindingObject))
+   ;;; 3. Let hasProperty be ? HasOwnProperty(globalObject, N).
+   (hasProperty = (? (call HasOwnProperty :globalObject :N)))
+   ;;; 4. If hasProperty is true, return true.
+   (if (is-true :hasProperty)
+       ((return true)))
+   ;;; 5. Return ? IsExtensible(globalObject).
+   (return (? (call IsExtensible :globalObject)))))
+
+(section
+  (:9.1.1.4.16 CanDeclareGlobalFunction (envRec, N))
+  (;;; 1. Let ObjRec be envRec.[[ObjectRecord]].
+   (ObjRec = (:envRec -> ObjectRecord))
+   ;;; 2. Let globalObject be ObjRec.[[BindingObject]].
+   (globalObject = (:ObjRec -> BindingObject))
+   ;;; 3. Let existingProp be ? globalObject.[[GetOwnProperty]](N).
+   (existingProp = (? (:globalObject .. GetOwnProperty :N)))
+   ;;; 4. If existingProp is undefined, return ? IsExtensible(globalObject).
+   (if (is-undef :existingProp)
+       ((return (? (call IsExtensible :globalObject)))))
+   ;;; 5. If existingProp.[[Configurable]] is true, return true.
+   (if (is-true (:existingProp -> Configuraable))
+       ((return true)))
+   ;;; 6. If IsDataDescriptor(existingProp) is true and existingProp has attribute values { [[Writable]]: true, [[Enumerable]]: true }, return true.
+   (if ((is-true (call IsDataDescriptor :existingProp)) and (and (:existingProp -> Writable == true) (:existingProp -> Enumerable == true)))
+       ((return true)))
+   ;;; 7. Return false.
+   (return false)))
 
 (section
   (:9.1.2.1 GetIdentifierReference (env, name, strict))
@@ -2043,32 +2140,53 @@
    (for :varDeclarations
         ((d = for-item-rev)
          ;;; a. If d is neither a VariableDeclaration nor a ForBinding nor a BindingIdentifier, then
-         ;;; i. Assert: d is either a FunctionDeclaration, a GeneratorDeclaration, an AsyncFunctionDeclaration, or an AsyncGeneratorDeclaration.
-         ;;; ii. NOTE: If there are multiple function declarations for the same name, the last declaration is used.
-         ;;; iii. Let fn be the sole element of the BoundNames of d.
-         (fn = (sole-element (call BoundNames :d)))
-         ;;; iv. If fn is not an element of declaredFunctionNames, then
-         ;;; 1. Let fnDefinable be ? env.CanDeclareGlobalFunction(fn).
-         ;;; 2. If fnDefinable is false, throw a TypeError exception.
-         ;;; 3. Append fn to declaredFunctionNames.
-         ;;; 4. Insert d as the first element of functionsToInitialize.
-        ))
+         ; "X is neither an A nor B nor C"
+         ; "X is not an A, X is not a B, X is not a C"
+         (if (and3 (pn-kind-isnt :d VariableDeclaration) (pn-kind-isnt :d ForBinding) (pn-kind-isnt :d BindingIdentifier))
+             (;;; i. Assert: d is either a FunctionDeclaration, a GeneratorDeclaration, an AsyncFunctionDeclaration, or an AsyncGeneratorDeclaration.
+              (assert (or4
+                       (pn-kind-is :d FunctionDeclaration)
+                       (pn-kind-is :d GeneratorDeclaration)
+                       (pn-kind-is :d AsyncFunctionDeclaration)
+                       (pn-kind-is :d AsyncGeneratorDeclaration))
+                      "d is either a FunctionDeclaration, a GeneratorDeclaration, an AsyncFunctionDeclaration, or an AsyncGeneratorDeclaration.")
+              ;;; ii. NOTE: If there are multiple function declarations for the same name, the last declaration is used.
+              ; ^ that seems hard
+              ;;; iii. Let fn be the sole element of the BoundNames of d.
+              (fn = (sole-element (call BoundNames :d)))
+              ;;; iv. If fn is not an element of declaredFunctionNames, then
+              (if (not (list-contains :declaredFunctionNames :fn))
+                  (;;; 1. Let fnDefinable be ? env.CanDeclareGlobalFunction(fn).
+                   (fnDefinable = (? (:env .. CanDeclareGlobalFunction :fn)))
+                   ;;; 2. If fnDefinable is false, throw a TypeError exception.
+                   (if (is-false :fnDefinable)
+                       ((throw (TypeError "fn definable falsy :((("))))
+                   ;;; 3. Append fn to declaredFunctionNames.
+                   (list-push :declaredFunctionNames :fn)
+                   ;;; 4. Insert d as the first element of functionsToInitialize.
+                   (list-insert-front :functionsToInitialize :d)))))))
    ;;; 10. Let declaredVarNames be a new empty List.
    (declaredVarNames = list-new)
    ;;; 11. For each element d of varDeclarations, do
    (for :varDeclarations
         ((d = for-item)
          ;;; a. If d is a VariableDeclaration, a ForBinding, or a BindingIdentifier, then
-         ;;; i. For each String vn of the BoundNames of d, do
-         (boundNamesOfD = (call BoundNames :d))
-         (for :boundNamesOfD
-              ((vn = for-item)
-               ;;; 1. If vn is not an element of declaredFunctionNames, then
-               ;;; a. Let vnDefinable be ? env.CanDeclareGlobalVar(vn).
-               ;;; b. If vnDefinable is false, throw a TypeError exception.
-               ;;; c. If vn is not an element of declaredVarNames, then
-               ;;; i. Append vn to declaredVarNames.
-              ))))
+         (if (or3 (pn-kind-is :d VariableDeclaration) (pn-kind-is :d ForBinding) (pn-kind-is :d BindingIdentifier))
+             (;;; i. For each String vn of the BoundNames of d, do
+              (boundNamesOfD = (call BoundNames :d))
+              (for :boundNamesOfD
+                   ((vn = for-item)
+                    ;;; 1. If vn is not an element of declaredFunctionNames, then
+                    (if (not (list-contains :declaredFunctionNames :vn))
+                        (;;; a. Let vnDefinable be ? env.CanDeclareGlobalVar(vn).
+                         (vnDefinable = (? (:env .. CanDeclareGlobalVar :vn)))
+                         ;;; b. If vnDefinable is false, throw a TypeError exception.
+                         (if (is-false :vnDefinable)
+                             ((throw (TypeError "vnDefinable false"))))
+                         ;;; c. If vn is not an element of declaredVarNames, then
+                         (if (not (list-contains :declaredVarNames :vn))
+                             (;;; i. Append vn to declaredVarNames.
+                              (list-push :declaredVarNames :vn)))))))))))
    ;;; 12. NOTE: No abnormal terminations occur after this algorithm step if the global object is an ordinary object.However, if the global object is a Proxy exotic object it may exhibit behaviours that cause abnormalterminations in some of the following steps.
    ;;; 13. NOTE: Annex B.3.3.2 adds additional steps at this point.
    ;;; 14. Let lexDeclarations be the LexicallyScopedDeclarations of script.
@@ -2092,6 +2210,7 @@
          ;;; a. Let fn be the sole element of the BoundNames of f.
          (fn = (sole-element (call BoundNames :f)))
          ;;; b. Let fo be InstantiateFunctionObject of f with argument env.
+         (assert false "got to Let fo be InstantiateFunctionObject of f with argument env.")
          ;;; c. Perform ? env.CreateGlobalFunctionBinding(fn, fo, false).
         ))
    ;;; 17. For each String vn of declaredVarNames, do
