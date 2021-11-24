@@ -195,10 +195,12 @@
         ((:y))))))
 
 (def (:1 = :2 -> :3) (:1 = (:2 -> :3)))
+(def (:1 = :2 => :3) (:1 = (:2 => :3)))
 (def (:1 -> :2) (record-get-slot :1 :2))
 (def (:1 -> :2 == :3) ((:1 -> :2) == :3))
 (def (:1 -> :2 -> :3) ((:1 -> :2) -> :3))
 (def (:1 => :2) (record-get-prop :1 :2))
+(def (:1 => :2 -> :3) ((:1 => :2) -> :3))
 (def (:record :slot <- :expr) (record-set-slot :record :slot :expr))
 (def (:record :slot <-) (record-del-slot :record :slot))
 (def (record-absent-slot :record :slot) (not (record-has-slot :record :slot)))
@@ -295,6 +297,28 @@
          (list-set :list :target-i :i)))
    (return)))
 
+(def (list-has-duplicates :list) (call JSSATListHasDuplicates :list))
+(section
+  (:0.0.0.0 JSSATListHasDuplicates (list))
+  ((for :list
+        ((iIdx = :jssat_i)
+         (i = for-item)
+         (for :list
+              ((jIdx = :jssat_i)
+               (j = for-item)
+               (if (:iIdx != :jIdx)
+                   ((if (:i == :j)
+                        ((return true)))))))))
+   (return false)))
+
+(def (list-clone :list) (call JSSATListClone :list))
+(section
+  (:0.0.0.0 JSSATListClone (list))
+  ((new = list-new)
+   (for :list
+        ((list-push :new for-item)))
+   (return :new)))
+
 ; TODO: use some kind of `Kind`/`Type` key to identify it
 ;       for now we just try to check if one of the virtual methods exists
 (def (is-environment-record :x) (record-has-slot :x GetBindingValue))
@@ -381,6 +405,10 @@
   (expr-block
    ((rec = record-new)
     (:rec JSSATHasBinding <- (get-fn-ptr DeclarativeEnvironmentRecord_HasBinding))
+    (:rec CreateMutableBinding <- (get-fn-ptr DeclarativeEnvironmentRecord_CreateMutableBinding))
+    (:rec CreateImmutableBinding <- (get-fn-ptr DeclarativeEnvironmentRecord_CreateImmutableBinding))
+    (:rec InitializeBinding <- (get-fn-ptr DeclarativeEnvironmentRecord_InitializeBinding))
+    (:rec SetMutableBinding <- (get-fn-ptr DeclarativeEnvironmentRecord_SetMutableBinding))
     (:rec GetBindingValue <- (get-fn-ptr DeclarativeEnvironmentRecord_GetBindingValue))
     (:rec WithBaseObject <- (get-fn-ptr DeclarativeEnvironmentRecord_WithBaseObject))
     (:rec))))
@@ -398,7 +426,12 @@
 (def (:env .. HasVarDeclaration :N) (call-virt (:env -> JSSATHasVarDeclaration) :env :N))
 (def (:env .. HasLexicalDeclaration :N) (call-virt (:env -> JSSATHasLexicalDeclaration) :env :N))
 (def (:env .. HasRestrictedGlobalProperty :N) (call-virt (:env -> JSSATHasRestrictedGlobalProperty) :env :N))
+
 (def (:env .. HasBinding :N) (call-virt (:env -> JSSATHasBinding) :env :N))
+(def (:env .. CreateMutableBinding :N :D) (virt2 :env CreateMutableBinding :N :D))
+(def (:env .. CreateImmutableBinding :N :D) (virt2 :env CreateImmutableBinding :N :D))
+(def (:env .. InitializeBinding :N :D) (virt2 :env InitializeBinding :N :D))
+(def (:env .. SetMutableBinding :N :D :S) (virt3 :env SetMutableBinding :N :D :S))
 
 (def (:env .. CanDeclareGlobalVar :N) (call CanDeclareGlobalVar :env :N))
 (def (:env .. CanDeclareGlobalFunction :N) (call CanDeclareGlobalFunction :env :N))
@@ -447,7 +480,7 @@
                (undefined)))))
 
 ;;;;;;;;;;;;;;;;;;
-; something ; (STATIC SEMANTICS AND RUNTIME SEMANTICS WIP SECTION)
+; something ; (STATIC SEMANTICS AND RUNTIME SEMANTICS WIP section)
 ;;;;;;;;;;;;;;;;;;
 ; well not really jssat behavior, more like implementation of static semantics
 ; and the way static semantics are is that there's a jssat record for each ast
@@ -596,6 +629,26 @@
             ((return true)))))
    (if (is-object :argument)
        ((return true)))
+   (return unreachable)))
+
+(section
+  (:7.1.17 ToString (argument))
+  ((if (is-undef :argument)
+       ((return "undefined")))
+   (if (is-null :argument)
+       ((return "null")))
+   (if (lazyAnd (is-bool :argument) (is-true :argument))
+       ((return "true")))
+   (if (lazyAnd (is-bool :argument) (is-false :argument))
+       ((return "false")))
+   (if (is-number :argument)
+       ((return "0.00TODO: 7.1.17 ToString (number)00")))
+   (if (is-symbol :argument)
+       ((throw (TypeError "cant do symbol to string"))))
+   (if (is-bigint :argument)
+       ((return "false")))
+   (if (is-object :argument)
+       ((return "{ TODO: 7.1.17 ToString (object) }")))
    (return unreachable)))
 
 (section
@@ -749,6 +802,16 @@
    (:newDesc Configurable <- true)
    ;;; 2. Return ? O.[[DefineOwnProperty]](P, newDesc).
    (return (? (:O .. DefineOwnProperty :P :newDesc)))))
+
+(section
+  (:7.3.7 CreateDataPropertyOrThrow (O, P, V))
+  (;;; 1. Let success be ? CreateDataProperty(O, P, V).
+   (success = (? (call CreateDataProperty :O :P :V)))
+   ;;; 2. If success is false, throw a TypeError exception.
+   (if (is-false :success)
+       ((throw (TypeError "hha couldnt make the prop :((("))))
+   ;;; 3. Return success.
+   (return :success)))
 
 (section
   (:7.3.9 DefinePropertyOrThrow (O, P, desc))
@@ -995,14 +1058,87 @@
    (return false)))
 
 (section
+  (:9.1.1.1.2 DeclarativeEnvironmentRecord_CreateMutableBinding (envRec, N, D))
+  (;;; 1. Assert: envRec does not already have a binding for N.
+   (assert (is-false (:envRec .. HasBinding :N)) "envRec does not already have a binding for N.")
+   ;;; 2. Create a mutable binding in envRec for N and record that it is uninitialized. If D is true, record that the
+   ;;;    newly created binding may be deleted by a subsequent DeleteBinding call.
+   (binding = record-new)
+   (:binding IsMutable <- true)
+   (:binding BindingInitialized <- uninitialized)
+   (:binding DeletableByDeleteBinding <- true)
+   (:binding Strict <- false)
+   (record-set-prop :envRec :N :binding)
+   ;;; 3. Return NormalCompletion(empty).
+   (return (NormalCompletion empty))))
+
+(section
+  (:9.1.1.1.3 DeclarativeEnvironmentRecord_CreateImmutableBinding (envRec, N, S))
+  (;;; 1. Assert: envRec does not already have a binding for N.
+   (assert (is-false (:envRec .. HasBinding :N)) "envRec does not already have a binding for N.")
+   ;;; 2. Create an immutable binding in envRec for N and record that it is uninitialized. If S is true, record that the
+   ;;;    newly created binding is a strict binding.
+   (binding = record-new)
+   (:binding IsMutable <- false)
+   (:binding BindingInitialized <- uninitialized)
+   (:binding DeletableByDeleteBinding <- false)
+   (:binding Strict <- :S)
+   (record-set-prop :envRec :N :binding)
+   ;;; 3. Return NormalCompletion(empty).
+   (return (NormalCompletion empty))))
+
+(section
+  (:9.1.1.1.4 DeclarativeEnvironmentRecord_InitializeBinding (envRec, N, V))
+  (;;; 1. Assert: envRec must have an uninitialized binding for N.
+   (assert ((:envRec => :N -> BindingInitialized) == uninitialized) "envRec must have an uninitialized binding for N.")
+   ;;; 2. Set the bound value for N in envRec to V.
+   (binding = :envRec => :N)
+   (:binding Value <- :V)
+   ;;; 3. Record that the binding for N in envRec has been initialized.
+   (:binding BindingInitialized <- initialized)
+   ;;; 4. Return NormalCompletion(empty).
+   (return (NormalCompletion empty))))
+
+(section
+  (:9.1.1.1.5 DeclarativeEnvironmentRecord_SetMutableBinding (envRec, N, V, S))
+  (;;; 1. If envRec does not have a binding for N, then
+   (if (not (record-has-prop :envRec :N))
+       (;;; a. If S is true, throw a ReferenceError exception.
+        (if (is-true :S)
+            ((throw (ReferenceError "set mutable binding in decl failed"))))
+        ;;; b. Perform envRec.CreateMutableBinding(N, true).
+        (:envRec .. CreateMutableBinding :N true)
+        ;;; c. Perform envRec.InitializeBinding(N, V).
+        (:envRec .. InitializeBinding :N :V)
+        ;;; d. Return NormalCompletion(empty).
+        (return (NormalCompletion empty))))
+   ;;; 2. If the binding for N in envRec is a strict binding, set S to true.
+   (binding = (:envRec => :N))
+   (S = (:S or (is-true (:binding -> Strict))))
+   ;;; 3. If the binding for N in envRec has not yet been initialized, throw a ReferenceError exception.
+   (if (:binding -> BindingInitialized == uninitialized)
+       ((throw (ReferenceError "binding not initialized")))
+       ;;; 4. Else if the binding for N in envRec is a mutable binding, change its bound value to V.
+       (elif (is-true (:binding -> IsMutable))
+             ((:binding Value <- :V))
+             ;;; 5. Else,
+             (;;; a. Assert: This is an attempt to change the value of an immutable binding.
+              (assert (is-false (:binding -> IsMutable)) "This is an attempt to change the value of an immutable binding.")
+              ;;; b. If S is true, throw a TypeError exception.
+              (if (is-true :S)
+                  ((throw (TypeError "binding is changing")))))))
+   ;;; 6. Return NormalCompletion(empty).
+   (return (NormalCompletion empty))))
+
+(section
   (:9.1.1.1.6 DeclarativeEnvironmentRecord_GetBindingValue (envRec, N, S))
   (;;; 1. Assert: envRec has a binding for N.
-   (assert (record-has-prop :envRec :N) "envRec has a binding for N.")
+   (assert (:envRec .. HasBinding :N) "envRec has a binding for N.")
    ;;; 2. If the binding for N in envRec is an uninitialized binding, throw a ReferenceError exception.
-   (if ((:envRec => :N) == uninitialized)
+   (if ((:envRec => :N -> BindingInitialized) == uninitialized)
        ((throw (ReferenceError "not initialized :((("))))
    ;;; 3. Return the value currently bound to N in envRec.
-   (return (:envRec => :N))))
+   (return (:envRec => :N -> Value))))
 
 (section
   (:9.1.1.1.10 DeclarativeEnvironmentRecord_WithBaseObject (envRec))
@@ -1027,6 +1163,41 @@
    ;;; b. If blocked is true, return false.
    ;;; 7. Return true.
    (return true)))
+
+(section
+  (:9.1.1.2.2 ObjectEnvironmentRecord_CreateMutableBinding (envRec, N, D))
+  (;;; 1. Let bindingObject be envRec.[[BindingObject]].
+   (bindingObject = :envRec -> BindingObject)
+   ;;; 2. Return ? DefinePropertyOrThrow(bindingObject, N, PropertyDescriptor { [[Value]]: undefined, [[Writable]]: true,
+   ;;;    [[Enumerable]]: true, [[Configurable]]: D }).
+   (desc = record-new)
+   (:desc Value <- undefined)
+   (:desc Writable <- true)
+   (:desc Enumerable <- true)
+   (:desc Configurable <- :D)
+   (return (? (call DefinePropertyOrThrow :bindingObject :N :desc)))))
+
+(section
+  (:9.1.1.2.3 ObjectEnvironmentRecord_CreateImmutableBinding (N, S))
+  (; The CreateImmutableBinding concrete method of an object Environment Record is never used within this specification.
+   (return)))
+
+(section
+  (:9.1.1.2.4 ObjectEnvironmentRecord_InitializeBinding (envRec, N, V))
+  (;;; 1. Return ? envRec.SetMutableBinding(N, V, false).
+   (return (? (:envRec .. SetMutableBinding :N :V false)))))
+
+(section
+  (:9.1.1.2.5 ObjectEnvironmentRecord_SetMutableBinding (envRec, N, V, S))
+  (;;; 1. Let bindingObject be envRec.[[BindingObject]].
+   (bindingObject = :envRec -> BindingObject)
+   ;;; 2. Let stillExists be ? HasProperty(bindingObject, N).
+   (stillExists = (? (call HasProperty :bindingObject :N)))
+   ;;; 3. If stillExists is false and S is true, throw a ReferenceError exception.
+   (if ((is-false :stillExists) and (is-true :S))
+       ((throw (ReferenceError "set mtuable bindign!!!"))))
+   ;;; 4. Return ? Set(bindingObject, N, V, S).
+   (return (? (call Set :bindingObject :N :V :S)))))
 
 (section
   (:9.1.1.2.6 ObjectEnvironmentRecord_GetBindingValue (envRec, N, S))
@@ -1078,6 +1249,54 @@
    (return (? (:ObjRec .. HasBinding :N)))))
 
 (section
+  (:9.1.1.4.2 GlobalEnvironmentRecord_CreateMutableBinding (envRec, N, D))
+  (;;; 1. Let DclRec be envRec.[[DeclarativeRecord]].
+   (DclRec = :envRec -> DeclarativeRecord)
+   ;;; 2. If DclRec.HasBinding(N) is true, throw a TypeError exception.
+   (if (is-true (:DclRec .. HasBinding :N))
+       ((throw (TypeError "it already has binding"))))
+   ;;; 3. Return DclRec.CreateMutableBinding(N, D).
+   (return (:DclRec .. CreateMutableBinding :N :D))))
+
+(section
+  (:9.1.1.4.3 GlobalEnvironmentRecord_CreateImmutableBinding (envRec, N, S))
+  (;;; 1. Let DclRec be envRec.[[DeclarativeRecord]].
+   (DclRec = :envRec -> DeclarativeRecord)
+   ;;; 2. If DclRec.HasBinding(N) is true, throw a TypeError exception.
+   (if (is-true (:DclRec .. HasBinding :N))
+       ((throw (TypeError "already has bindigni!NN!IN!"))))
+   ;;; 3. Return DclRec.CreateImmutableBinding(N, S).
+   (return (:DclRec .. CreateImmutableBinding :N :S))))
+
+(section
+  (:9.1.1.4.4 GlobalEnvironmentRecord_InitializeBinding (envRec, N, V))
+  (;;; 1. Let DclRec be envRec.[[DeclarativeRecord]].
+   (DclRec = :envRec -> DeclarativeRecord)
+   ;;; 2. If DclRec.HasBinding(N) is true, then
+   (if (is-true (:DclRec .. HasBinding :N))
+       (;;; a. Return DclRec.InitializeBinding(N, V).
+        (return (:DclRec .. InitializeBinding :N :V))))
+   ;;; 3. Assert: If the binding exists, it must be in the object Environment Record.
+   (ObjRec = :envRec -> ObjectRecord)
+   (assert (:ObjRec .. HasBinding :N) "If the binding exists, it must be in the object Environment Record.")
+   ;;; 4. Let ObjRec be envRec.[[ObjectRecord]].
+   ;;; 5. Return ? ObjRec.InitializeBinding(N, V).
+   (return (? (:ObjRec .. InitializeBinding :N :V)))))
+
+(section
+  (:9.1.1.4.5 GlobalEnvironmentRecord_SetMutableBinding (envRec, N, V, S))
+  (;;; 1. Let DclRec be envRec.[[DeclarativeRecord]].
+   (DclRec = :envRec -> DeclarativeRecord)
+   ;;; 2. If DclRec.HasBinding(N) is true, then
+   (if (is-true (:DclRec .. HasBinding :N))
+       (;;; a. Return DclRec.SetMutableBinding(N, V, S).
+        (return (:DclRec .. SetMutableBinding :N :V :S))))
+   ;;; 3. Let ObjRec be envRec.[[ObjectRecord]].
+   (ObjRec = :envRec -> ObjectRecord)
+   ;;; 4. Return ? ObjRec.SetMutableBinding(N, V, S).
+   (return (? (:ObjRec .. SetMutableBinding :N :V :S)))))
+
+(section
   (:9.1.1.4.6 GlobalEnvironmentRecord_GetBindingValue (envRec, N, S))
   (;;; 1. Let DclRec be envRec.[[DeclarativeRecord]].
    (DclRec = (:envRec -> DeclarativeRecord))
@@ -1121,7 +1340,7 @@
    (if (is-undef :existingProp)
        ((return (? (call IsExtensible :globalObject)))))
    ;;; 5. If existingProp.[[Configurable]] is true, return true.
-   (if (is-true (:existingProp -> Configuraable))
+   (if (is-true (:existingProp -> Configurable))
        ((return true)))
    ;;; 6. If IsDataDescriptor(existingProp) is true and existingProp has attribute values { [[Writable]]: true, [[Enumerable]]: true }, return true.
    (if ((is-true (call IsDataDescriptor :existingProp)) and (and (:existingProp -> Writable == true) (:existingProp -> Enumerable == true)))
@@ -1195,10 +1414,23 @@
    (return unreachable)))
 
 (section
+  (:9.1.2.2 NewDeclarativeEnvironment (E))
+  (;;; 1. Let env be a new declarative Environment Record containing no bindings.
+   (env = new-declarative-environment-record)
+   ;;; 2. Set env.[[OuterEnv]] to E.
+   (:env OuterEnv <- :E)
+   ;;; 3. Return env.
+   (return :env)))
+
+(section
   (:9.1.2.3 NewObjectEnvironment (O, W, E))
   (;;; 1. Let env be a new object Environment Record.
    (env = record-new)
    (:env JSSATHasBinding <- (get-fn-ptr ObjectEnvironmentRecord_HasBinding))
+   (:env CreateMutableBinding <- (get-fn-ptr ObjectEnvironmentRecord_CreateMutableBinding))
+   (:env CreateImmutableBinding <- (get-fn-ptr ObjectEnvironmentRecord_CreateImmutableBinding))
+   (:env InitializeBinding <- (get-fn-ptr ObjectEnvironmentRecord_InitializeBinding))
+   (:env SetMutableBinding <- (get-fn-ptr ObjectEnvironmentRecord_SetMutableBinding))
    (:env GetBindingValue <- (get-fn-ptr ObjectEnvironmentRecord_GetBindingValue))
    (:env WithBaseObject <- (get-fn-ptr ObjectEnvironmentRecord_WithBaseObject))
    ;;; 2. Set env.[[BindingObject]] to O.
@@ -1213,7 +1445,8 @@
 (section
   (:9.1.2.4 NewFunctionEnvironment (F, newTarget))
   (;;; 1. Let env be a new function Environment Record containing no bindings.
-   (env = record-new)
+   ; "A function Environment Record is a declarative Environment Record that is"
+   (env = new-declarative-environment-record)
    ;;; 2. Set env.[[FunctionObject]] to F.
    (:env FunctionObject <- :F)
    ;;; 3. If F.[[ThisMode]] is lexical, set env.[[ThisBindingStatus]] to lexical.
@@ -1237,6 +1470,10 @@
    ;;; 3. Let env be a new global Environment Record.
    (env = record-new)
    (:env JSSATHasBinding <- (get-fn-ptr GlobalEnvironmentRecord_HasBinding))
+   (:env CreateMutableBinding <- (get-fn-ptr GlobalEnvironmentRecord_CreateMutableBinding))
+   (:env CreateImmutableBinding <- (get-fn-ptr GlobalEnvironmentRecord_CreateImmutableBinding))
+   (:env InitializeBinding <- (get-fn-ptr GlobalEnvironmentRecord_InitializeBinding))
+   (:env SetMutableBinding <- (get-fn-ptr GlobalEnvironmentRecord_SetMutableBinding))
    (:env GetBindingValue <- (get-fn-ptr GlobalEnvironmentRecord_GetBindingValue))
    (:env WithBaseObject <- (get-fn-ptr GlobalEnvironmentRecord_WithBaseObject))
    ;;; 4. Set env.[[ObjectRecord]] to objRec.
@@ -1814,8 +2051,11 @@
 
 (section
   (:10.2.1.3 EvaluateBody (parseNode, F, argumentsList))
-  ((todo)
-   (return unreachable)))
+  (; FunctionBody : FunctionStatementList
+   (if (is-pn FunctionBody 0)
+       (;;; 1. Return ? EvaluateFunctionBody of FunctionBody with arguments functionObject and argumentsList.
+        (return (? (call EvaluateFunctionBody :parseNode :F :argumentsList)))))
+   (return (call EvaluateBody (:parseNode -> JSSATParseNodeSlot1) :F :argumentsList))))
 
 (section
   (:10.2.1.4 OrdinaryCallEvaluateBody (F, argumentsList))
@@ -2006,6 +2246,229 @@
    (return (! (call DefinePropertyOrThrow :F "length" :propDesc)))))
 
 (section
+  (:10.2.11 FunctionDeclarationInstantiation (func, argumentsList))
+  (;;; 1. Let calleeContext be the running execution context.
+   (calleeContext = curr-exec-ctx)
+   ;;; 2. Let code be func.[[ECMAScriptCode]].
+   (code = :func -> ECMAScriptCode)
+   ;;; 3. Let strict be func.[[Strict]].
+   (strict = :func -> Strict)
+   ;;; 4. Let formals be func.[[FormalParameters]].
+   (formals = :func -> FormalParameters)
+   ;;; 5. Let parameterNames be the BoundNames of formals.
+   (parameterNames = (call BoundNames :formals))
+   ;;; 6. If parameterNames has any duplicate entries, let hasDuplicates be true. Otherwise, let hasDuplicates be false.
+   (hasDuplicates = (list-has-duplicates :parameterNames))
+   ;;; 7. Let simpleParameterList be IsSimpleParameterList of formals.
+   (simpleParameterList = (call IsSimpleParameterList :formals))
+   ;;; 8. Let hasParameterExpressions be ContainsExpression of formals.
+   (hasParameterExpressions = (call ContainsExpression :formals))
+   ;;; 9. Let varNames be the VarDeclaredNames of code.
+   (varNames = (call VarDeclaredNames :code))
+   ;;; 10. Let varDeclarations be the VarScopedDeclarations of code.
+   (varDeclarations = (call VarScopedDeclarations :code))
+   ;;; 11. Let lexicalNames be the LexicallyDeclaredNames of code.
+   (lexicalNames = (call LexicallyDeclaredNames :code))
+   ;;; 12. Let functionNames be a new empty List.
+   (functionNames = list-new)
+   ;;; 13. Let functionsToInitialize be a new empty List.
+   (functionsToInitialize = list-new)
+   ;;; 14. For each element d of varDeclarations, in reverse List order, do
+   (for :varDeclarations
+        ((d = for-item-rev)
+         ;;; a. If d is neither a VariableDeclaration nor a ForBinding nor a BindingIdentifier, then
+         (if (and3 (pn-kind-isnt :d VariableDeclaration) (pn-kind-isnt :d ForBinding) (pn-kind-isnt :d BindingIdentifier))
+             (;;; i. Assert: d is either a FunctionDeclaration, a GeneratorDeclaration, an AsyncFunctionDeclaration, or an AsyncGeneratorDeclaration.
+              (assert (or4
+                       (pn-kind-is :d FunctionDeclaration)
+                       (pn-kind-is :d GeneratorDeclaration)
+                       (pn-kind-is :d AsyncFunctionDeclaration)
+                       (pn-kind-is :d AsyncGeneratorDeclaration))
+                      "d is either a FunctionDeclaration, a GeneratorDeclaration, an AsyncFunctionDeclaration, or an AsyncGeneratorDeclaration.")
+              ;;; ii. Let fn be the sole element of the BoundNames of d.
+              (fn = (sole-element (call BoundNames :d)))
+              ;;; iii. If fn is not an element of functionNames, then
+              (if (not (list-contains :functionNames :fn))
+                  (;;; 1. Insert fn as the first element of functionNames.
+                   (list-insert-front :functionNames :fn)
+                   ;;; 2. NOTE: If there are multiple function declarations for the same name, the last declaration is used.
+                   ;;; 3. Insert d as the first element of functionsToInitialize.
+                   (list-insert-front :functionsToInitialize :d)))))))
+   ;;; 15. Let argumentsObjectNeeded be true.
+   (argumentsObjectNeeded = true)
+   (argumentsObjectNeeded =
+                          ;;; 16. If func.[[ThisMode]] is lexical, then
+                          (if ((:func -> ThisMode) == lexical)
+                              (;;; a. NOTE: Arrow functions never have an arguments object.
+                               ;;; b. Set argumentsObjectNeeded to false.
+                               (false))
+                              ;;; 17. Else if "arguments" is an element of parameterNames, then
+                              (elif (list-contains :parameterNames "arguments")
+                                    (;;; a. Set argumentsObjectNeeded to false.
+                                     (false))
+                                    ;;; 18. Else if hasParameterExpressions is false, then
+                                    (elif (is-false :hasParameterExpressions)
+                                          (;;; a. If "arguments" is an element of functionNames or if "arguments" is an element of lexicalNames, then
+                                           (if ((list-contains :functionNames "arguments") or (list-contains :lexicalNames "arguments"))
+                                               (;;; i. Set argumentsObjectNeeded to false.
+                                                (false))
+                                               ((:argumentsObjectNeeded))))
+                                          ((:argumentsObjectNeeded))))))
+   ;;; 19. If strict is true or if hasParameterExpressions is false, then
+   (env =
+        (if ((is-true :strict) or (is-false :hasParameterExpressions))
+            (;;; a. NOTE: Only a single Environment Record is needed for the parameters, since calls to eval in strict mode code cannot create new bindings which are visible outside of the eval.
+             ;;; b. Let env be the LexicalEnvironment of calleeContext.
+             (:calleeContext -> LexicalEnvironment))
+            ;;; 20. Else,
+            (;;; a. NOTE: A separate Environment Record is needed to ensure that bindings created by direct eval calls in the formal parameter list are outside the environment where parameters are declared.
+             ;;; b. Let calleeEnv be the LexicalEnvironment of calleeContext.
+             (calleeEnv = :calleeContext -> LexicalEnvironment)
+             ;;; c. Let env be NewDeclarativeEnvironment(calleeEnv).
+             (env = (call NewDeclarativeEnvironment :calleeEnv))
+             ;;; d. Assert: The VariableEnvironment of calleeContext is calleeEnv.
+             (assert ((:calleeContext -> VariableEnvironment) == :calleeEnv) "The VariableEnvironment of calleeContext is calleeEnv.")
+             ;;; e. Set the LexicalEnvironment of calleeContext to env.
+             (:calleeContext LexicalEnvironment <- :env)
+             (:env))))
+   ;;; 21. For each String paramName of parameterNames, do
+   (for :parameterNames
+        ((paramName = for-item)
+         ;;; a. Let alreadyDeclared be env.HasBinding(paramName).
+         (alreadyDeclared = (:env .. HasBinding :paramName))
+         ;;; b. NOTE: Early errors ensure that duplicate parameter names can only occur in non-strict functions that do not have parameter default values or rest parameters.
+         ;;; c. If alreadyDeclared is false, then
+         (if (is-false :alreadyDeclared)
+             (;;; i. Perform ! env.CreateMutableBinding(paramName, false).
+              (_dontCare = (! (:env .. CreateMutableBinding :paramName false)))
+              ;;; ii. If hasDuplicates is true, then
+              (if (is-true :hasDuplicates)
+                  (;;; 1. Perform ! env.InitializeBinding(paramName, undefined).
+                   (_dontCare = (! (:env .. InitializeBinding :paramName undefined)))))))))
+   ;;; 22. If argumentsObjectNeeded is true, then
+   (parameterBindings =
+                      (if (is-true :argumentsObjectNeeded)
+                          (;;; a. If strict is true or if simpleParameterList is false, then
+                           (ao =
+                               (if ((is-true :strict) or (is-false :simpleParameterList))
+                                   (;;; i. Let ao be CreateUnmappedArgumentsObject(argumentsList).
+                                    (call CreateUnmappedArgumentsObject :argumentsList))
+                                   ;;; b. Else,
+                                   (;;; i. NOTE: A mapped argument object is only provided for non-strict functions that don't have a rest parameter, any parameter default value initializers, or any destructured parameters.
+                                    ;;; ii. Let ao be CreateMappedArgumentsObject(func, formals, argumentsList, env).
+                                    (call CreateMappedArgumentsObject :func :formals :argumentsList :env))))
+                           ;;; c. If strict is true, then
+                           (if (is-true :strict)
+                               (;;; i. Perform ! env.CreateImmutableBinding("arguments", false).
+                                (_dontCare = (! (:env .. CreateImmutableBinding "arguments" false))))
+                               ;;; d. Else,
+                               (;;; i. Perform ! env.CreateMutableBinding("arguments", false).
+                                (_dontCare = (! (:env .. CreateMutableBinding "arguments" false)))))
+                           ;;; e. Call env.InitializeBinding("arguments", ao).
+                           (:env .. InitializeBinding "arguments" :ao)
+                           ;;; f. Let parameterBindings be the list-concatenation of parameterNames and « "arguments" ».
+                           (list-concat :parameterNames (list-new-1 "arguments")))
+                          ;;; 23. Else,
+                          (;;; a. Let parameterBindings be parameterNames.
+                           (:parameterNames))))
+   ;;; 24. Let iteratorRecord be CreateListIteratorRecord(argumentsList).
+   ;;; 25. If hasDuplicates is true, then
+   ;;; a. Perform ? IteratorBindingInitialization for formals with iteratorRecord and undefined as arguments.
+   ;;; 26. Else,
+   ;;; a. Perform ? IteratorBindingInitialization for formals with iteratorRecord and env as arguments.
+   ;;; 27. If hasParameterExpressions is false, then
+   (varEnv =
+           (if (is-false :hasParameterExpressions)
+               (;;; a. NOTE: Only a single Environment Record is needed for the parameters and top-level vars.
+                ;;; b. Let instantiatedVarNames be a copy of the List parameterBindings.
+                (instantiatedVarNames = (list-clone :parameterBindings))
+                ;;; c. For each element n of varNames, do
+                (for :varNames
+                     ((n = for-item)
+                      ;;; i. If n is not an element of instantiatedVarNames, then
+                      (if (not (list-contains :instantiatedVarNames :n))
+                          (;;; 1. Append n to instantiatedVarNames.
+                           (list-push :instantiatedVarNames :n)
+                           ;;; 2. Perform ! env.CreateMutableBinding(n, false).
+                           (_dontCare = (! (:env .. CreateMutableBinding :n false)))
+                           ;;; 3. Call env.InitializeBinding(n, undefined).
+                           (:env .. InitializeBinding :n undefined)))))
+                ;;; d. Let varEnv be env.
+                (:env))
+               ;;; 28. Else,
+               (;;; a. NOTE: A separate Environment Record is needed to ensure that closures created by expressions in the formal parameter list do not have visibility of declarations in the function body.
+                ;;; b. Let varEnv be NewDeclarativeEnvironment(env).
+                (varEnv = (call NewDeclarativeEnvironment :env))
+                ;;; c. Set the VariableEnvironment of calleeContext to varEnv.
+                (:calleeContext VariableEnvironment <- :varEnv)
+                ;;; d. Let instantiatedVarNames be a new empty List.
+                (instantiatedVarNames = list-new)
+                ;;; e. For each element n of varNames, do
+                (for :varNames
+                     ((n = for-item)
+                      ;;; i. If n is not an element of instantiatedVarNames, then
+                      (if (not (list-contains :instantiatedVarNames :n))
+                          (;;; 1. Append n to instantiatedVarNames.
+                           (list-push :instantiatedVarNames :n)
+                           ;;; 2. Perform ! varEnv.CreateMutableBinding(n, false).
+                           (_dontCare = (! (:varEnv .. CreateMutableBinding :n false)))
+                           ;;; 3. If n is not an element of parameterBindings or if n is an element of functionNames, let initialValue be undefined.
+                           (initialValue =
+                                         (if ((not (list-contains :parameterBindings :n)) or (list-contains :functionNames :n))
+                                             ((undefined))
+                                             ;;; 4. Else,
+                                             (;;; a. Let initialValue be ! env.GetBindingValue(n, false).
+                                              (! (:env .. GetBindingValue :n false)))))
+                           ;;; 5. Call varEnv.InitializeBinding(n, initialValue).
+                           (:varEnv .. InitializeBinding :n :initialValue)
+                           ;;; 6. NOTE: A var with the same name as a formal parameter initially has the same value as the
+                           ;;;    corresponding initialized parameter.
+                          ))))
+                (:varEnv))))
+   ;;; 29. NOTE: Annex B.3.2.1 adds additional steps at this point.
+   ;;; 30. If strict is false, then
+   (lexEnv =
+           (if (is-false :strict)
+               (;;; a. Let lexEnv be NewDeclarativeEnvironment(varEnv).
+                ;;; b. NOTE: Non-strict functions use a separate Environment Record for top-level lexical declarations so that a direct eval can determine whether any var scoped declarations introduced by the eval code conflict with pre-existing top-level lexically scoped declarations. This is not needed for strict functions because a strict direct eval always places all declarations into a new Environment Record.
+                (call NewDeclarativeEnvironment :varEnv))
+               ;;; 31. Else, let lexEnv be varEnv.
+               (:varEnv)))
+   ;;; 32. Set the LexicalEnvironment of calleeContext to lexEnv.
+   (:calleeContext LexicalEnvironment <- :lexEnv)
+   ;;; 33. Let lexDeclarations be the LexicallyScopedDeclarations of code.
+   (lexDeclarations = (call LexicallyScopedDeclarations :code))
+   ;;; 34. For each element d of lexDeclarations, do
+   (for :lexDeclarations
+        ((d = for-item)
+         ;;; a. NOTE: A lexically declared name cannot be the same as a function/generator declaration, formal parameter, or a var name. Lexically declared names are only instantiated here but not initialized.
+         ;;; b. For each element dn of the BoundNames of d, do
+         (boundNames = (call BoundNames :d))
+         (for :boundNames
+              ((dn = for-item)
+               ;;; i. If IsConstantDeclaration of d is true, then
+               (if (false)
+                   ; (is-true (call IsConstantDeclaration :d))
+                   (;;; 1. Perform ! lexEnv.CreateImmutableBinding(dn, true).
+                    (_dontCare = (! (:lexEnv .. CreateImmutableBinding :dn true))))
+                   ;;; ii. Else,
+                   (;;; 1. Perform ! lexEnv.CreateMutableBinding(dn, false).
+                    (_dontCare = (! (:lexEnv .. CreateMutableBinding :dn false)))))))))
+   ;;; 35. Let privateEnv be the PrivateEnvironment of calleeContext.
+   (privateEnv = :calleeContext -> PrivateEnvironment)
+   ;;; 36. For each Parse Node f of functionsToInitialize, do
+   (for :functionsToInitialize
+        ((f = for-item)
+         ;;; a. Let fn be the sole element of the BoundNames of f.
+         (fn = (sole-element (call BoundNames :f)))
+         ;;; b. Let fo be InstantiateFunctionObject of f with arguments lexEnv and privateEnv.
+         (fo = (call InstantiateFunctionObject :f :lexEnv :privateEnv))
+         ;;; c. Perform ! varEnv.SetMutableBinding(fn, fo, false).
+         (_dontCare = (! (:varEnv .. SetMutableBinding :fn :fo false)))))
+   ;;; 37. Return NormalCompletion(empty).
+   (return (NormalCompletion empty))))
+
+(section
   (:10.3.3 CreateBuiltinFunction (behaviour, length, name, additionalInternalSlotsList, realm, prototype, prefix))
   (;;; 1. If realm is not present, set realm to the current Realm Record.
    (realm = (expr-block
@@ -2056,6 +2519,75 @@
         (Perform ! (call SetFunctionName :func :name :prefix))))
    ;;; 13. Return func.
    (return :func)))
+
+(section
+  (:10.4.4.6 CreateUnmappedArgumentsObject (argumentsList))
+  (;;; 1. Let len be the number of elements in argumentsList.
+   (len = (list-len :argumentsList))
+   ;;; 2. Let obj be ! OrdinaryObjectCreate(%Object.prototype%, « [[ParameterMap]] »).
+   (obj = (! (call OrdinaryObjectCreate null (list-new-1 (atom ParameterMap)))))
+   ;;; 3. Set obj.[[ParameterMap]] to undefined.
+   (:obj ParameterMap <- undefined)
+   ;;; 4. Perform DefinePropertyOrThrow(obj, "length", PropertyDescriptor { [[Value]]: 𝔽(len), [[Writable]]: true,
+   ;;;    [[Enumerable]]: false, [[Configurable]]: true }).
+   (desc = record-new)
+   (:desc Value <- :len)
+   (:desc Writable <- true)
+   (:desc Enumerable <- false)
+   (:desc Configurable <- true)
+   (call DefinePropertyOrThrow :obj "length" :desc)
+   ;;; 5. Let index be 0.
+   ;;; 6. Repeat, while index < len,
+   (for :argumentsList
+        (;;; a. Let val be argumentsList[index].
+         (val = for-item)
+         ;;; b. Perform ! CreateDataPropertyOrThrow(obj, ! ToString(𝔽(index)), val).
+         (_dontCare = (! (call CreateDataPropertyOrThrow :obj (! (call ToString :jssat_i)) :val)))
+         ;;; c. Set index to index + 1.
+        ))
+   ;;; 7. Perform ! DefinePropertyOrThrow(obj, @@iterator, PropertyDescriptor { [[Value]]: %Array.prototype.values%,
+   ;;;    [[Writable]]: true, [[Enumerable]]: false, [[Configurable]]: true }).
+   ;;; 8. Perform ! DefinePropertyOrThrow(obj, "callee", PropertyDescriptor { [[Get]]: %ThrowTypeError%, [[Set]]: %ThrowTypeError%, [[Enumerable]]: false, [[Configurable]]: false }).
+   ;;; 9. Return obj.
+   (return :obj)))
+
+(section
+  (:10.4.4.7 CreateMappedArgumentsObject (func, formals, argumentsList, env))
+  (;;; 1. Assert: formals does not contain a rest parameter, any binding patterns, or any initializers. It may contain duplicate identifiers.
+   ;;; 2. Let len be the number of elements in argumentsList.
+   ;;; 3. Let obj be ! MakeBasicObject(« [[Prototype]], [[Extensible]], [[ParameterMap]] »).
+   ;;; 4. Set obj.[[GetOwnProperty]] as specified in 10.4.4.1.
+   ;;; 5. Set obj.[[DefineOwnProperty]] as specified in 10.4.4.2.
+   ;;; 6. Set obj.[[Get]] as specified in 10.4.4.3.
+   ;;; 7. Set obj.[[Set]] as specified in 10.4.4.4.
+   ;;; 8. Set obj.[[Delete]] as specified in 10.4.4.5.
+   ;;; 9. Set obj.[[Prototype]] to %Object.prototype%.
+   ;;; 10. Let map be ! OrdinaryObjectCreate(null).
+   ;;; 11. Set obj.[[ParameterMap]] to map.
+   ;;; 12. Let parameterNames be the BoundNames of formals.
+   ;;; 13. Let numberOfParameters be the number of elements in parameterNames.
+   ;;; 14. Let index be 0.
+   ;;; 15. Repeat, while index < len,
+   ;;; a. Let val be argumentsList[index].
+   ;;; b. Perform ! CreateDataPropertyOrThrow(obj, ! ToString(𝔽(index)), val).
+   ;;; c. Set index to index + 1.
+   ;;; 16. Perform ! DefinePropertyOrThrow(obj, "length", PropertyDescriptor { [[Value]]: 𝔽(len), [[Writable]]: true, [[Enumerable]]: false, [[Configurable]]: true }).
+   ;;; 17. Let mappedNames be a new empty List.
+   ;;; 18. Set index to numberOfParameters - 1.
+   ;;; 19. Repeat, while index ≥ 0,
+   ;;; a. Let name be parameterNames[index].
+   ;;; b. If name is not an element of mappedNames, then
+   ;;; i. Add name as an element of the list mappedNames.
+   ;;; ii. If index < len, then
+   ;;; 1. Let g be MakeArgGetter(name, env).
+   ;;; 2. Let p be MakeArgSetter(name, env).
+   ;;; 3. Perform map.[[DefineOwnProperty]](! ToString(𝔽(index)), PropertyDescriptor { [[Set]]: p, [[Get]]: g, [[Enumerable]]: false, [[Configurable]]: true }).
+   ;;; c. Set index to index - 1.
+   ;;; 20. Perform ! DefinePropertyOrThrow(obj, @@iterator, PropertyDescriptor { [[Value]]: %Array.prototype.values%, [[Writable]]: true, [[Enumerable]]: false, [[Configurable]]: true }).
+   ;;; 21. Perform ! DefinePropertyOrThrow(obj, "callee", PropertyDescriptor { [[Value]]: func, [[Writable]]: true, [[Enumerable]]: false, [[Configurable]]: true }).
+   ;;; 22. Return obj.
+   (assert false "TODO: CreateMappedArgumentsObject")
+   (return unreachable)))
 
 ; 13.1.2 `StringValue`
 (def
@@ -2255,6 +2787,123 @@
    (return (evaluating :parseNode))))
 
 (section
+  (:15.1.2 ContainsExpression (parseNode))
+  (; ObjectBindingPattern :
+   ; { }
+   ; { BindingRestProperty }
+   ;;; 1. Return false.
+   ; ObjectBindingPattern : { BindingPropertyList , BindingRestProperty }
+   ;;; 1. Return ContainsExpression of BindingPropertyList.
+   ; ArrayBindingPattern : [ Elisionopt ]
+   ;;; 1. Return false.
+   ; ArrayBindingPattern : [ Elisionopt BindingRestElement ]
+   ;;; 1. Return ContainsExpression of BindingRestElement.
+   ; ArrayBindingPattern : [ BindingElementList , Elisionopt ]
+   ;;; 1. Return ContainsExpression of BindingElementList.
+   ; ArrayBindingPattern : [ BindingElementList , Elisionopt BindingRestElement ]
+   ;;; 1. Let has be ContainsExpression of BindingElementList.
+   ;;; 2. If has is true, return true.
+   ;;; 3. Return ContainsExpression of BindingRestElement.
+   ; BindingPropertyList : BindingPropertyList , BindingProperty
+   ;;; 1. Let has be ContainsExpression of BindingPropertyList.
+   ;;; 2. If has is true, return true.
+   ;;; 3. Return ContainsExpression of BindingProperty.
+   ; BindingElementList : BindingElementList , BindingElisionElement
+   ;;; 1. Let has be ContainsExpression of BindingElementList.
+   ;;; 2. If has is true, return true.
+   ;;; 3. Return ContainsExpression of BindingElisionElement.
+   ; BindingElisionElement : Elisionopt BindingElement
+   ;;; 1. Return ContainsExpression of BindingElement.
+   ; BindingProperty : PropertyName : BindingElement
+   ;;; 1. Let has be IsComputedPropertyKey of PropertyName.
+   ;;; 2. If has is true, return true.
+   ;;; 3. Return ContainsExpression of BindingElement.
+   ; BindingElement : BindingPattern Initializer
+   ;;; 1. Return true.
+   ; SingleNameBinding : BindingIdentifier
+   ;;; 1. Return false.
+   ; SingleNameBinding : BindingIdentifier Initializer
+   ;;; 1. Return true.
+   ; BindingRestElement : ... BindingIdentifier
+   ;;; 1. Return false.
+   ; BindingRestElement : ... BindingPattern
+   ;;; 1. Return ContainsExpression of BindingPattern.
+   ; FormalParameters : [empty]
+   ;;; 1. Return false.
+   ; FormalParameters : FormalParameterList , FunctionRestParameter
+   ;;; 1. If ContainsExpression of FormalParameterList is true, return true.
+   ;;; 2. Return ContainsExpression of FunctionRestParameter.
+   ; FormalParameterList : FormalParameterList , FormalParameter
+   ;;; 1. If ContainsExpression of FormalParameterList is true, return true.
+   ;;; 2. Return ContainsExpression of FormalParameter.
+   ; ArrowParameters : BindingIdentifier
+   ;;; 1. Return false.
+   ; ArrowParameters : CoverParenthesizedExpressionAndArrowParameterList
+   ;;; 1. Let formals be the ArrowFormalParameters that is covered by CoverParenthesizedExpressionAndArrowParameterList.
+   ;;; 2. Return ContainsExpression of formals.
+   ; AsyncArrowBindingIdentifier : BindingIdentifier
+   ;;; 1. Return false.
+   (return false)))
+
+(section
+  (:15.1.3 IsSimpleParameterList (parseNode))
+  (; BindingElement : BindingPattern
+   ;;; 1. Return false.
+   (if (is-pn BindingElement 1) ((return false)))
+   ; BindingElement : BindingPattern Initializer
+   ;;; 1. Return false.
+   (if (is-pn BindingElement 2) ((return false)))
+   ; SingleNameBinding : BindingIdentifier
+   ;;; 1. Return true.
+   (if (is-pn SingleNameBinding 0) ((return true)))
+   ; SingleNameBinding : BindingIdentifier Initializer
+   ;;; 1. Return false.
+   (if (is-pn SingleNameBinding 1) ((return false)))
+   ; FormalParameters : [empty]
+   ;;; 1. Return true.
+   (if (is-pn FormalParameters 0) ((return true)))
+   ; FormalParameters : FunctionRestParameter
+   ;;; 1. Return false.
+   (if (is-pn FormalParameters 1) ((return false)))
+   ; FormalParameters : FormalParameterList , FunctionRestParameter
+   ;;; 1. Return false.
+   (if (is-pn FormalParameters 4) ((return false)))
+   ; FormalParameterList : FormalParameterList , FormalParameter
+   (if (is-pn FormalParameterList 1)
+       (;;; 1. If IsSimpleParameterList of FormalParameterList is false, return false.
+        (if (is-false (call IsSimpleParameterList (:parseNode -> JSSATParseNodeSlot1)))
+            ((return false)))
+        ;;; 2. Return IsSimpleParameterList of FormalParameter.
+        (return (call IsSimpleParameterList (:parseNode -> JSSATParseNodeSlot2)))))
+   ; FormalParameter : BindingElement
+   ;;; 1. Return IsSimpleParameterList of BindingElement.
+   ; ^ wait wtf isn't this suppose to happen anyway???
+   ; or hmm maybe not because it's a static semantic
+   (if (is-pn FormalParameter 0) ((return (call IsSimpleParameterList (:parseNode -> JSSATParseNodeSlot1)))))
+   ; ArrowParameters : BindingIdentifier
+   ;;; 1. Return true.
+   (if (is-pn ArrowParameters 0) ((return true)))
+   ; ArrowParameters : CoverParenthesizedExpressionAndArrowParameterList
+   (if (is-pn ArrowParameters 1)
+       (;;; 1. Let formals be the ArrowFormalParameters that is covered by CoverParenthesizedExpressionAndArrowParameterList.
+        (formals = 0)
+        (assert false "TODO: handle the `covered`")
+        ;;; 2. Return IsSimpleParameterList of formals.
+        (return (call IsSimpleParameterList :formals))))
+   ; AsyncArrowBindingIdentifier : BindingIdentifier
+   ;;; 1. Return true.
+   (if (is-pn AsyncArrowBindingIdentifier 0) ((return true)))
+   ; CoverCallExpressionAndAsyncArrowHead : MemberExpression Arguments
+   (if (is-pn CoverCallExpressionAndAsyncArrowHead 0)
+       (;;; 1. Let head be the AsyncArrowHead that is covered by CoverCallExpressionAndAsyncArrowHead.
+        (head = 0)
+        (assert false "TODO: handle the `covered` here")
+        ;;; 2. Return IsSimpleParameterList of head.
+        (return (call IsSimpleParameterList :head))))
+   ; TODO: should we do this? is this only for rubntime smentaics?
+   (return (call IsSimpleParameterList (:parseNode -> JSSATParseNodeSlot1)))))
+
+(section
   (:15.1.4 HasInitializer (parseNode))
   (; BindingElement : BindingPattern
    (if (is-pn BindingElement 1)
@@ -2335,6 +2984,14 @@
        (;;; 1. Return 1.
         (return 1)))
    (return (call ExpectedArgumentCount (:parseNode -> JSSATParseNodeSlot1)))))
+
+(section
+  (:15.2.3 EvaluateFunctionBody (parseNode, functionObject, argumentsList))
+  (; FunctionBody : FunctionStatementList
+   ;;; 1. Perform ? FunctionDeclarationInstantiation(functionObject, argumentsList).
+   (_dontCare = (? (call FunctionDeclarationInstantiation :functionObject :argumentsList)))
+   ;;; 2. Return the result of evaluating FunctionStatementList.
+   (return (evaluating (:parseNode -> JSSATParseNodeSlot1)))))
 
 (section
   (:15.2.4 InstantiateOrdinaryFunctionObject (parseNode, scope, privateScope))

@@ -425,6 +425,40 @@ impl<'c> InstExec<'c> {
             RecordGet(i) => {
                 let key = self.to_key(i.key)?;
                 let record = self.get_record(i.record)?;
+                #[cfg(debug_assertions)]
+                if let RecordKey::Atom(atom) = key {
+                    println!(
+                        "getting -> {}",
+                        self.interpreter.code.dealer.resolve_name(atom)
+                    );
+                }
+                #[cfg(debug_assertions)]
+                {
+                    println!("on record:::");
+                    for (k, v) in record.iter() {
+                        if let RecordKey::Atom(atom) = k {
+                            println!(
+                                "{} -> ...",
+                                self.interpreter.code.dealer.resolve_name(*atom)
+                            );
+                        }
+
+                        if let RecordKey::Bytes(s) = k {
+                            println!("{:?} -> ...", String::from_utf8(s.clone()));
+
+                            // https://stackoverflow.com/a/57172592/3780113
+                            let title = s.clone();
+                            let title: Vec<u16> = title
+                                .chunks_exact(2)
+                                .into_iter()
+                                .map(|a| u16::from_ne_bytes([a[0], a[1]]))
+                                .collect();
+                            let title = title.as_slice();
+
+                            println!("| {:?} -> ...", String::from_utf16(title));
+                        }
+                    }
+                }
                 let value = record.try_get(&key)?.clone();
                 drop(record);
                 self.registers.insert(i.result, value);
