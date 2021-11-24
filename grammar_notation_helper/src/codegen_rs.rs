@@ -132,7 +132,11 @@ pub fn generate_production(production: &Production, formatter: &mut Formatter) {
 
     impls.push({
         let mut enum_impl = Impl::new(&production.name);
-        let f = enum_impl.new_fn("variant_idx").arg_ref_self().ret("usize");
+        let f = enum_impl
+            .new_fn("variant_idx")
+            .arg_ref_self()
+            .ret("usize")
+            .vis("pub");
 
         f.line("match self");
 

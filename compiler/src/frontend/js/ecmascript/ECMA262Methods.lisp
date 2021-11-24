@@ -103,6 +103,24 @@
                        in
                        :x))
 
+(def
+  (lazyOr :1 :2)
+  (expr-block
+   ((if :1
+        ((true))
+        ((if :2
+             ((true))
+             ((false))))))))
+
+(def
+  (lazyAnd :1 :2)
+  (expr-block
+   ((if :1
+        ((if :2
+             ((true))
+             ((false))))
+        (false)))))
+
 ; only `not x`, `x == y`, and `x < y` are implemented. create the other operators here
 (def (:x != :y) (not (:x == :y)))
 (def (:x <= :y) ((:x == :y) or (:x < :y)))
@@ -118,6 +136,7 @@
 (def empty (atom Empty))
 (def sync (atom Sync))
 (def unresolvable (atom Unresolvable))
+(def non-lexical-this (atom NonLexicalThis))
 (def lexical-this (atom LexicalThis))
 (def lexical (atom Lexical))
 (def initialized (atom Initialized))
@@ -125,6 +144,7 @@
 (def atom-strict (atom Strict))
 (def atom-global (atom Global))
 (def atom-return (atom Return))
+(def atom-base (atom Base))
 (def (atom throw) (atom Throw))
 
 (def (is-undef :x) (:x == undefined))
@@ -370,6 +390,7 @@
 (def (virt0 :actor :slot) (call-virt (:actor -> :slot) :actor))
 (def (virt1 :actor :slot :1) (call-virt (:actor -> :slot) :actor :1))
 (def (virt2 :actor :slot :1 :2) (call-virt (:actor -> :slot) :actor :1 :2))
+(def (virt3 :actor :slot :1 :2 :3) (call-virt (:actor -> :slot) :actor :1 :2 :3))
 
 ; we use `..` instead of `.` because `.` is a cons cell :v
 (def (:env .. HasVarDeclaration :N) (call-virt (:env -> JSSATHasVarDeclaration) :env :N))
@@ -379,6 +400,8 @@
 
 (def (:env .. CanDeclareGlobalVar :N) (call CanDeclareGlobalVar :env :N))
 (def (:env .. CanDeclareGlobalFunction :N) (call CanDeclareGlobalFunction :env :N))
+(def (:env .. CreateGlobalFunctionBinding :N :V :D) (call CreateGlobalFunctionBinding :env :N :V :D))
+
 (def (:env .. WithBaseObject) (virt0 :env WithBaseObject))
 (def (:O .. GetBindingValue :1 :2) (virt2 :O GetBindingValue :1 :2))
 
@@ -393,6 +416,7 @@
 (def (:O .. IsExtensible) (virt0 :O IsExtensible))
 
 (def (:O .. Get :1 :2) (virt2 :O Get :1 :2))
+(def (:O .. Set :1 :2 :3) (virt3 :O Set :1 :2 :3))
 
 (def (:func .. Call :thisValue :argumentList) (virt2 :func Call :thisValue :argumentList))
 
@@ -441,6 +465,8 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; METHOD IMPLEMENTATIONS ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(def (is-fn-obj :x) (record-has-slot :x Call))
 
 (section
   (:6.1.6.1.14 Number::sameValue (x, y))
@@ -610,6 +636,15 @@
    (return (record-has-slot :argument Call))))
 
 (section
+  (:7.2.4 IsConstructor (argument))
+  (;;; 1. If Type(argument) is not Object, return false.
+   (if (isnt-object :argument)
+       ((return false)))
+   ;;; 2. If argument has a [[Construct]] internal method, return true.
+   ;;; 3. Return false.
+   (return (record-has-slot :argument Construct))))
+
+(section
   (:7.2.5 IsExtensible (O))
   (;;; 1. Return ? O.[[IsExtensible]]().
    (return (? (:O .. IsExtensible)))))
@@ -676,6 +711,7 @@
    (:obj HasProperty <- (get-fn-ptr OrdinaryObjectInternalMethods_HasProperty))
    (:obj DefineOwnProperty <- (get-fn-ptr OrdinaryObjectInternalMethods_DefineOwnProperty))
    (:obj Get <- (get-fn-ptr OrdinaryObjectInternalMethods_Get))
+   (:obj Set <- (get-fn-ptr OrdinaryObjectInternalMethods_Set))
    ;;; 3. Assert: If the caller will not be overriding both obj's [[GetPrototypeOf]] and [[SetPrototypeOf]] essential internal
    ;;;    methods, then internalSlotsList contains [[Prototype]].
    ;;; 4. Assert: If the caller will not be overriding all of obj's [[SetPrototypeOf]], [[IsExtensible]], and [[PreventExtensions]]
@@ -690,6 +726,16 @@
   (:7.3.2 Get (O, P))
   (;;; 1. Return ? O.[[Get]](P, O).
    (return (:O .. Get :P :O))))
+
+(section
+  (:7.3.4 Set (O, P, V, Throw))
+  (;;; 1. Let success be ? O.[[Set]](P, V, O).
+   (success = (? (:O .. Set :P :V :O)))
+   ;;; 2. If success is false and Throw is true, throw a TypeError exception.
+   (if ((is-false :success) and (is-true :Throw))
+       ((throw (TypeError "could not set peoprty"))))
+   ;;; 3. Return success.
+   (return :success)))
 
 (section
   (:7.3.5 CreateDataProperty (O, P, V))
@@ -928,6 +974,17 @@
    (return list-new)))
 
 (section
+  (:8.5.1 InstantiateFunctionObject (parseNode, scope, privateScope))
+  (; FunctionDeclaration :
+   ;     function BindingIdentifier ( FormalParameters ) { FunctionBody }
+   ;     function ( FormalParameters ) { FunctionBody }
+   (if (pn-kind-is :parseNode FunctionDeclaration)
+       (;;; 1. Return ? InstantiateOrdinaryFunctionObject of FunctionDeclaration with arguments scope and privateScope.
+        (return (? (call InstantiateOrdinaryFunctionObject :parseNode :scope :privateScope)))))
+   (todo)
+   (return unreachable)))
+
+(section
   (:9.1.1.1.1 DeclarativeEnvironmentRecord_HasBinding (envRec, N))
   (;;; 1. If envRec has a binding for the name that is the value of N, return true.
    (if (record-has-prop :envRec :N)
@@ -1069,6 +1126,42 @@
        ((return true)))
    ;;; 7. Return false.
    (return false)))
+
+(section
+  (:9.1.1.4.18 CreateGlobalFunctionBinding (envRec, N, V, D))
+  (;;; 1. Let ObjRec be envRec.[[ObjectRecord]].
+   (ObjRec = :envRec -> ObjectRecord)
+   ;;; 2. Let globalObject be ObjRec.[[BindingObject]].
+   (globalObject = :ObjRec -> BindingObject)
+   ;;; 3. Let existingProp be ? globalObject.[[GetOwnProperty]](N).
+   (existingProp = (? (:globalObject .. GetOwnProperty :N)))
+   ;;; 4. If existingProp is undefined or existingProp.[[Configurable]] is true, then
+   (desc =
+         (if (lazyOr (is-undef :existingProp) (is-true (:existingProp -> Configurable)))
+             (;;; a. Let desc be the PropertyDescriptor { [[Value]]: V, [[Writable]]: true, [[Enumerable]]: true, [[Configurable]]: D }.
+              (desc = record-new)
+              (:desc Value <- :V)
+              (:desc Writable <- true)
+              (:desc Enumerable <- true)
+              (:desc Configurable <- :D)
+              (:desc))
+             ;;; 5. Else,
+             (;;; a. Let desc be the PropertyDescriptor { [[Value]]: V }.
+              (desc = record-new)
+              (:desc Value <- :V)
+              (:desc))))
+   ;;; 6. Perform ? DefinePropertyOrThrow(globalObject, N, desc).
+   (_dontCare = (? (call DefinePropertyOrThrow :globalObject :N :desc)))
+   ;;; 7. Perform ? Set(globalObject, N, V, false).
+   (_dontCare = (? (call Set :globalObject :N :V false)))
+   ;;; 8. Let varDeclaredNames be envRec.[[VarNames]].
+   (varDeclaredNames = :envRec -> VarNames)
+   ;;; 9. If varDeclaredNames does not contain N, then
+   (if (not (list-contains :varDeclaredNames :N))
+       (;;; a. Append N to varDeclaredNames.
+        (list-push :varDeclaredNames :N)))
+   ;;; 10. Return NormalCompletion(empty).
+   (return (NormalCompletion empty))))
 
 (section
   (:9.1.2.1 GetIdentifierReference (env, name, strict))
@@ -1534,6 +1627,80 @@
    (return (? (call Call :getter :Receiver list-new)))))
 
 (section
+  (:10.1.9 OrdinaryObjectInternalMethods_Set (O, P, V, Receiver))
+  (;;; Return ? OrdinarySet(O, P, V, Receiver).
+   (return (? (call OrdinarySet :O :P :V :Receiver)))))
+
+(section
+  (:10.1.9.1 OrdinarySet (O, P, V, Receiver))
+  (;;; 1. Let ownDesc be ? O.[[GetOwnProperty]](P).
+   (ownDesc = (? (:O .. GetOwnProperty :P)))
+   ;;; 2. Return OrdinarySetWithOwnDescriptor(O, P, V, Receiver, ownDesc).
+   (return (call OrdinarySetWithOwnDescriptor :O :P :V :Receiver :ownDesc))))
+
+(section
+  (:10.1.9.2 OrdinarySetWithOwnDescriptor (O, P, V, Receiver, ownDesc))
+  (;;; 1. If ownDesc is undefined, then
+   (ownDesc =
+            (if (is-undef :ownDesc)
+                (;;; a. Let parent be ? O.[[GetPrototypeOf]]().
+                 (parent = (? (:O .. GetPrototypeOf)))
+                 ;;; b. If parent is not null, then
+                 (if (isnt-null :parent)
+                     (;;; i. Return ? parent.[[Set]](P, V, Receiver).
+                      (return (? (:parent .. Set :P :V :Receiver)))
+                      (unreachable))
+                     ;;; c. Else,
+                     (;;; i. Set ownDesc to the PropertyDescriptor { [[Value]]: undefined, [[Writable]]: true,
+                      ;;;    [[Enumerable]]: true, [[Configurable]]: true }. 
+                      (desc = record-new)
+                      (:desc Value <- undefined)
+                      (:desc Writable <- true)
+                      (:desc Enumerable <- true)
+                      (:desc Configurable <- true)
+                      (:desc))))
+                (:ownDesc)))
+   ;;; 2. If IsDataDescriptor(ownDesc) is true, then
+   (if (is-true (call IsDataDescriptor :ownDesc))
+       (;;; a. If ownDesc.[[Writable]] is false, return false.
+        (if (is-false (:ownDesc -> Writable))
+            ((return false)))
+        ;;; b. If Type(Receiver) is not Object, return false.
+        (if (isnt-object :Receiver)
+            ((return false)))
+        ;;; c. Let existingDescriptor be ? Receiver.[[GetOwnProperty]](P).
+        (existingDescriptor = (? (:Receiver .. GetOwnProperty :P)))
+        ;;; d. If existingDescriptor is not undefined, then
+        (if (isnt-undef :existingDescriptor)
+            (;;; i. If IsAccessorDescriptor(existingDescriptor) is true, return false.
+             (if (is-true (call IsAccessorDescriptor :existingDescriptor))
+                 ((return false)))
+             ;;; ii. If existingDescriptor.[[Writable]] is false, return false.
+             (if (is-false (:existingDescriptor -> Writable))
+                 ((return false)))
+             ;;; iii. Let valueDesc be the PropertyDescriptor { [[Value]]: V }.
+             (valueDesc = record-new)
+             (:valueDesc Value <- :V)
+             ;;; iv. Return ? Receiver.[[DefineOwnProperty]](P, valueDesc).
+             (return (? (:Receiver .. DefineOwnProperty :P :valueDesc))))
+            ;;; e. Else,
+            (;;; i. Assert: Receiver does not currently have a property P.
+             (assert (is-false (:Receiver .. HasProperty :P)) "Receiver does not currently have a property P.")
+             ;;; ii. Return ? CreateDataProperty(Receiver, P, V).
+             (return (? (call CreateDataProperty :Receiver :P :V)))))))
+   ;;; 3. Assert: IsAccessorDescriptor(ownDesc) is true.
+   (assert (call IsAccessorDescriptor :ownDesc) "IsAccessorDescriptor(ownDesc) is true.")
+   ;;; 4. Let setter be ownDesc.[[Set]].
+   (setter = :ownDesc -> Set)
+   ;;; 5. If setter is undefined, return false.
+   (if (is-undef :setter)
+       ((return false)))
+   ;;; 6. Perform ? Call(setter, Receiver, « V »).
+   (_dontCaare = (? (call Call :setter :Receiver (list-new-1 :V))))
+   ;;; 7. Return true.
+   (return true)))
+
+(section
   (:10.1.12 OrdinaryObjectCreate (proto, additionalInternalSlotsList))
   (;;; 1. Let internalSlotsList be « [[Prototype]], [[Extensible]] ».
    (internalSlotsList = (list-new-2 (atom Prototype) (atom Extensible)))
@@ -1655,6 +1822,32 @@
    (return (call EvaluateBody (:F -> ECMAScriptCode) :F :argumentsList))))
 
 (section
+  (:10.2.2 FunctionObject_Construct (argumentsList, newTarget))
+  (;;; 1. Let callerContext be the running execution context.
+   ;;; 2. Let kind be F.[[ConstructorKind]].
+   ;;; 3. If kind is base, then
+   ;;; a. Let thisArgument be ? OrdinaryCreateFromConstructor(newTarget, "%Object.prototype%").
+   ;;; 4. Let calleeContext be PrepareForOrdinaryCall(F, newTarget).
+   ;;; 5. Assert: calleeContext is now the running execution context.
+   ;;; 6. If kind is base, then
+   ;;; a. Perform OrdinaryCallBindThis(F, calleeContext, thisArgument).
+   ;;; b. Let initializeResult be InitializeInstanceElements(thisArgument, F).
+   ;;; c. If initializeResult is an abrupt completion, then
+   ;;; i. Remove calleeContext from the execution context stack and restore callerContext as the running execution context.
+   ;;; ii. Return Completion(initializeResult).
+   ;;; 7. Let constructorEnv be the LexicalEnvironment of calleeContext.
+   ;;; 8. Let result be OrdinaryCallEvaluateBody(F, argumentsList).
+   ;;; 9. Remove calleeContext from the execution context stack and restore callerContext as the running execution context.
+   ;;; 10. If result.[[Type]] is return, then
+   ;;; a. If Type(result.[[Value]]) is Object, return NormalCompletion(result.[[Value]]).
+   ;;; b. If kind is base, return NormalCompletion(thisArgument).
+   ;;; c. If result.[[Value]] is not undefined, throw a TypeError exception.
+   ;;; 11. Else, ReturnIfAbrupt(result).
+   ;;; 12. Return ? constructorEnv.GetThisBinding().
+   (todo)
+   (return unreachable)))
+
+(section
   (:10.2.3 OrdinaryFunctionCreate (functionPrototype, sourceText, ParameterList, Body, thisMode, Scope, PrivateScope))
   (;;; 1. Let internalSlotsList be the internal slots listed in Table 34.
    (internalSlotsList = list-new)
@@ -1706,6 +1899,52 @@
    (Perform ! :tmp)
    ;;; 23. Return F.
    (return :F)))
+
+(section
+  (:10.2.5 MakeConstructor (F, writablePrototype, prototype))
+  (;;; 1. If F is an ECMAScript function object, then
+   (if (is-fn-obj :F)
+       (;;; a. Assert: IsConstructor(F) is false.
+        (assert (is-false (call IsConstructor :F)) "IsConstructor(F) is false.")
+        ;;; b. Assert: F is an extensible object that does not have a "prototype" own property.
+        ; TODO
+        ;;; c. Set F.[[Construct]] to the definition specified in 10.2.2.
+        (:F Construct <- (get-fn-ptr FunctionObject_Construct)))
+       ;;; 2. Else,
+       (;;; a. Set F.[[Construct]] to the definition specified in 10.3.2.
+        (todo)))
+   ;;; 3. Set F.[[ConstructorKind]] to base.
+   (:F ConstructorKind <- atom-base)
+   ;;; 4. If writablePrototype is not present, set writablePrototype to true.
+   (writablePrototype =
+                      (if (is-undef :writablePrototype)
+                          ((true))
+                          ((:writablePrototype))))
+   ;;; 5. If prototype is not present, then
+   (prototype =
+              (if (is-undef :prototype)
+                  (;;; a. Set prototype to ! OrdinaryObjectCreate(%Object.prototype%).
+                   (prototype = (! (call OrdinaryObjectCreate null list-new)))
+                   ;;; b. Perform ! DefinePropertyOrThrow(prototype, "constructor", PropertyDescriptor {
+                   ;;;    [[Value]]: F, [[Writable]]: writablePrototype, [[Enumerable]]: false, [[Configurable]]: true }).
+                   (desc = record-new)
+                   (:desc Value <- :F)
+                   (:desc Writable <- :writablePrototype)
+                   (:desc Enumerable <- false)
+                   (:desc Configurable <- true)
+                   (_dontCare = (! (call DefinePropertyOrThrow :prototype "constructor" :desc)))
+                   (:prototype))
+                  (:prototype)))
+   ;;; 6. Perform ! DefinePropertyOrThrow(F, "prototype", PropertyDescriptor { [[Value]]: prototype,
+   ;;     [[Writable]]: writablePrototype, [[Enumerable]]: false, [[Configurable]]: false }).
+   (desc = record-new)
+   (:desc Value <- :prototype)
+   (:desc Writable <- :writablePrototype)
+   (:desc Enumerable <- false)
+   (:desc Configurable <- false)
+   (_dontCare = (! (call DefinePropertyOrThrow :F "prototype" :desc)))
+   ;;; 7. Return NormalCompletion(undefined).
+   (return (NormalCompletion undefined))))
 
 (section
   (:10.2.9 SetFunctionName (F, name, prefix))
@@ -1816,12 +2055,22 @@
    ;;; 13. Return func.
    (return :func)))
 
+; 13.1.2 `StringValue`
+(def
+  (StringValueOfBindingIdentifier :parseNode)
+  ; BindingIdentifier : Identifier (0)
+  (StringValueOfIdentifier (:parseNode -> JSSATParseNodeSlot1)))
+
+(def
+  (StringValueOfIdentifier :parseNode)
+  (:parseNode -> JSSATParseNode_Identifier_StringValue))
+
 (section
   (:13.1.3 Evaluation_IdentifierReference (parseNode))
   (; IdentifierReference : Identifier
    (if (is-pn IdentifierReference 0)
        (;;; 1. Return ? ResolveBinding(StringValue of Identifier).
-        (ret-comp (? (call ResolveBinding (:parseNode -> JSSATParseNodeSlot1 -> JSSATParseNode_Identifier_StringValue) undefined)))))
+        (ret-comp (? (call ResolveBinding (StringValueOfIdentifier (:parseNode -> JSSATParseNodeSlot1)) undefined)))))
    ; IdentifierReference : yield
    (if (is-pn IdentifierReference 1)
        (;;; 1. Return ? ResolveBinding("yield").
@@ -2028,7 +2277,7 @@
             ((return true)))
         ;;; 2. Return HasInitializer of FormalParameter.
         (return (call HasInitializer (:parseNode -> JSSATParseNodeSlot2)))))
-   (return unreachable)))
+   (return (call HasInitializer (:parseNode -> JSSATParseNodeSlot1)))))
 
 (section
   (:15.1.5 ExpectedArgumentCount (parseNode))
@@ -2083,6 +2332,41 @@
    (if (is-pn AsyncArrowBindingIdentifier 0)
        (;;; 1. Return 1.
         (return 1)))
+   (return (call ExpectedArgumentCount (:parseNode -> JSSATParseNodeSlot1)))))
+
+(section
+  (:15.2.4 InstantiateOrdinaryFunctionObject (parseNode, scope, privateScope))
+  (; FunctionDeclaration : function BindingIdentifier ( FormalParameters ) { FunctionBody }
+   (if (pn-variant-is :parseNode 0)
+       (;;; 1. Let name be StringValue of BindingIdentifier.
+        (name = (StringValueOfBindingIdentifier (:parseNode -> JSSATParseNodeSlot1)))
+        ;;; 2. Let sourceText be the source text matched by FunctionDeclaration.
+        (sourceText = :parseNode -> JSSATParseNodeSourceText)
+        ;;; 3. Let F be OrdinaryFunctionCreate(%Function.prototype%, sourceText, FormalParameters, FunctionBody,
+        ;;;    non-lexical-this, scope, privateScope).
+        (F = (call OrdinaryFunctionCreate null :sourceText (:parseNode -> JSSATParseNodeSlot2) (:parseNode -> JSSATParseNodeSlot3)
+                   non-lexical-this :scope :privateScope))
+        ;;; 4. Perform SetFunctionName(F, name).
+        (call SetFunctionName :F :name undefined)
+        ;;; 5. Perform MakeConstructor(F).
+        (call MakeConstructor :F undefined undefined)
+        ;;; 6. Return F.
+        (return :F)))
+   ; FunctionDeclaration : function ( FormalParameters ) { FunctionBody }
+   (if (pn-variant-is :parseNode 1)
+       (;;; 1. Let sourceText be the source text matched by FunctionDeclaration.
+        (sourceText = :parseNode -> JSSATParseNodeSourceText)
+        ;;; 2. Let F be OrdinaryFunctionCreate(%Function.prototype%, sourceText, FormalParameters, FunctionBody,
+        ;;;    non-lexical-this, scope, privateScope).
+        (F = (call OrdinaryFunctionCreate null :sourceText (:parseNode -> JSSATParseNodeSlot2) (:parseNode -> JSSATParseNodeSlot3)
+                   non-lexical-this :scope :privateScope))
+        ;;; 3. Perform SetFunctionName(F, "default").
+        (call SetFunctionName :F "default" undefined)
+        ;;; 4. Perform MakeConstructor(F).
+        (call MakeConstructor :F undefined undefined)
+        ;;; 5. Return F.
+        (return :F)))
+   (todo)
    (return unreachable)))
 
 (section
@@ -2258,7 +2542,7 @@
          ;;; a. Let fn be the sole element of the BoundNames of f.
          (fn = (sole-element (call BoundNames :f)))
          ;;; b. Let fo be InstantiateFunctionObject of f with argument env.
-         (fo = (call InstantiateFunctionObject :f :env))
+         (fo = (call InstantiateFunctionObject :f :env null))
          ;;; c. Perform ? env.CreateGlobalFunctionBinding(fn, fo, false).
          (_dontCare = (? (:env .. CreateGlobalFunctionBinding :fn :fo false)))))
    ;;; 17. For each String vn of declaredVarNames, do

@@ -1,5 +1,12 @@
-split `compiler` into multiple components
-add `List` datatype to JSSAT
-add `loop` construct to IR files
-add `execution context` to IR files
-add virtual ParseNode methods to parsed JavaScript code
+split `compiler` into multiple components add `List` datatype to JSSAT add
+`loop` construct to IR files add `execution context` to IR files add virtual
+ParseNode methods to parsed JavaScript code
+
+things to document:
+
+- `lazyOr` `lazyAnd` in LISP, how it's strict
+- virtual function calls
+- data on parse nodes
+- ssa form and shadowing
+- document how if statements need a "list of thigns", e.g. (if x (return false))
+  wont work cuz it wants (if x ((return false)))

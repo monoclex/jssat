@@ -250,6 +250,27 @@ impl<'b> Visitor for NodeEmitter<'b> {
     // rust doesn't have calling `super` so we have to sort of implement `visit_x`
     // instead of `visit_impl_x`
 
+    fn visit_function_declaration(&mut self, node: &js::FunctionDeclaration) {
+        self.pre_visit(js::ParseNodeKind::FunctionDeclaration, node.variant_idx());
+
+        self.visit_impl_function_declaration(node);
+
+        let parse_node = self.stack.last_mut().expect("it");
+
+        // TODO: uhh actually get the source text of a function lol
+        let source_text = format!("temporary jank function string: {:?}", node);
+        let source_text = self.program.constant_str_utf16(source_text);
+        let source_text = self.block.make_string(source_text);
+
+        self.block.record_set_atom(
+            parse_node.parse_node,
+            self.ecma_methods.atoms.JSSATParseNodeSourceText,
+            source_text,
+        );
+
+        self.post_visit();
+    }
+
     // here we visit `cover`ed expressions and automatically parse them as alternate
     // options that way, we put into JSSATParseNodeSlot the alternatives
     // so when ecmascript instructions say "get the X covered by Y" we can load it
