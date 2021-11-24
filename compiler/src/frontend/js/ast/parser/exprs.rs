@@ -13,6 +13,13 @@ impl ToParseNode<js::Expression> for swc::Expr {
     }
 }
 
+impl ToParseNode<js::BindingIdentifier> for swc::BindingIdent {
+    fn to_parse_node(self) -> js::BindingIdentifier {
+        let identifier = self.id.to_parse_node();
+        js::BindingIdentifier::Variant0(identifier.into())
+    }
+}
+
 fn parse(expr: swc::Expr) -> js::Expression {
     use swc::Expr::*;
 
@@ -247,8 +254,7 @@ fn parse_primary(expr: swc::Expr) -> js::PrimaryExpression {
 
     match expr {
         Ident(ident) => {
-            let name = js::IdentifierName(ident.sym.to_string());
-            let identifier = js::Identifier::Variant0(name.into());
+            let identifier = ident.to_parse_node();
             let ident_ref = js::IdentifierReference::Variant0(identifier.into());
 
             js::PrimaryExpression::Variant1(ident_ref.into())
@@ -267,5 +273,12 @@ fn parse_primary(expr: swc::Expr) -> js::PrimaryExpression {
             js::PrimaryExpression::Variant2(literal.into())
         }
         _ => todo!(),
+    }
+}
+
+impl ToParseNode<js::Identifier> for swc::Ident {
+    fn to_parse_node(self) -> js::Identifier {
+        let name = js::IdentifierName(self.sym.to_string());
+        js::Identifier::Variant0(name.into())
     }
 }

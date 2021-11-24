@@ -48,7 +48,9 @@ impl ToParseNode<js::StatementListItem> for swc::Stmt {
         };
 
         match self {
-            Block(x) => s(Variant0(x.to_parse_node().into())),
+            Block(x) => s(Variant0(
+                js::BlockStatement::Variant0(x.to_parse_node().into()).into(),
+            )),
             Empty(x) => s(Variant2(x.to_parse_node().into())),
             Debugger(x) => s(Variant13(x.to_parse_node().into())),
             With(x) => s(Variant9(x.to_parse_node().into())),
@@ -75,9 +77,21 @@ impl ToParseNode<js::StatementListItem> for swc::Stmt {
     }
 }
 
-impl ToParseNode<js::BlockStatement> for swc::BlockStmt {
-    fn to_parse_node(self) -> js::BlockStatement {
-        todo!()
+impl ToParseNode<js::Block> for swc::BlockStmt {
+    fn to_parse_node(mut self) -> js::Block {
+        let first = match self.stmts.pop() {
+            None => return js::Block::Variant0(None),
+            Some(x) => x,
+        };
+
+        let mut list = js::StatementList::Variant0(first.to_parse_node().into());
+
+        for stmt in self.stmts {
+            let next = stmt.to_parse_node();
+            list = js::StatementList::Variant1(list.into(), next.into());
+        }
+
+        js::Block::Variant0(Some(list.into()))
     }
 }
 impl ToParseNode<js::EmptyStatement> for swc::EmptyStmt {
@@ -171,7 +185,15 @@ impl ToParseNode<js::ForInOfStatement> for swc::ForOfStmt {
 
 impl ToParseNode<js::Declaration> for swc::Decl {
     fn to_parse_node(self) -> js::Declaration {
-        todo!()
+        match self {
+            swc::Decl::Fn(x) => js::Declaration::Variant0(x.to_parse_node().into()),
+            swc::Decl::Class(x) => js::Declaration::Variant1(x.to_parse_node().into()),
+            swc::Decl::Var(x) => js::Declaration::Variant2(x.to_parse_node().into()),
+            swc::Decl::TsInterface(_)
+            | swc::Decl::TsTypeAlias(_)
+            | swc::Decl::TsEnum(_)
+            | swc::Decl::TsModule(_) => panic!("typescript not supported"),
+        }
     }
 }
 

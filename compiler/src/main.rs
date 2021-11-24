@@ -159,15 +159,11 @@ fn main() {
     // let content = std::fs::read_to_string(file_name).expect("expected to read
     // file");
     let content = r#"
-/*
-function x() {
-    
+function f(x) {
+    x('Hello, World!');
 }
 
-x();
-*/
-print('Hello, World!');
-
+f(print);
 "#
     .to_owned();
 

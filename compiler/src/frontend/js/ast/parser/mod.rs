@@ -1,5 +1,6 @@
-mod exprs;
-mod stmts;
+pub(crate) mod decls;
+pub(crate) mod exprs;
+pub(crate) mod stmts;
 
 use std::convert::TryInto;
 
