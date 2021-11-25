@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "compiler",
+    "domino",
     "jssat_ir",
     "jssat_frontend_js",
     "jssat_interpreter",

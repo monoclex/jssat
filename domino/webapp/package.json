@@ -1,0 +1,26 @@
+{
+  "name": "webapp",
+  "version": "0.0.0",
+  "description": "Frontend for Domino the Debugger",
+  "author": "SirJosh3917",
+  "license": "MIT",
+  "scripts": {
+    "build": "webpack build",
+    "serve": "webpack serve"
+  },
+  "devDependencies": {
+    "@babel/preset-env": "^7.16.4",
+    "@babel/preset-typescript": "^7.16.0",
+    "babel-loader": "^8.2.3",
+    "babel-preset-solid": "^1.2.5",
+    "css-loader": "^6.5.1",
+    "html-webpack-plugin": "^5.5.0",
+    "style-loader": "^3.3.1",
+    "webpack": "^5.64.4",
+    "webpack-cli": "^4.9.1",
+    "webpack-dev-server": "^4.5.0"
+  },
+  "dependencies": {
+    "solid-js": "^1.2.5"
+  }
+}

@@ -1,0 +1,38 @@
+body,
+.app-container {
+  width: 100vw;
+  height: 100vh;
+  margin: 0;
+}
+
+.app-container {
+  display: flex;
+}
+
+.callstack {
+  display: flex;
+  min-width: 33vw;
+  flex-direction: column;
+}
+
+.callstack-current-frame {
+  padding: 1em;
+  min-height: 10vh;
+}
+
+.callstack-frames {
+  flex-grow: 1;
+  overflow-y: auto;
+}
+
+.callstack-time-slider {
+  padding: 1em;
+}
+
+.time-slider {
+  width: 100%;
+}
+
+.panel {
+  flex-grow: 1;
+}
