@@ -180,7 +180,7 @@ f(print);
     builder.end_function(f);
     let ir = builder.finish();
 
-    println!("{}", crate::frontend::display_jssatir::display(&ir));
+    // println!("{}", crate::frontend::display_jssatir::display(&ir));
 
     println!("lifting program");
     let program = time(move || lifted::lift(ir));
@@ -196,9 +196,9 @@ f(print);
     });
 
     println!("executed");
-    let callstack = interpreter.print_callstack_depth(200);
-    let graph = interpreter.construct_callstack_graph(200);
-    std::fs::write("graph.dot", &graph).unwrap();
+    // let callstack = interpreter.print_callstack_depth(200);
+    // let graph = interpreter.construct_callstack_graph(200);
+    // std::fs::write("graph.dot", &graph).unwrap();
 
     println!(
         "executed: {:?}",

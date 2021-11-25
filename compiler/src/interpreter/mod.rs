@@ -187,11 +187,8 @@ pub struct Record(FxHashMap<RecordKey, Value>);
 impl Record {
     #[track_caller]
     pub fn try_get(&self, key: &RecordKey) -> InstResult<&Value> {
-        self.get(key).ok_or_else(|| {
-            #[cfg(debug_assertions)]
-            println!("failed to get record key");
-            InstErr::RecordDNCKey(key.clone(), Location::caller())
-        })
+        self.get(key)
+            .ok_or_else(|| InstErr::RecordDNCKey(key.clone(), Location::caller()))
     }
 
     #[track_caller]
@@ -292,9 +289,6 @@ impl<'p> Interpreter<'p> {
             .get(&id)
             .expect("expected valid function id");
 
-        #[cfg(debug_assertions)]
-        println!("executing @{} : {}", function.ir_fn_id, function.ir_blk_id);
-
         ensure_arg_count(function.parameters.len(), args.len())?;
 
         let mut registers = FxHashMap::default();
@@ -309,12 +303,8 @@ impl<'p> Interpreter<'p> {
         };
 
         for inst in function.instructions.iter() {
-            println!("{:?}", inst);
             inst_exec.exec(inst)?;
         }
-
-        #[cfg(debug_assertions)]
-        println!("nea @{} : {}", function.ir_fn_id, function.ir_blk_id);
 
         match &function.end {
             EndInstruction::Jump(i) => {
@@ -548,7 +538,7 @@ impl<'i, 'c> InstExec<'i, 'c> {
             .current_comment
             .get(&self.function.ir_fn_id.get_the_value())
         {
-            println!(":: {:?}", c);
+            // println!(":: {:?}", c);
         }
 
         if let Some(result) = inst.assigned_to() {
@@ -568,40 +558,6 @@ impl<'i, 'c> InstExec<'i, 'c> {
             RecordGet(i) => {
                 let key = self.to_key(i.key)?;
                 let record = self.get_record(i.record)?;
-                #[cfg(debug_assertions)]
-                if let RecordKey::Atom(atom) = key {
-                    println!(
-                        "getting -> {}",
-                        self.interpreter.code.dealer.resolve_name(atom)
-                    );
-                }
-                #[cfg(debug_assertions)]
-                {
-                    println!("on record:::");
-                    for (k, v) in record.iter() {
-                        if let RecordKey::Atom(atom) = k {
-                            println!(
-                                "{} -> ...",
-                                self.interpreter.code.dealer.resolve_name(*atom)
-                            );
-                        }
-
-                        if let RecordKey::Bytes(s) = k {
-                            println!("{:?} -> ...", String::from_utf8(s.clone()));
-
-                            // https://stackoverflow.com/a/57172592/3780113
-                            let title = s.clone();
-                            let title: Vec<u16> = title
-                                .chunks_exact(2)
-                                .into_iter()
-                                .map(|a| u16::from_ne_bytes([a[0], a[1]]))
-                                .collect();
-                            let title = title.as_slice();
-
-                            println!("| {:?} -> ...", String::from_utf16(title));
-                        }
-                    }
-                }
                 let value = record.try_get(&key)?.clone();
                 drop(record);
                 self.registers.insert(i.result, value);
@@ -734,62 +690,6 @@ impl<'i, 'c> InstExec<'i, 'c> {
             }
             Assert(i) => {
                 let value = self.get(i.condition)?;
-
-                #[cfg(debug_assertions)]
-                if let Ok(atom) = value.try_into_atom() {
-                    eprintln!(
-                        "the value asserting is: {} --- {}",
-                        self.interpreter.code.dealer.resolve_name(atom),
-                        i.message
-                    );
-
-                    return Ok(());
-                }
-
-                #[cfg(debug_assertions)]
-                if let Ok(rec) = value.try_into_record() {
-                    eprintln!("the record asserting is: {:?} --- {}", &rec, i.message);
-                    for (k, v) in rec.iter() {
-                        if let RecordKey::Atom(a) = k {
-                            println!(
-                                "{} |-> {}",
-                                self.interpreter.code.dealer.resolve_name(*a),
-                                match v {
-                                    Value::Atom(a) =>
-                                        self.interpreter.code.dealer.resolve_name(*a).to_string(),
-                                    other => format!("{:?}", other),
-                                }
-                            );
-                        }
-                    }
-
-                    return Ok(());
-                }
-
-                #[cfg(debug_assertions)]
-                if let Ok(s) = value.try_into_bytes() {
-                    eprintln!("the string asserting is: {:?} --- {}", &s, i.message);
-
-                    if let Ok(s) = String::from_utf8(s.clone()) {
-                        eprintln!(" - utf8: {}", s);
-                    }
-
-                    // https://stackoverflow.com/a/57172592/3780113
-                    let title = s.clone();
-                    let title: Vec<u16> = title
-                        .chunks_exact(2)
-                        .into_iter()
-                        .map(|a| u16::from_ne_bytes([a[0], a[1]]))
-                        .collect();
-                    let title = title.as_slice();
-
-                    if let Ok(s) = String::from_utf16(title) {
-                        eprintln!(" - utf16: {}", s);
-                    }
-
-                    return Ok(());
-                }
-
                 let assertion = value.try_into_boolean()?;
 
                 if !assertion {
@@ -805,11 +705,6 @@ impl<'i, 'c> InstExec<'i, 'c> {
                         value.kind()
                     }
                 };
-
-                println!("===");
-                println!("   = {:?}", i.kind);
-                println!("{} = {}", value.kind(), target_kind);
-                println!("===");
 
                 let is_type = match (value, target_kind) {
                     (Value::Atom(_), ValueType::Atom)

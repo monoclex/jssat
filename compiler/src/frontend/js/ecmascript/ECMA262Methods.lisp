@@ -1129,7 +1129,6 @@
 (section
   (:8.5.3 IteratorBindingInitialization (parseNode, iteratorRecord, environment))
   (; FormalParameters : [empty]
-   (assert (:parseNode -> JSSATParseNodeKind) "IterIteratorBindingInitialization")
    (if (is-pn FormalParameters 0)
        (;;; 1. Return NormalCompletion(empty).
         (return (NormalCompletion empty))))

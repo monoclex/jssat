@@ -205,8 +205,6 @@ impl ParseNode {
 
 impl<'b> Visitor for NodeEmitter<'b> {
     fn pre_visit(&mut self, kind: js::ParseNodeKind, variant_idx: usize) {
-        println!("-> {:?}", kind);
-
         let node = ParseNode::new(self, kind, variant_idx);
         self.stack.push(node);
     }
@@ -214,8 +212,6 @@ impl<'b> Visitor for NodeEmitter<'b> {
     fn post_visit(&mut self) {
         let node = (self.stack.pop())
             .expect("post_visit should be called exactly same amount as pre_visit");
-
-        println!("<- {:?}", node.kind);
 
         let node = node.finish(self.block, &self.simple_fns, self.ecma_methods);
 
