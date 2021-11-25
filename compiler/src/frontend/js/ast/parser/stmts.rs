@@ -80,7 +80,7 @@ impl ToParseNode<js::StatementListItem> for swc::Stmt {
 impl ToParseNode<js::Block> for swc::BlockStmt {
     fn to_parse_node(mut self) -> js::Block {
         let first = match self.stmts.pop() {
-            None => return js::Block::Variant0(None),
+            None => return js::Block::Variant0,
             Some(x) => x,
         };
 
@@ -91,7 +91,7 @@ impl ToParseNode<js::Block> for swc::BlockStmt {
             list = js::StatementList::Variant1(list.into(), next.into());
         }
 
-        js::Block::Variant0(Some(list.into()))
+        js::Block::Variant1(list.into())
     }
 }
 impl ToParseNode<js::EmptyStatement> for swc::EmptyStmt {

@@ -32,6 +32,9 @@ fn emit_virt_overrides(
         (Arguments, 0) => m.ArgumentListEvaluation,
         (ArgumentList, _) => m.ArgumentListEvaluation,
         (Literal, _) => m.Evaluation_Literal,
+        (FunctionDeclaration, _) => m.FunctionDeclaration_Evaluation,
+        (StatementList, 1) => m.StatementList_Evaluation,
+        (FunctionStatementList, 0) => m.FunctionDeclaration_Evaluation,
         _ => return false,
     };
 

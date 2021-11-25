@@ -32,9 +32,11 @@ impl HostEnvironment for JSSATHostEnvironment {
             let mut main = print_fn.start_block_main();
 
             let fail_assertion = main.make_bool(false);
-            main.assert(fail_assertion, "Called the `print_fn`!");
+            main.comment("HIT THE `print_fn`!!!!!! EPIC!!!!!!!");
 
-            print_fn.end_block(main.ret(None));
+            let undef = program.dealer.deal("Undefined");
+            let undef = main.make_atom(undef);
+            print_fn.end_block(main.ret(Some(undef)));
 
             program.end_function(print_fn)
         };

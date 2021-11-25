@@ -203,8 +203,10 @@ f(print);
     println!(
         "executed: {:?}",
         match interpreter_result {
-            Ok(_) => "success".to_string(),
+            Ok(value) => format!("success: {:?}", value),
+            // Ok(_) => "success".to_string(),
             Err(err) => format!("error: {}", err),
+            // Err(_) => "error".to_string(),
         }
     );
 

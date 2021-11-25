@@ -270,13 +270,15 @@ impl<'p> Interpreter<'p> {
         const MiB: usize = 1024 * KiB;
         let results = stacker::maybe_grow(32 * KiB, 4 * MiB, || self.execute_fn_id_impl(id, args));
 
-        let edge = Edge {
-            goes_in: false,
-            from: Some(id),
-            to: parent,
-        };
-        self.callstack_path.push(edge);
-        self.top = parent;
+        if results.is_ok() {
+            let edge = Edge {
+                goes_in: false,
+                from: Some(id),
+                to: parent,
+            };
+            self.callstack_path.push(edge);
+            self.top = parent;
+        }
 
         results
     }
@@ -307,6 +309,7 @@ impl<'p> Interpreter<'p> {
         };
 
         for inst in function.instructions.iter() {
+            println!("{:?}", inst);
             inst_exec.exec(inst)?;
         }
 
@@ -418,7 +421,7 @@ impl<'p> Interpreter<'p> {
                 add_node(*id);
             }
 
-            if let Some(id) = from {
+            if let Some(id) = to {
                 add_node(*id);
             }
         }
@@ -734,15 +737,18 @@ impl<'i, 'c> InstExec<'i, 'c> {
 
                 #[cfg(debug_assertions)]
                 if let Ok(atom) = value.try_into_atom() {
-                    println!(
-                        "the value asserting is: {}",
-                        self.interpreter.code.dealer.resolve_name(atom)
+                    eprintln!(
+                        "the value asserting is: {} --- {}",
+                        self.interpreter.code.dealer.resolve_name(atom),
+                        i.message
                     );
+
+                    return Ok(());
                 }
 
                 #[cfg(debug_assertions)]
                 if let Ok(rec) = value.try_into_record() {
-                    println!("the record asserting is: {:?}", &rec);
+                    eprintln!("the record asserting is: {:?} --- {}", &rec, i.message);
                     for (k, v) in rec.iter() {
                         if let RecordKey::Atom(a) = k {
                             println!(
@@ -756,6 +762,32 @@ impl<'i, 'c> InstExec<'i, 'c> {
                             );
                         }
                     }
+
+                    return Ok(());
+                }
+
+                #[cfg(debug_assertions)]
+                if let Ok(s) = value.try_into_bytes() {
+                    eprintln!("the string asserting is: {:?} --- {}", &s, i.message);
+
+                    if let Ok(s) = String::from_utf8(s.clone()) {
+                        eprintln!(" - utf8: {}", s);
+                    }
+
+                    // https://stackoverflow.com/a/57172592/3780113
+                    let title = s.clone();
+                    let title: Vec<u16> = title
+                        .chunks_exact(2)
+                        .into_iter()
+                        .map(|a| u16::from_ne_bytes([a[0], a[1]]))
+                        .collect();
+                    let title = title.as_slice();
+
+                    if let Ok(s) = String::from_utf16(title) {
+                        eprintln!(" - utf16: {}", s);
+                    }
+
+                    return Ok(());
                 }
 
                 let assertion = value.try_into_boolean()?;

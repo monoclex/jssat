@@ -18,6 +18,13 @@
 ; For more information on JSSAT IR Files, see the `ir_file` crate.
 ;
 
+; OPTIMIZATION:
+; `?` will potentially unwrap the completion record, so we should box it back into a
+; completion record with (NormalCompletion ...)
+;
+; but that's super wasteful! we could just return the operation itself
+(def (NormalCompletion (? :x)) :x)
+
 (def (and :a :b) (:a and :b))
 (def (or :a :b) (:a or :b))
 (def (and3 :a :b :c) (and (and :a :b) :c))
@@ -71,6 +78,13 @@
 (def
   (list-push :list :x)
   (list-set :list (math-max (list-end :list) 0) :x))
+
+(def
+  (list-pop :list)
+  (expr-block
+   ((it = (list-get :list (list-end :list)))
+    (list-del :list (list-end :list))
+    (:it))))
 
 (def (list-end :list) ((list-len :list) - 1))
 
@@ -145,6 +159,7 @@
 (def atom-global (atom Global))
 (def atom-return (atom Return))
 (def atom-base (atom Base))
+(def atom-throw (atom Throw))
 (def (atom throw) (atom Throw))
 
 (def (ifAtom :x :y) (lazyAnd (is-type-of Atom :x) :y))
@@ -212,11 +227,13 @@
       ((:bind = (record-get-slot :record :slot))
        :action)))
 
+(def (record-copy-slot :src :dest :slot) (:dest :slot <- (:src -> :slot)))
+
 (def
   (record-copy-slot-or-default :src :dest :slot :default)
   (if (record-absent-slot :src :slot)
       ((record-set-slot :dest :slot :default))
-      ((record-set-slot :dest :slot (record-get-slot :src :slot)))))
+      ((record-copy-slot :src :dest :slot))))
 
 (def
   (record-copy-slot-if-present :src :dest :slot)
@@ -455,7 +472,8 @@
 
 (def (:func .. Call :thisValue :argumentList) (virt2 :func Call :thisValue :argumentList))
 
-(def (evaluating :x) (? (call-virt (:x -> JSSATParseNodeEvaluate) :x)))
+(def (evaluating :x) (chainEval :x))
+(def (chainEval :x) (call-virt (:x -> JSSATParseNodeEvaluate) :x))
 
 ; Table 34
 
@@ -510,6 +528,21 @@
 (section
   (:6.1.6.2.14 BigInt::sameValue (x, y))
   ((return (:x == :y))))
+
+(section
+  (:6.2.3.4 UpdateEmpty (completionRecord, value))
+  (;;; 1. Assert: If completionRecord.[[Type]] is either return or throw, then completionRecord.[[Value]] is not empty.
+   (if (either atom-return atom-throw (== (:completionRecord -> Type)))
+       ((assert (isnt-empty (:completionRecord -> Value)) "If completionRecord.[[Type]] is either return or throw, then completionRecord.[[Value]] is not empty.")))
+   ;;; 2. If completionRecord.[[Value]] is not empty, return Completion(completionRecord).
+   (if (isnt-empty (:completionRecord -> Value))
+       ((return :completionRecord)))
+   ;;; 3. Return Completion { [[Type]]: completionRecord.[[Type]], [[Value]]: value, [[Target]]: completionRecord.[[Target]] }.
+   (rec = record-new)
+   (record-copy-slot :completionRecord :rec Type)
+   (:rec Value <- :value)
+   (record-copy-slot :completionRecord :rec Target)
+   (return :rec)))
 
 (section
   (:6.2.4.1 IsPropertyReference (V))
@@ -574,6 +607,22 @@
    (if (call IsSuperReference :V)
        ((return (:V -> ThisValue))))
    (return (:V -> Base))))
+
+(section
+  (:6.2.4.8 InitializeReferencedBinding (V, W))
+  (;;; 1. ReturnIfAbrupt(V).
+   (V = (? :V))
+   ;;; 2. ReturnIfAbrupt(W).
+   (W = (? :W))
+   ;;; 3. Assert: V is a Reference Record.
+   (assert (is-reference-record :V) "V is a Reference Record.")
+   ;;; 4. Assert: IsUnresolvableReference(V) is false.
+   (assert (is-false (call IsUnresolvableReference :V)) "IsUnresolvableReference(V) is false.")
+   ;;; 5. Let base be V.[[Base]].
+   (base = :V -> Base)
+   ;;; 6. Assert: base is an Environment Record.
+   ;;; 7. Return base.InitializeBinding(V.[[ReferencedName]], W).
+   (return (:base .. InitializeBinding (:V -> ReferencedName) :W))))
 
 (section
   (:6.2.5.1 IsAccessorDescriptor (Desc))
@@ -915,6 +964,18 @@
    ;;; 4. Return result.
    (return :result)))
 
+(section (:7.4.10 CreateListIteratorRecord (list))
+  (;;; 1. Let closure be a new Abstract Closure with no parameters that captures list and performs the following steps when called:
+   ;;; a. For each element E of list, do
+   ;;; i. Perform ? Yield(E).
+   (todo) ; we need to yield
+   ; generators may be some effort to do
+   ;;; b. Return undefined.
+   ;;; 2. Let iterator be ! CreateIteratorFromClosure(closure, empty, %IteratorPrototype%).
+   ;;; 3. Return Record { [[Iterator]]: iterator, [[NextMethod]]: %GeneratorFunction.prototype.prototype.next%, [[Done]]: false }.
+   (return unreachable)))
+(section (:7.4.10-abstractclosure CreateListIteratorRecord_AbstractClosure (self)) ((todo) (return unreachable)))
+
 (section
   (:8.1.1 BoundNames (parseNode))
   (; BindingIdentifier : Identifier
@@ -937,7 +998,23 @@
    (if (is-pn FunctionDeclaration 1)
        (;;; 1. Return « "*default*" ».
         (return (list-new-1 "*default*"))))
-   (return list-new)))
+   ; FormalParameters : [empty]
+   (if (is-pn FormalParameters 0)
+       (;;; 1. Return a new empty List.
+        (return (list-new))))
+   ; FormalParameterList : FormalParameterList , FormalParameter
+   (if (is-pn FormalParameterList 1)
+       (;;; 1. Let names1 be BoundNames of FormalParameterList.
+        (names1 = (call BoundNames (:parseNode -> JSSATParseNodeSlot1)))
+        ;;; 2. Let names2 be BoundNames of FormalParameter.
+        (names2 = (call BoundNames (:parseNode -> JSSATParseNodeSlot2)))
+        ;;; 3. Return the list-concatenation of names1 and names2.
+        (return (list-concat :names1 :names2))))
+   ; SingleNameBinding : BindingIdentifier Initializeropt
+   (if (pn-kind-is :parseNode SingleNameBinding)
+       (;;; 1. Return the BoundNames of BindingIdentifier.
+        (return (call BoundNames (:parseNode -> JSSATParseNodeSlot1)))))
+   (return (call BoundNames (:parseNode -> JSSATParseNodeSlot1)))))
 
 (section
   (:8.1.2 DeclarationPart (parseNode))
@@ -1000,7 +1077,7 @@
 
    ; TODO: the default path should fall through to calling `VarScopedDeclarations` again
    ; for now im too lazy to do that
-   (if (is-pn Script 0)
+   (if (is-pn Script 1)
        ((return (call VarScopedDeclarations (:parseNode -> JSSATParseNodeSlot1)))))
    (return list-new)))
 
@@ -1048,6 +1125,58 @@
         (return (? (call InstantiateOrdinaryFunctionObject :parseNode :scope :privateScope)))))
    (todo)
    (return unreachable)))
+
+(section
+  (:8.5.3 IteratorBindingInitialization (parseNode, iteratorRecord, environment))
+  (; FormalParameters : [empty]
+   (assert (:parseNode -> JSSATParseNodeKind) "IterIteratorBindingInitialization")
+   (if (is-pn FormalParameters 0)
+       (;;; 1. Return NormalCompletion(empty).
+        (return (NormalCompletion empty))))
+   ; FormalParameterList : FormalParameterList , FormalParameter
+   (if (is-pn FormalParameterList 1)
+       (;;; 1. Perform ? IteratorBindingInitialization for FormalParameterList using iteratorRecord and environment as the arguments.
+        ;;; 2. Return the result of performing IteratorBindingInitialization for FormalParameter using iteratorRecord and environment as the arguments.
+        ; we dont do iterators yet, so we will run our own hacky algo!
+        ; we can mutate `:iteratorRecord` because we clone it before passing it in here
+        ; TODO: figure out how to do this
+        (todo)
+        (_dontCare = (? (call IteratorBindingInitialization (:parseNode -> JSSATParseNodeSlot1) :iteratorRecord :environment)))
+        (return (call IteratorBindingInitialization (:parseNode -> JSSATParseNodeSlot2) :iteratorRecord :environment))))
+   ; SingleNameBinding : BindingIdentifier Initializeropt (opt not included)
+   (if (is-pn SingleNameBinding 0)
+       (;;; 1. Let bindingId be StringValue of BindingIdentifier.
+        (bindingId = (StringValueOfBindingIdentifier (:parseNode -> JSSATParseNodeSlot1)))
+        ;;; 2. Let lhs be ? ResolveBinding(bindingId, environment).
+        (lhs = (? (call ResolveBinding :bindingId :environment)))
+        ;;; 3. Let v be undefined.
+        (v = undefined)
+        ;;; 4. If iteratorRecord.[[Done]] is false, then
+        (v =
+           (if ((list-len :iteratorRecord) > 0)
+               (;;; a. Let next be IteratorStep(iteratorRecord).
+                (next = (list-pop :iteratorRecord))
+                ;;; b. If next is an abrupt completion, set iteratorRecord.[[Done]] to true.
+                ;;; c. ReturnIfAbrupt(next).
+                ;;; d. If next is false, set iteratorRecord.[[Done]] to true.
+                ;;; e. Else,
+                ;;; i. Set v to IteratorValue(next).
+                ;;; ii. If v is an abrupt completion, set iteratorRecord.[[Done]] to true.
+                ;;; iii. ReturnIfAbrupt(v).
+                (:next))
+               ((:v))))
+        ;;; 5. If Initializer is present and v is undefined, then
+        ;;; a. If IsAnonymousFunctionDefinition(Initializer) is true, then
+        ;;; i. Set v to the result of performing NamedEvaluation for Initializer with argument bindingId.
+        ;;; b. Else,
+        ;;; i. Let defaultValue be the result of evaluating Initializer.
+        ;;; ii. Set v to ? GetValue(defaultValue).
+        ;;; 6. If environment is undefined, return ? PutValue(lhs, v).
+        (if (is-undef :environment)
+            ((assert false "TODO: environment is undefined, implement Putvalue")))
+        ;;; 7. Return InitializeReferencedBinding(lhs, v).
+        (return (call InitializeReferencedBinding :lhs :v))))
+   (return (call IteratorBindingInitialization (:parseNode -> JSSATParseNodeSlot1) :iteratorRecord :environment))))
 
 (section
   (:9.1.1.1.1 DeclarativeEnvironmentRecord_HasBinding (envRec, N))
@@ -1401,10 +1530,10 @@
    (if (is-true :exists)
        (;;; a. Return the Reference Record { [[Base]]: env, [[ReferencedName]]: name, [[Strict]]: strict, [[ThisValue]]: empty }.
         (refRec = record-new)
-        (:refRec Base <- :env)
         (:refRec ReferencedName <- :name)
         (:refRec Strict <- :strict)
         (:refRec ThisValue <- empty)
+        (:refRec Base <- :env)
         (return :refRec))
        ;;; 4. Else,
        (;;; a. Let outer be env.[[OuterEnv]].
@@ -1979,10 +2108,11 @@
    (exec-ctx-stack-pop)
    (exec-ctx-stack-push :callerContext)
    ;;; 8. If result.[[Type]] is return, return NormalCompletion(result.[[Value]]).
-   (if ((:result -> Type) == atom-return)
+   (assert :result "check If result.[[Type]] is return, return NormalCompletion(result.[[Value]]).")
+   (if (:result -> Type == atom-return)
        ((return (NormalCompletion (:result -> Value)))))
    ;;; 9. ReturnIfAbrupt(result).
-   (dontCare = (? :result))
+   (result = (? :result))
    ;;; 10. Return NormalCompletion(undefined).
    (return (NormalCompletion undefined))))
 
@@ -2054,7 +2184,9 @@
   (; FunctionBody : FunctionStatementList
    (if (is-pn FunctionBody 0)
        (;;; 1. Return ? EvaluateFunctionBody of FunctionBody with arguments functionObject and argumentsList.
-        (return (? (call EvaluateFunctionBody :parseNode :F :argumentsList)))))
+        ; all ecmascript ops must implicitly return a completion record
+        ; espeically this one
+        (return (call EvaluateFunctionBody :parseNode :F :argumentsList))))
    (return (call EvaluateBody (:parseNode -> JSSATParseNodeSlot1) :F :argumentsList))))
 
 (section
@@ -2371,11 +2503,16 @@
                           ;;; 23. Else,
                           (;;; a. Let parameterBindings be parameterNames.
                            (:parameterNames))))
-   ;;; 24. Let iteratorRecord be CreateListIteratorRecord(argumentsList).
+   ;  ;;; 24. Let iteratorRecord be CreateListIteratorRecord(argumentsList).
+   ;  (iteratorRecord = (call CreateListIteratorRecord :argumentsList))
    ;;; 25. If hasDuplicates is true, then
-   ;;; a. Perform ? IteratorBindingInitialization for formals with iteratorRecord and undefined as arguments.
-   ;;; 26. Else,
-   ;;; a. Perform ? IteratorBindingInitialization for formals with iteratorRecord and env as arguments.
+   (iteratorRecord = (list-clone :argumentsList)) ; not implementing yield yet lmao
+   (if (is-true :hasDuplicates)
+       (;;; a. Perform ? IteratorBindingInitialization for formals with iteratorRecord and undefined as arguments.
+        (_dontCare = (? (call IteratorBindingInitialization :formals :iteratorRecord undefined))))
+       ;;; 26. Else,
+       (;;; a. Perform ? IteratorBindingInitialization for formals with iteratorRecord and env as arguments.
+        (_dontCare = (? (call IteratorBindingInitialization :formals :iteratorRecord :env)))))
    ;;; 27. If hasParameterExpressions is false, then
    (varEnv =
            (if (is-false :hasParameterExpressions)
@@ -2652,7 +2789,7 @@
         ;;; 5. Let func be ? GetValue(ref).
         (func = (? (call GetValue :ref)))
         ;;; 6. If ref is a Reference Record, IsPropertyReference(ref) is false, and ref.[[ReferencedName]] is "eval", then
-        (if (and3 (is-reference-record :ref) (is-false (call IsPropertyReference :ref)) ((:ref -> ReferencedName) == "eval"))
+        (if (lazyAnd (is-reference-record :ref) (lazyAnd (is-false (call IsPropertyReference :ref)) ((:ref -> ReferencedName) == "eval")))
             (;;; a. If SameValue(func, %eval%) is true, then
              (todo)
              ;;; i. Let argList be ? ArgumentListEvaluation of arguments.
@@ -2667,7 +2804,7 @@
         ;;; 8. Let tailCall be IsInTailPosition(thisCall).
         (tailCall = false)
         ;;; 9. Return ? EvaluateCall(func, ref, arguments, tailCall).
-        (return (? (call EvaluateCall :func :ref :arguments :tailCall)))))
+        (return (call EvaluateCall :func :ref :arguments :tailCall))))
    ; CallExpression : CallExpression Arguments
    (if (is-pn CallExpression 3)
        (;;; 1. Let ref be the result of evaluating CallExpression.
@@ -2679,7 +2816,7 @@
         ;;; 4. Let tailCall be IsInTailPosition(thisCall).
         (tailCall = false) ; lol im not implementing that
         ;;; 5. Return ? EvaluateCall(func, ref, Arguments, tailCall).
-        (return (? (call EvaluateCall :func :ref (:parseNode -> JSSATParseNodeSlot2) :tailCall)))))
+        (return (call EvaluateCall :func :ref (:parseNode -> JSSATParseNodeSlot2) :tailCall))))
    (return unreachable)))
 
 (section
@@ -2714,10 +2851,10 @@
    (if :tailPosition
        ((call PrepareForTailCall)))
    ;;; 7. Let result be Call(func, thisValue, argList).
-   (result = (call Call :func :thisValue :argList))
+   (result = (? (call Call :func :thisValue :argList)))
    ;;; 8. Assert: If result is not an abrupt completion, then Type(result) is an ECMAScript language type.
    ;;; 9. Return result.
-   (return :result)))
+   (ret-comp :result)))
 
 ; NOTE: for some reason this is dual-purposed as a Evaluation_ArgumentList too
 (section
@@ -2784,7 +2921,19 @@
                (nextArg = (? (call IteratorValue :next)))
                ;;; d. Append nextArg as the last element of precedingArgs.
                (list-push :precedingArgs :nextArg)))))
-   (return (evaluating :parseNode))))
+   (return (chainEval :parseNode))))
+
+(section
+  (:14.2.2 StatementList_Evaluation (parseNode))
+  (; StatementList : StatementList StatementListItem
+   ;;; 1. Let sl be the result of evaluating StatementList.
+   (sl = (evaluating (:parseNode -> JSSATParseNodeSlot1)))
+   ;;; 2. ReturnIfAbrupt(sl).
+   (sl = (? :sl))
+   ;;; 3. Let s be the result of evaluating StatementListItem.
+   (s = (evaluating (:parseNode -> JSSATParseNodeSlot2)))
+   ;;; 4. Return Completion(UpdateEmpty(s, sl)).
+   (return (call UpdateEmpty :s :sl))))
 
 (section
   (:15.1.2 ContainsExpression (parseNode))
@@ -2988,10 +3137,12 @@
 (section
   (:15.2.3 EvaluateFunctionBody (parseNode, functionObject, argumentsList))
   (; FunctionBody : FunctionStatementList
-   ;;; 1. Perform ? FunctionDeclarationInstantiation(functionObject, argumentsList).
-   (_dontCare = (? (call FunctionDeclarationInstantiation :functionObject :argumentsList)))
-   ;;; 2. Return the result of evaluating FunctionStatementList.
-   (return (evaluating (:parseNode -> JSSATParseNodeSlot1)))))
+   (if (is-pn FunctionBody 0)
+       (;;; 1. Perform ? FunctionDeclarationInstantiation(functionObject, argumentsList).
+        (_dontCare = (? (call FunctionDeclarationInstantiation :functionObject :argumentsList)))
+        ;;; 2. Return the result of evaluating FunctionStatementList.
+        (return (evaluating (:parseNode -> JSSATParseNodeSlot1)))))
+   (return (NormalCompletion empty))))
 
 (section
   (:15.2.4 InstantiateOrdinaryFunctionObject (parseNode, scope, privateScope))
@@ -3027,6 +3178,18 @@
         (return :F)))
    (todo)
    (return unreachable)))
+
+(section
+  (:15.2.6 FunctionDeclaration_Evaluation (parseNode))
+  (; FunctionDeclaration : function BindingIdentifier ( FormalParameters ) { FunctionBody }
+   ;;; 1. Return NormalCompletion(empty).
+   ; FunctionDeclaration : function ( FormalParameters ) { FunctionBody }
+   ;;; 1. Return NormalCompletion(empty).
+   ; FunctionStatementList : [empty]
+   (if (is-pn FunctionStatementList 0)
+       (;;; 1. Return NormalCompletion(undefined).
+        (return (NormalCompletion undefined))))
+   (return (NormalCompletion empty))))
 
 (section
   (:15.10.3 PrepareForTailCall ())
@@ -3208,6 +3371,7 @@
    (for :declaredVarNames
         ((vn = for-item)
          ;;; a. Perform ? env.CreateGlobalVarBinding(vn, false).
+         ;  (_dontCare = (? (:env .. CreateGlobalVarBinding :vn false)))
         ))
    ;;; 18. Return NormalCompletion(empty).
    (return (NormalCompletion empty))))

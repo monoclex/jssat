@@ -26,12 +26,16 @@ fn parse_function_declaration(ident: swc::Ident, f: swc::Function) -> js::Functi
 
     let formal_params = f.params.to_parse_node();
 
-    let js::Block::Variant0(body) = match f.body {
-        Some(x) => x.to_parse_node(),
-        None => js::Block::Variant0(None),
+    let body = f.body.and_then(|x| match x.to_parse_node() {
+        js::Block::Variant0 => None,
+        js::Block::Variant1(x) => Some(x),
+    });
+
+    let body = match body {
+        Some(x) => js::FunctionStatementList::Variant1(x),
+        None => js::FunctionStatementList::Variant0,
     };
 
-    let body = js::FunctionStatementList::Variant0(body);
     let body = js::FunctionBody::Variant0(body.into());
 
     js::FunctionDeclaration::Variant0(name.into(), formal_params.into(), body.into())
@@ -97,7 +101,7 @@ enum ParseParam {
 fn handle_formal_param_list(args: Vec<swc::Param>) -> Vec<ParseParam> {
     fn binding_ident(it: swc::BindingIdent) -> js::FormalParameter {
         let k = it.to_parse_node();
-        let single = js::SingleNameBinding::Variant0(k.into(), None);
+        let single = js::SingleNameBinding::Variant0(k.into());
         let elem = js::BindingElement::Variant0(single.into());
         js::FormalParameter::Variant0(elem.into())
     }

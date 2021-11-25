@@ -36,11 +36,11 @@ trait ToParseNode<P> {
 impl ToParseNode<js::Script> for swc::Script {
     fn to_parse_node(self) -> js::Script {
         if self.body.is_empty() {
-            return js::Script::Variant0(None);
+            return js::Script::Variant0;
         }
 
         let script_body = js::ScriptBody::Variant0(self.body.to_parse_node().into());
 
-        js::Script::Variant0(Some(script_body.into()))
+        js::Script::Variant1(script_body.into())
     }
 }
