@@ -1,4 +1,4 @@
-use crate::frontend::{builder::*, ir::*};
+use jssat_ir::frontend::{builder::*, ir::*};
 
 // might be vaguely useful in the future as tutorial code or something
 #[allow(dead_code)]

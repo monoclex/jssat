@@ -1,0 +1,15 @@
+[package]
+name = "jssat_ir"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+assoc = "0.1.2"
+bimap = "0.6.1"
+derive_more = "0.99.16"
+lasso = "0.6.0"
+ref-cast = "1.0.6"
+rustc-hash = "1.1.0"
+tinyvec = { version = "1.5.1", features = ["alloc", "rustc_1_40"] }

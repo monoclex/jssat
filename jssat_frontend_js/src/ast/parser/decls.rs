@@ -1,4 +1,4 @@
-use crate::frontend::js::ast::parse_nodes::{ArgumentList, IdentifierName};
+use crate::ast::parse_nodes::{ArgumentList, IdentifierName};
 
 use super::super::parse_nodes as js;
 use super::ToParseNode;

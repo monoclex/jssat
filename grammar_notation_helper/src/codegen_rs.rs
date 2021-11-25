@@ -12,8 +12,8 @@ pub fn generate(productions: Productions) -> String {
     let prelude = "#![allow(unused_variables)]
 #![allow(non_snake_case)]
 
-use crate::isa::Atom;
-use crate::frontend::builder::ProgramBuilder;
+use jssat_ir::isa::Atom;
+use jssat_ir::frontend::builder::ProgramBuilder;
 
 use derive_more::Display;
 

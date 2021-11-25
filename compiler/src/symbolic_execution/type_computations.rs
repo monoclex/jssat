@@ -3,11 +3,11 @@ use thiserror::Error;
 
 use super::types::{RegisterType, TypeBag};
 
-impl BinaryOperator {
-    pub fn make_executor<'t>(&self, types: &'t mut TypeBag) -> BinOpExecutor<'t> {
-        BinOpExecutor { types, op: *self }
-    }
-}
+// impl BinaryOperator {
+//     pub fn make_executor<'t>(&self, types: &'t mut TypeBag) ->
+// BinOpExecutor<'t> {         BinOpExecutor { types, op: *self }
+//     }
+// }
 
 pub struct BinOpExecutor<'a> {
     types: &'a mut TypeBag,

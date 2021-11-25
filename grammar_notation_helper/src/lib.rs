@@ -16,11 +16,3 @@ pub fn generate(code: &str) -> String {
     eprintln!("generating productions");
     codegen_rs::generate(productions)
 }
-
-#[test]
-fn what() {
-    crate::generate(include_str!(
-        "../../compiler/src/frontend/js/ast/parse_nodes.json"
-    ));
-    panic!();
-}

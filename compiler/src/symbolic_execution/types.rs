@@ -848,7 +848,8 @@ pub struct TypeBag {
     pub(crate) registers: FxHashMap<RegisterId, RegisterType>,
     records: RecordBag,
     unions: UnionInterner,
-    constants: CloneRodeo<ConstantId>,
+    // constants: CloneRodeo<ConstantId>,
+    constants: bool,
     status: LookingUp,
 }
 
@@ -1004,26 +1005,29 @@ impl TypeBag {
         // but the API wants strings
         // TODO: is this safe?
         let str = unsafe { std::str::from_utf8_unchecked(payload) };
-        self.constants.get_or_intern(str)
+        // self.constants.get_or_intern(str)
+        todo!()
     }
 
     // TODO: this function shouldn't exist,
     // there is a bug somewhere that causes the assertion in `unintern_const` to
     // trigger but at the time of writing i'm not here to fix that
     pub fn mayb_unintern_const(&self, id: ConstantId) -> Option<&[u8]> {
-        if id.into_usize() >= self.constants.len() {
-            return None;
-        }
+        todo!()
+        // if id.into_usize() >= self.constants.len() {
+        // return None;
+        // }
 
-        Some(self.constants.resolve(&id).as_bytes())
+        // Some(self.constants.resolve(&id).as_bytes())
     }
 
     pub fn unintern_const(&self, id: ConstantId) -> &[u8] {
-        if id.into_usize() >= self.constants.len() {
-            panic!("this will be terrible for the economy");
-        }
+        todo!()
+        // if id.into_usize() >= self.constants.len() {
+        // panic!("this will be terrible for the economy");
+        // }
 
-        self.constants.resolve(&id).as_bytes()
+        // self.constants.resolve(&id).as_bytes()
     }
 
     pub fn try_get(&self, register: RegisterId) -> Option<RegisterType> {
@@ -1609,16 +1613,5 @@ impl DisplayContext<'_> {
         }
 
         write!(w, "{:?}", payload)
-    }
-}
-
-unsafe impl Key for ConstantId {
-    // fn to_usize(self) -> usize {
-    fn into_usize(self) -> usize {
-        self.raw_value() - 1
-    }
-
-    fn try_from_usize(int: usize) -> Option<Self> {
-        ConstantId::try_new_with_value_raw_const(int + 1)
     }
 }

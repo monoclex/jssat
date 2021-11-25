@@ -1,6 +1,6 @@
 use rustc_hash::FxHashMap;
 
-use crate::{
+use jssat_ir::{
     id::Counter,
     lifted::{ExternalFunctionId, LiftedProgram},
     UnwrapNone,

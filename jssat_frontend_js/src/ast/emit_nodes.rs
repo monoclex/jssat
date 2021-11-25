@@ -2,11 +2,9 @@ use std::convert::TryInto;
 
 use rustc_hash::FxHashMap;
 
-use crate::{
-    frontend::{
-        builder::{DynBlockBuilder, FnSignature, ProgramBuilder, RegisterId},
-        js::ecmascript::ECMA262Methods,
-    },
+use crate::ecmascript::ECMA262Methods;
+use jssat_ir::{
+    frontend::builder::{DynBlockBuilder, FnSignature, ProgramBuilder, RegisterId},
     isa::Atom,
     UnwrapNone,
 };

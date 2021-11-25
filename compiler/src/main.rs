@@ -26,16 +26,16 @@ use crate::frontend::{
 pub mod abst_interp;
 pub mod backend;
 pub mod codegen;
-pub mod collections;
+pub use jssat_ir::collections;
 pub mod frontend;
-pub mod id;
+pub use jssat_ir::id;
 pub mod interner;
-pub mod interpreter;
-pub mod isa;
-pub mod lifted;
+pub use jssat_interpreter as interpreter;
+pub use jssat_ir::isa;
+pub use jssat_ir::lifted;
 pub mod my_tests;
 pub mod opt;
-pub mod retag;
+pub use jssat_ir::retag;
 pub mod symbolic_execution;
 pub mod types;
 

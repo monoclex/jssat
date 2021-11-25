@@ -112,11 +112,10 @@ pub fn gen(name: &str, mut ast: AST) -> String {
         "#![allow(non_snake_case)]
 #![allow(unused_variables)]
 
-use crate::{{
+use jssat_ir::{{
     frontend::{{
         builder::{{FnSignature, RegisterId, ProgramBuilder}},
         emitter::{{ControlFlow, Emitter, LoopControlFlow}},
-        js::ast::parse_nodes::ParseNodeKind,
     }},
     isa::{{Atom, AtomDealer, ValueType}},
 }};

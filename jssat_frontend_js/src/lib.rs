@@ -4,11 +4,12 @@ mod frontend_pseudo;
 pub use frontend_pseudo::traverse;
 use swc_ecmascript::parser::PResult;
 
-use crate::{frontend::js::ast::parse_nodes::Dealer, isa::Atom};
+use self::ast::parse_nodes::Dealer;
+use jssat_ir::isa::Atom;
 
 use self::{ast::parse_nodes::Visitor, ecmascript::ECMA262Methods};
 
-use super::builder::{DynBlockBuilder, ProgramBuilder, RegisterId};
+use jssat_ir::frontend::builder::{DynBlockBuilder, ProgramBuilder, RegisterId};
 
 pub mod ast;
 pub mod ecmascript;

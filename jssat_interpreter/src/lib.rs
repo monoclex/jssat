@@ -22,11 +22,11 @@ use gc::{custom_trace, BorrowError, BorrowMutError, Finalize, Gc, GcCell, Trace}
 use rustc_hash::FxHashMap;
 use thiserror::Error;
 
-use crate::isa::{Atom, CompareType, ValueType};
-use crate::lifted::Function;
-use crate::{collections::StrictZip, isa::BinaryOperator};
+use jssat_ir::isa::{Atom, CompareType, ValueType};
+use jssat_ir::lifted::Function;
+use jssat_ir::{collections::StrictZip, isa::BinaryOperator};
 
-use crate::{
+use jssat_ir::{
     frontend::ir::Instruction,
     id::LiftedCtx,
     lifted::{
@@ -37,7 +37,7 @@ use crate::{
 pub struct Interpreter<'parent> {
     code: &'parent LiftedProgram,
     external_fns: &'parent FxHashMap<ExternalFunctionId, ExtFnImpl>,
-    current_comment: FxHashMap<usize, crate::isa::Comment>,
+    current_comment: FxHashMap<usize, jssat_ir::isa::Comment>,
     top: Option<FunctionId>,
     callstack_path: Vec<Edge>,
 }
@@ -401,7 +401,7 @@ impl<'p> Interpreter<'p> {
             }
 
             let body = self.code.functions.get(&id).unwrap();
-            let code = crate::lifted::display(id, body);
+            let code = jssat_ir::lifted::display(id, body);
             let node = graph.add_node(DebugIsDisplay(code));
             nodes.insert(id, node);
         };
@@ -548,7 +548,7 @@ impl<'i, 'c> InstExec<'i, 'c> {
             );
         }
 
-        use crate::frontend::ir::Instruction::*;
+        use jssat_ir::frontend::ir::Instruction::*;
         match inst {
             Comment(_) => {}
             NewRecord(i) => {
@@ -634,7 +634,7 @@ impl<'i, 'c> InstExec<'i, 'c> {
                     ))
                 };
 
-                use crate::isa::BinaryOperator::*;
+                use jssat_ir::isa::BinaryOperator::*;
                 use Value::*;
                 let value = match i.op {
                     Add => match (lhs, rhs) {
@@ -771,17 +771,17 @@ impl<'i, 'c> InstExec<'i, 'c> {
     }
 
     #[track_caller]
-    fn to_key(&self, key: crate::isa::RecordKey<LiftedCtx>) -> InstResult<RecordKey> {
+    fn to_key(&self, key: jssat_ir::isa::RecordKey<LiftedCtx>) -> InstResult<RecordKey> {
         match key {
-            crate::isa::RecordKey::Prop(register) => self.value_to_key(self.get(register)?),
-            crate::isa::RecordKey::Atom(atom) => Ok(RecordKey::Atom(atom)),
+            jssat_ir::isa::RecordKey::Prop(register) => self.value_to_key(self.get(register)?),
+            jssat_ir::isa::RecordKey::Atom(atom) => Ok(RecordKey::Atom(atom)),
         }
     }
 
     #[track_caller]
-    fn list_to_key(&self, key: crate::isa::ListKey<LiftedCtx>) -> InstResult<ListKey> {
+    fn list_to_key(&self, key: jssat_ir::isa::ListKey<LiftedCtx>) -> InstResult<ListKey> {
         match key {
-            crate::isa::ListKey::Index(register) => {
+            jssat_ir::isa::ListKey::Index(register) => {
                 let value = self.get(register)?;
                 let idx = if let Value::Number(idx) = value {
                     (*idx)

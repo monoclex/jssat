@@ -1,0 +1,20 @@
+[package]
+name = "jssat_frontend_js"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+derive_more = "0.99.16"
+jssat_ir = { path = "../jssat_ir" }
+rustc-hash = "1.1.0"
+swc_atoms = { version = "0.2.9" }
+swc_common = { version = "0.14.6" }
+swc_ecmascript = { version = "0.87.0", features = ["parser"] }
+with_builtin_macros = "0.0.3"
+
+[build-dependencies]
+ir_file = { path = "../ir_file" }
+grammar_notation_helper = { path = "../grammar_notation_helper" }
+walkdir = "2.3.2"

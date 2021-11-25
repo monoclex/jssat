@@ -169,12 +169,13 @@ impl SymbWorker<'_> {
             ir::Instruction::BinOp(i) => {
                 let (lhs, rhs) = (self.types.get(i.lhs), self.types.get(i.rhs));
 
-                let res_typ =
-                    i.op.make_executor(&mut self.types)
-                        .execute(lhs, rhs)
-                        .expect("expected binary operator to perform");
+                todo!()
+                // let res_typ =
+                //     i.op.make_executor(&mut self.types)
+                //         .execute(lhs, rhs)
+                //         .expect("expected binary operator to perform");
 
-                self.types.assign_type(i.result, res_typ);
+                // self.types.assign_type(i.result, res_typ);
             }
             ir::Instruction::Negate(i) => {
                 let o = self.types.get(i.operand);

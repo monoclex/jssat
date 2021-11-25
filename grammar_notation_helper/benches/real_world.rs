@@ -4,7 +4,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function("real world", |b| {
         b.iter(|| {
             grammar_notation_helper::generate(black_box(include_str!(
-                "../../compiler/src/frontend/js/ast/parse_nodes.json"
+                "../../jssat_frontend_js/src/ast/parse_nodes.json"
             )))
         })
     });

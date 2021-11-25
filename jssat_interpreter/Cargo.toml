@@ -1,0 +1,23 @@
+[package]
+name = "jssat_interpreter"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+derive_more = "0.99.16"
+gc = "0.4.1"
+jssat_ir = { path = "../jssat_ir" }
+petgraph = "0.6.0"
+rustc-hash = "1.1.0"
+stacker = "0.1.14"
+thiserror = "1.0.30"
+
+[dev-dependencies]
+with_builtin_macros = "0.0.3"
+
+[build-dependencies]
+ir_file = { path = "../ir_file" }
+grammar_notation_helper = { path = "../grammar_notation_helper" }
+walkdir = "2.3.2"

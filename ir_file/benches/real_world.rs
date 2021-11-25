@@ -9,7 +9,7 @@ fn criterion_benchmark(c: &mut Criterion) {
             ir_file::generate(
                 "ECMA262Methods",
                 black_box(include_str!(
-                    "../../compiler/src/frontend/js/ecmascript/ECMA262Methods.lisp"
+                    "../../jssat_frontend_js/src/ecmascript/ECMA262Methods.lisp"
                 )),
             )
         })

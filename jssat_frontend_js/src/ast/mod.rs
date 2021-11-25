@@ -8,7 +8,7 @@
 
 use swc_ecmascript::parser::PResult;
 
-use crate::frontend::builder::{DynBlockBuilder, ProgramBuilder, RegisterId};
+use jssat_ir::frontend::builder::{DynBlockBuilder, ProgramBuilder, RegisterId};
 
 use self::parse_nodes::Dealer;
 

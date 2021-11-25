@@ -1,6 +1,9 @@
 [workspace]
 members = [
     "compiler",
+    "jssat_ir",
+    "jssat_frontend_js",
+    "jssat_interpreter",
     "grammar_notation_helper",
     "runtime",
     "ir_file",

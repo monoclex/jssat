@@ -1,4 +1,4 @@
-use crate::{frontend::builder::ProgramBuilder, lifted::lift};
+use jssat_ir::{frontend::builder::ProgramBuilder, lifted::lift};
 
 use super::*;
 use Value::*;

@@ -4,7 +4,7 @@
 //! ECMAScript specification. In order to use the generated ECMAScript methods,
 //! simply call [`use_ecma262`].
 
-use crate::frontend::builder::ProgramBuilder;
+use jssat_ir::frontend::builder::ProgramBuilder;
 
 /// Includes all algorithms specified in ECMA262 into a JSSAT program. To use
 /// the algorithms from a JSSAT program, the return type [`ECMA262Methods`] has

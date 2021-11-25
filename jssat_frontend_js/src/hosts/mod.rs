@@ -4,7 +4,7 @@
 mod jssat_host;
 pub use jssat_host::JSSATHostEnvironment;
 
-use crate::frontend::builder::{DynBlockBuilder, ProgramBuilder, RegisterId};
+use jssat_ir::frontend::builder::{DynBlockBuilder, ProgramBuilder, RegisterId};
 
 use super::{ast::parse_nodes::Dealer, ecmascript::ECMA262Methods};
 

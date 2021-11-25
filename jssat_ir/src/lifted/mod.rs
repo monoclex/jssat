@@ -110,6 +110,10 @@ impl EndInstruction {
     }
 }
 
+// TODO: in `jssat_ir`, only IR representations should be present
+// the logic below should be in another crate, but it's small enough that it can
+// be here for now
+
 pub fn lift(ir: IR) -> LiftedProgram {
     // retag constants
     let mut c_retagger = CnstPassRetagger::default();
@@ -432,6 +436,7 @@ pub fn display(id: FunctionId, function: &Function) -> String {
     s
 }
 
+/*
 #[cfg(test)]
 mod tests {
     use crate::{
@@ -512,3 +517,4 @@ mod tests {
         assert!(!false_branch);
     }
 }
+*/

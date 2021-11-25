@@ -586,6 +586,9 @@ dependencies = [
  "grammar_notation_helper",
  "inkwell",
  "ir_file",
+ "jssat_frontend_js",
+ "jssat_interpreter",
+ "jssat_ir",
  "lasso",
  "lazy_static",
  "ntest",
@@ -604,6 +607,52 @@ dependencies = [
  "tokio",
  "walkdir",
  "with_builtin_macros",
+]
+
+[[package]]
+name = "jssat_frontend_js"
+version = "0.1.0"
+dependencies = [
+ "derive_more",
+ "grammar_notation_helper",
+ "ir_file",
+ "jssat_ir",
+ "rustc-hash",
+ "swc_atoms",
+ "swc_common",
+ "swc_ecmascript",
+ "walkdir",
+ "with_builtin_macros",
+]
+
+[[package]]
+name = "jssat_interpreter"
+version = "0.1.0"
+dependencies = [
+ "derive_more",
+ "gc",
+ "grammar_notation_helper",
+ "ir_file",
+ "jssat_ir",
+ "petgraph",
+ "rustc-hash",
+ "stacker",
+ "thiserror",
+ "walkdir",
+ "with_builtin_macros",
+]
+
+[[package]]
+name = "jssat_ir"
+version = "0.1.0"
+dependencies = [
+ "assoc",
+ "bimap",
+ "derive_more",
+ "lasso",
+ "ref-cast",
+ "rustc-hash",
+ "tinyvec",
 ]
 
 [[package]]
