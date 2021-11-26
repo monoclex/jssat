@@ -9,6 +9,11 @@ body,
   display: flex;
 }
 
+.virtual-list-item {
+  width: 100%;
+  height: 100%;
+}
+
 .callstack {
   display: flex;
   min-width: 33vw;
@@ -17,14 +22,36 @@ body,
 }
 
 .callstack-current-frame {
-  padding: 1em;
-  min-height: 10vh;
+  min-height: 33vh;
+  max-height: 33vh;
   overflow-y: auto;
   font-family: monospace;
+  display: flex;
+  flex-direction: column;
 }
 
-.highlighted-line {
-  background-color: lime;
+.callstack-line-prefocus {
+  flex: 1;
+  flex-basis: 0;
+  overflow: hidden;
+
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.callstack-line-focus {
+  background-color: green;
+}
+
+.callstack-line-postfocus {
+  flex: 1;
+  flex-basis: 0;
+  overflow: hidden;
+
+  display: flex;
+  flex-direction: column;
+  justify-self: flex-start;
 }
 
 .callstack-frames {

@@ -1,4 +1,4 @@
-import createDebounce from "@solid-primitives/debounce";
+import { VirtualContainer } from "@minht11/solid-virtual-container";
 import {
   Component,
   createEffect,
@@ -13,7 +13,14 @@ import {
   Suspense,
 } from "solid-js";
 import { render } from "solid-js/web";
-import { fetchMoment, fetchOverview, Frame, Moment, Overview } from "./api";
+import {
+  CodeLine,
+  fetchMoment,
+  fetchOverview,
+  Frame,
+  Moment,
+  Overview,
+} from "./api";
 import "./styles.css";
 
 const ShowError = (err: Error) => {
@@ -52,14 +59,19 @@ interface CallstackViewProps {
 
 const CallstackView = (props: CallstackViewProps) => {
   const [value, setValue] = createSignal(0);
+  createEffect(() => {
+    console.log("value is currently", value());
+  });
 
+  console.error("adding evt list");
   document.addEventListener("keydown", (e) => {
+    console.log("keydown fired!");
     switch (e.key) {
       case "ArrowLeft":
-        setValue(value() - 1);
+        if (value() > 0) setValue(value() - 1);
         break;
       case "ArrowRight":
-        setValue(value() + 1);
+        if (value() < props.totalMoments - 1) setValue(value() + 1);
         break;
     }
   });
@@ -67,23 +79,45 @@ const CallstackView = (props: CallstackViewProps) => {
   const [moment, setMoment] = createSignal<Moment | undefined>(undefined);
   createEffect(async () => setMoment(await fetchMoment(value())));
 
+  const MAX_VISIBLE_LINES_FROM_CENTER = 30;
+
   return (
     <div className="callstack">
       <div className="callstack-current-frame">
         <Show when={moment()}>
           {(moment) => (
-            <For each={moment.code.lines}>
-              {(line, idx) => (
-                <>
-                  {idx() == moment.code.highlighted ? (
-                    <span className="highlighted-line">{line.display}</span>
-                  ) : (
-                    <span>{line.display}</span>
+            <>
+              <div className="callstack-line-prefocus">
+                <For
+                  each={moment.code.lines.filter(
+                    (_, idx) =>
+                      idx >
+                        moment.code.highlighted -
+                          MAX_VISIBLE_LINES_FROM_CENTER &&
+                      idx < moment.code.highlighted
                   )}
-                  <br />
-                </>
-              )}
-            </For>
+                >
+                  {(line) => <DrawCodeLine codeLine={line} />}
+                </For>
+              </div>
+              <div className="callstack-line-focus">
+                <DrawCodeLine
+                  codeLine={moment.code.lines[moment.code.highlighted]}
+                />
+              </div>
+              <div className="callstack-line-postfocus">
+                <For
+                  each={moment.code.lines.filter(
+                    (_, idx) =>
+                      idx > moment.code.highlighted &&
+                      idx <
+                        moment.code.highlighted + MAX_VISIBLE_LINES_FROM_CENTER
+                  )}
+                >
+                  {(line) => <DrawCodeLine codeLine={line} />}
+                </For>
+              </div>
+            </>
           )}
         </Show>
       </div>
@@ -107,6 +141,14 @@ const CallstackView = (props: CallstackViewProps) => {
       </div>
     </div>
   );
+};
+
+interface CodeLineProps {
+  codeLine: CodeLine;
+}
+
+const DrawCodeLine = (props: CodeLineProps) => {
+  return <span>{props.codeLine.display}</span>;
 };
 
 interface CallstackFrameProps {
