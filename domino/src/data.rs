@@ -14,10 +14,12 @@ pub struct Snapshot {
 }
 
 pub struct RawFrameCode {
+    pub fn_name: Option<String>,
     pub lines: Vec<String>,
 }
 
 pub struct RawFrame {
+    pub raw_frame_code: Rc<RawFrameCode>,
     pub function: FunctionId,
     pub inst_idx: usize,
     pub parent: Option<Rc<RawFrame>>,
@@ -39,7 +41,11 @@ impl Data {
 
         while let Some(frame) = curr_frame {
             callstack.push(Frame {
-                preview: format!("function {}", frame.function),
+                preview: format!(
+                    "function {} @ {}",
+                    frame.function,
+                    frame.raw_frame_code.fn_name.as_deref().unwrap_or("")
+                ),
             });
 
             curr_frame = frame.parent.as_ref();

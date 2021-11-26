@@ -19,16 +19,21 @@ impl From<MomentApi> for Data {
         let functions = api
             .functions
             .into_iter()
-            .map(|(k, v)| (k, { Rc::new(RawFrameCode { lines: v.lines }) }))
+            .map(|(k, v)| {
+                (k, {
+                    Rc::new(RawFrameCode {
+                        fn_name: v.fn_name,
+                        lines: v.lines,
+                    })
+                })
+            })
             .collect::<FxHashMap<_, _>>();
-
-        let mut rc_cache = FxHashMap::default();
 
         Self {
             snapshots: (api.snapshots.into_iter())
                 .map(|x| Snapshot {
                     code: functions.get(&x.clone().0.unwrap().0.func).unwrap().clone(),
-                    frame: x.into_raw_frame(&mut rc_cache).unwrap(),
+                    frame: x.into_raw_frame(&functions).unwrap(),
                 })
                 .collect(),
         }
@@ -38,24 +43,18 @@ impl From<MomentApi> for Data {
 impl CallstackPtr {
     fn into_raw_frame(
         self,
-        rc_cache: &mut FxHashMap<*const Callframe, Rc<RawFrame>>,
+        functions: &FxHashMap<FunctionId, Rc<RawFrameCode>>,
     ) -> Option<Rc<RawFrame>> {
         let call_frame = self.0?;
-        let pointer = Rc::as_ptr(&call_frame);
 
-        match rc_cache.get(&pointer) {
-            Some(value) => Some(value.clone()),
-            None => {
-                let frame = Rc::new(RawFrame {
-                    function: call_frame.0.func,
-                    inst_idx: call_frame.0.inst_idx,
-                    parent: call_frame.1.clone().into_raw_frame(rc_cache),
-                });
+        let frame = Rc::new(RawFrame {
+            raw_frame_code: functions.get(&call_frame.0.func).unwrap().clone(),
+            function: call_frame.0.func,
+            inst_idx: call_frame.0.inst_idx,
+            parent: call_frame.1.clone().into_raw_frame(functions),
+        });
 
-                rc_cache.insert(pointer, frame.clone());
-                Some(frame)
-            }
-        }
+        Some(frame)
     }
 }
 
@@ -79,6 +78,7 @@ impl MomentState {
 }
 
 pub struct CodeInfo {
+    fn_name: Option<String>,
     lines: Vec<String>,
 }
 
@@ -92,7 +92,10 @@ impl CodeInfo {
             lines.push(s);
         }
 
-        Self { lines }
+        Self {
+            fn_name: function.name.clone(),
+            lines,
+        }
     }
 }
 

@@ -53,6 +53,17 @@ interface CallstackViewProps {
 const CallstackView = (props: CallstackViewProps) => {
   const [value, setValue] = createSignal(0);
 
+  document.addEventListener("keydown", (e) => {
+    switch (e.key) {
+      case "ArrowLeft":
+        setValue(value() - 1);
+        break;
+      case "ArrowRight":
+        setValue(value() + 1);
+        break;
+    }
+  });
+
   const [moment, setMoment] = createSignal<Moment | undefined>(undefined);
   createEffect(async () => setMoment(await fetchMoment(value())));
 
