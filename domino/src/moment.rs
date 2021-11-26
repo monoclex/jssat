@@ -32,7 +32,10 @@ impl From<MomentApi> for Data {
         Self {
             snapshots: (api.snapshots.into_iter())
                 .map(|x| Snapshot {
-                    code: functions.get(&x.clone().0.unwrap().0.func).unwrap().clone(),
+                    code: functions
+                        .get(&x.clone().0.unwrap().info.func)
+                        .unwrap()
+                        .clone(),
                     frame: x.into_raw_frame(&functions).unwrap(),
                 })
                 .collect(),
@@ -48,10 +51,13 @@ impl CallstackPtr {
         let call_frame = self.0?;
 
         let frame = Rc::new(RawFrame {
-            raw_frame_code: functions.get(&call_frame.0.func).unwrap().clone(),
-            function: call_frame.0.func,
-            inst_idx: call_frame.0.inst_idx,
-            parent: call_frame.1.clone().into_raw_frame(functions),
+            raw_frame_code: functions.get(&call_frame.info.func).unwrap().clone(),
+            function: call_frame.info.func,
+            inst_idx: call_frame.info.inst_idx,
+            moment: call_frame.moment,
+            next_moment: call_frame.next_moment,
+            prev_moment: call_frame.prev_moment,
+            parent: call_frame.parent.clone().into_raw_frame(functions),
         });
 
         Some(frame)
@@ -62,14 +68,14 @@ impl CallstackPtr {
 struct MomentState(Vec<CallstackPtr>);
 
 impl MomentState {
-    fn parent(&self) -> CallstackPtr {
+    fn current(&self) -> CallstackPtr {
         match self.as_slice() {
-            [] | [_] => CallstackPtr(None),
-            [.., snd_last, _] => snd_last.clone(),
+            [.., last] => last.clone(),
+            _ => CallstackPtr(None),
         }
     }
 
-    fn current(&mut self) -> Option<&mut CallstackPtr> {
+    fn current_mut(&mut self) -> Option<&mut CallstackPtr> {
         match self.as_mut_slice() {
             [] => None,
             [.., last] => Some(last),
@@ -92,6 +98,10 @@ impl CodeInfo {
             lines.push(s);
         }
 
+        let mut s = String::new();
+        function.end.display(&mut s).unwrap();
+        lines.push(s);
+
         Self {
             fn_name: function.name.clone(),
             lines,
@@ -106,7 +116,13 @@ pub struct FrameInfo {
 }
 
 #[derive(Clone)]
-pub struct Callframe(FrameInfo, CallstackPtr);
+pub struct Callframe {
+    info: FrameInfo,
+    moment: usize,
+    next_moment: Option<usize>,
+    prev_moment: Option<usize>,
+    parent: CallstackPtr,
+}
 
 #[derive(Clone)]
 pub struct CallstackPtr(Option<Rc<Callframe>>);
@@ -131,25 +147,93 @@ impl MomentApi {
     pub fn enter(&mut self, func: FunctionId) {
         let info = FrameInfo { func, inst_idx: 0 };
 
-        let this_node = Callframe(info, self.callstack.parent());
+        let prev_moment = self.callstack.current().0.map(|callframe| callframe.moment);
+
+        let this_node = Callframe {
+            info,
+            moment: self.snapshots.len(),
+            next_moment: None,
+            prev_moment,
+            parent: self.callstack.current(),
+        };
+
         self.callstack.push(CallstackPtr::new(this_node));
     }
 
     pub fn snapshot(&mut self, inst_idx: usize) {
-        // modify the current callframe to be set to `inst_idx`
-        // this is so that if we go into a function, then all the outer callframes will
-        // be set at the position of the function call
-        let current = self.callstack.current().expect("must be in function");
+        // on snapshot, do a few thigns:
+        //
+        // callstack:
+        // +-----+
+        // | now | <- at the top of our callstack, we maintain an up-to-date
+        // +-----+    callframe about where we're executing at. this is so
+        // |     |    that when we enter into more frames, we can then clone
+        // |  .  |    the top of the callstack, and know that it points to
+        // |  .  |    the moment in time we began executing that function
+        // |  .  |
+        // |     | our goal is to first update that callstack to point to the
+        //         current instruction we're on
+        //
+        // previous moment:
+        //
+        // snapshots:
+        // [ m1, m2, ..., mn ]
+        //
+        // when we take a snapshot, we know we're on the next instruction of
+        // a function, and that the top of the callstack points to our current
+        // selves.
+        //
+        // however, in order to facilitate stepping entire calls at a time, we
+        // have to link the previous moment with the current moment. because the
+        // top of the callstack always records the current moment, we can get
+        // the top of the callstack's "current moment", which is really *old*,
+        // and refers to the *previous moment*. from there, we can update the
+        // snapshot we took, and include what the next moment is (the real
+        // current moment)
 
-        let callframe = current.0.clone().expect("must be in callstack");
-        let callframe = (*callframe).clone();
+        let current_moment = self.snapshots.len();
 
-        let mut info = callframe.0.clone();
-        info.inst_idx = inst_idx;
+        // get the top of the callstack
+        let current = self.callstack.current_mut().expect("must be in function");
 
-        let callframe = Callframe(info, callframe.1);
+        // we can't mutate `CallstackPtr` directly, so we will clone the inner
+        // callframe data and modify it
+        let old_callframe = current.0.clone().expect("must be in callstack");
+        let old_callframe = (*old_callframe).clone();
+
+        let mut info = old_callframe.info.clone();
+        info.inst_idx = inst_idx; // update the current instruction we're on
+
+        // `old_callframe`'s `moment` refers to the old moment *it* was at.
+        // we need to modify the old moment, to point to what the next moment
+        // should be
+
+        let mut prev_moment = None;
+
+        // we might not have taken any snapshots
+        if let Some(previous_callframe) = self.snapshots.get_mut(old_callframe.moment) {
+            // again, we can't mutate it directly, so clone it and then put the
+            // clone back in
+            let mut prev_callframe = (*previous_callframe.0.clone().unwrap()).clone();
+            let prev_moment_idx = prev_callframe.moment;
+            prev_callframe.next_moment = Some(current_moment); // update the moment
+            *previous_callframe = CallstackPtr::new(prev_callframe);
+
+            prev_moment = Some(prev_moment_idx);
+        }
+
+        // construct the current callframe to replace the top of the callstack
+        let callframe = Callframe {
+            info,
+            moment: current_moment,
+            next_moment: None,
+            prev_moment,
+            parent: old_callframe.parent,
+        };
+
         let ptr = CallstackPtr(Some(Rc::new(callframe)));
 
+        // replace the top of the callstack, and insert as the current moment
         *current = ptr.clone();
         self.snapshots.push(ptr);
     }

@@ -22,6 +22,9 @@ pub struct RawFrame {
     pub raw_frame_code: Rc<RawFrameCode>,
     pub function: FunctionId,
     pub inst_idx: usize,
+    pub moment: usize,
+    pub next_moment: Option<usize>,
+    pub prev_moment: Option<usize>,
     pub parent: Option<Rc<RawFrame>>,
 }
 
@@ -46,6 +49,9 @@ impl Data {
                     frame.function,
                     frame.raw_frame_code.fn_name.as_deref().unwrap_or("")
                 ),
+                moment: frame.moment,
+                next_moment: frame.next_moment,
+                prev_moment: frame.prev_moment,
             });
 
             curr_frame = frame.parent.as_ref();
@@ -59,7 +65,7 @@ impl Data {
             })
             .collect();
 
-        let mut code = FrameCode {
+        let code = FrameCode {
             lines,
             highlighted: snapshot.frame.inst_idx,
         };

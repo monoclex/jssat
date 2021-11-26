@@ -9,11 +9,6 @@ body,
   display: flex;
 }
 
-.virtual-list-item {
-  width: 100%;
-  height: 100%;
-}
-
 .callstack {
   display: flex;
   min-width: 33vw;
@@ -21,7 +16,7 @@ body,
   flex-direction: column;
 }
 
-.callstack-current-frame {
+.callstack-codeview {
   min-height: 33vh;
   max-height: 33vh;
   overflow-y: auto;
@@ -30,7 +25,7 @@ body,
   flex-direction: column;
 }
 
-.callstack-line-prefocus {
+.callstack-codeview-prefocus {
   flex: 1;
   flex-basis: 0;
   overflow: hidden;
@@ -40,11 +35,11 @@ body,
   justify-content: flex-end;
 }
 
-.callstack-line-focus {
+.callstack-codeview-focus {
   background-color: green;
 }
 
-.callstack-line-postfocus {
+.callstack-codeview-postfocus {
   flex: 1;
   flex-basis: 0;
   overflow: hidden;
@@ -61,6 +56,20 @@ body,
 
 .callstack-frame {
   font-family: monospace;
+  font-size: large;
+  cursor: pointer;
+}
+
+.callstack-frame:hover {
+  color: lightseagreen;
+}
+
+.callstack-current-frame {
+  color: olive;
+}
+
+.callstack-current-frame:hover {
+  color: darkolivegreen;
 }
 
 .callstack-time-slider {

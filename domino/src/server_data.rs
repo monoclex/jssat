@@ -35,6 +35,19 @@ pub mod callstack {
     pub struct Frame {
         /// A string preview of the function name and arguments
         pub preview: String,
+        /// The moment at which this frame is at
+        pub moment: usize,
+        /// The next moment that is in this frame. When `moment` is advanced by
+        /// 1, it will automatically step into functions and such. However, this
+        /// behavior is not always desired. This property gets the next moment
+        /// that is *sitll in this frame*, which has the effect of stepping over
+        /// function calls.
+        #[serde(rename = "nextMoment")]
+        pub next_moment: Option<usize>,
+        /// The previous moment that is in this frame. See [`next_moment`] for
+        /// more details.
+        #[serde(rename = "prevMoment")]
+        pub prev_moment: Option<usize>,
     }
 
     #[derive(Serialize)]

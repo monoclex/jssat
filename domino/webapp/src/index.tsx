@@ -59,76 +59,52 @@ interface CallstackViewProps {
 
 const CallstackView = (props: CallstackViewProps) => {
   const [value, setValue] = createSignal(0);
-  createEffect(() => {
-    console.log("value is currently", value());
-  });
-
-  console.error("adding evt list");
-  document.addEventListener("keydown", (e) => {
-    console.log("keydown fired!");
-    switch (e.key) {
-      case "ArrowLeft":
-        if (value() > 0) setValue(value() - 1);
-        break;
-      case "ArrowRight":
-        if (value() < props.totalMoments - 1) setValue(value() + 1);
-        break;
-    }
-  });
 
   const [moment, setMoment] = createSignal<Moment | undefined>(undefined);
   createEffect(async () => setMoment(await fetchMoment(value())));
 
-  const MAX_VISIBLE_LINES_FROM_CENTER = 30;
+  document.addEventListener("keydown", (e) => {
+    const setValueLim = (value: number) => {
+      if (value < 0) return;
+      if (value >= props.totalMoments) return;
+      setValue(value);
+    };
+
+    switch (e.key) {
+      case "ArrowLeft":
+        const prevMoment = moment()?.callstack[0].prevMoment;
+        setValueLim(prevMoment ? prevMoment : value() - 1);
+        break;
+      case "ArrowRight":
+        const nextMoment = moment()?.callstack[0].nextMoment;
+        setValueLim(nextMoment ? nextMoment : value() + 1);
+        break;
+      case "ArrowUp":
+        setValueLim(value() - 1);
+        break;
+      case "ArrowDown":
+        setValueLim(value() + 1);
+        break;
+    }
+  });
 
   return (
     <div className="callstack">
-      <div className="callstack-current-frame">
-        <Show when={moment()}>
-          {(moment) => (
-            <>
-              <div className="callstack-line-prefocus">
-                <For
-                  each={moment.code.lines.filter(
-                    (_, idx) =>
-                      idx >
-                        moment.code.highlighted -
-                          MAX_VISIBLE_LINES_FROM_CENTER &&
-                      idx < moment.code.highlighted
-                  )}
-                >
-                  {(line) => <DrawCodeLine codeLine={line} />}
-                </For>
-              </div>
-              <div className="callstack-line-focus">
-                <DrawCodeLine
-                  codeLine={moment.code.lines[moment.code.highlighted]}
-                />
-              </div>
-              <div className="callstack-line-postfocus">
-                <For
-                  each={moment.code.lines.filter(
-                    (_, idx) =>
-                      idx > moment.code.highlighted &&
-                      idx <
-                        moment.code.highlighted + MAX_VISIBLE_LINES_FROM_CENTER
-                  )}
-                >
-                  {(line) => <DrawCodeLine codeLine={line} />}
-                </For>
-              </div>
-            </>
-          )}
-        </Show>
+      <div className="callstack-codeview">
+        <Show when={moment()}>{(moment) => <CodeView moment={moment} />}</Show>
       </div>
       <div className="callstack-frames">
         <Show when={moment()}>
           {(moment) => (
-            <pre>
-              <For each={moment.callstack}>
-                {(frame) => <CallstackFrame frame={frame} />}
-              </For>
-            </pre>
+            <For each={moment.callstack}>
+              {(frame, idx) => (
+                <CallstackFrame
+                  isCurrent={idx() == 0}
+                  frame={frame}
+                  setMoment={setValue}
+                />
+              )}
+            </For>
           )}
         </Show>
       </div>
@@ -143,20 +119,78 @@ const CallstackView = (props: CallstackViewProps) => {
   );
 };
 
+interface CodeViewProps {
+  moment: Moment;
+}
+
+const CodeView = (props: CodeViewProps) => {
+  const inRangeRel = (
+    value: number,
+    fixpoint: number,
+    relativeStart: number,
+    relativeEnd: number
+  ) => value > fixpoint - relativeStart && value < fixpoint + relativeEnd;
+
+  const MAX_LINES_AWAY = 30;
+
+  return (
+    <>
+      <div className="callstack-codeview-prefocus">
+        <For
+          each={props.moment.code.lines.filter((_, idx) =>
+            inRangeRel(idx, props.moment.code.highlighted, MAX_LINES_AWAY, 0)
+          )}
+        >
+          {(line) => <DrawCodeLine codeLine={line} />}
+        </For>
+      </div>
+      <div className="callstack-codeview-focus">
+        <DrawCodeLine
+          codeLine={props.moment.code.lines[props.moment.code.highlighted]}
+        />
+      </div>
+      <div className="callstack-codeview-postfocus">
+        <For
+          each={props.moment.code.lines.filter((_, idx) =>
+            inRangeRel(idx, props.moment.code.highlighted, 0, MAX_LINES_AWAY)
+          )}
+        >
+          {(line) => <DrawCodeLine codeLine={line} />}
+        </For>
+      </div>
+    </>
+  );
+};
+
 interface CodeLineProps {
   codeLine: CodeLine;
 }
 
 const DrawCodeLine = (props: CodeLineProps) => {
+  // TODO: add clickables for registers (to view values),
+  //   and clickables for "go to snapshot moment"
   return <span>{props.codeLine.display}</span>;
 };
 
 interface CallstackFrameProps {
   frame: Frame;
+  isCurrent: boolean;
+  setMoment: (value: number) => void;
 }
 
 const CallstackFrame = (props: CallstackFrameProps) => {
-  return <div className="callstack-frame">{props.frame.preview}</div>;
+  return (
+    <div
+      className={
+        "callstack-frame" + (props.isCurrent ? " callstack-current-frame" : "")
+      }
+      onClick={() => {
+        props.setMoment(props.frame.moment);
+      }}
+    >
+      {props.frame.preview}
+    </div>
+  );
 };
 
 interface SliderProps {
@@ -173,6 +207,20 @@ const Slider = (props: SliderProps) => (
     max={props.totalMoments - 1}
     value={props.value()}
     onInput={(e) => props.setValue(parseInt(e.currentTarget.value))}
+    ref={(elem) => {
+      elem.addEventListener("keydown", (e) => {
+        if (
+          e.key === "ArrowLeft" ||
+          e.key === "ArrowRight" ||
+          e.key === "ArrowUp" ||
+          e.key === "ArrowDown"
+        ) {
+          // prevent from advancing the instruction, as we already have a DOM hook
+          // for arrow keys. not doing this could cause the IP to be moved twice
+          e.preventDefault();
+        }
+      });
+    }}
   />
 );
 

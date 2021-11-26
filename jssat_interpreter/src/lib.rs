@@ -290,6 +290,8 @@ impl<'p> Interpreter<'p> {
             inst_exec.exec(idx, inst)?;
         }
 
+        (inst_exec.interpreter.moment).snapshot(function.instructions.len());
+
         match &function.end {
             EndInstruction::Jump(i) => {
                 let args = inst_exec.load_args(&i.0 .1)?;
