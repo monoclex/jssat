@@ -21,6 +21,7 @@
     "webpack-dev-server": "^4.5.0"
   },
   "dependencies": {
+    "@solid-primitives/debounce": "^1.0.4",
     "solid-js": "^1.2.5"
   }
 }

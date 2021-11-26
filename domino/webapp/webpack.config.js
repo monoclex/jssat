@@ -10,6 +10,7 @@ module.exports = {
     filename: "index.js",
     path: path.resolve(__dirname, "dist"),
   },
+  resolve: { extensions: [".js", ".jsx", ".ts", ".tsx"] },
   plugins: [new HTMLWebpackPlugin({ title: "Domino the Debugger" })],
   performance: {
     // this is going to exclusively be used on localhost

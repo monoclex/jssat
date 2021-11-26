@@ -352,6 +352,7 @@ dependencies = [
 name = "domino"
 version = "0.1.0"
 dependencies = [
+ "miniserde",
  "tiny_http",
 ]
 
@@ -831,6 +832,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf5f78c1d9892fb5677a8b2f543f967ab891ac0f71feecd961435b74f877283a"
 dependencies = [
  "libmimalloc-sys",
+]
+
+[[package]]
+name = "mini-internal"
+version = "0.1.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "926fbf1cd8695183e4712d1c77cdf2c5f7916f9f73ba103dca78ff2e6755ab47"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "miniserde"
+version = "0.1.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0767e42acf28c5e08fee73cb657bcb23432c3769cbdf3881a8cb69d8df5020df"
+dependencies = [
+ "itoa",
+ "mini-internal",
+ "ryu",
 ]
 
 [[package]]

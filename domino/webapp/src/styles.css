@@ -25,6 +25,10 @@ body,
   overflow-y: auto;
 }
 
+.callstack-frame {
+  font-family: monospace;
+}
+
 .callstack-time-slider {
   padding: 1em;
 }
