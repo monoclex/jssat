@@ -124,22 +124,22 @@ impl SymbWorker<'_> {
         inst_idx: InstIdx,
         system: &impl System<Self>,
     ) {
-        match inst {
-            ir::Instruction::Comment(_) => {}
-            ir::Instruction::NewRecord(i) => self
+        match &inst.data {
+            ir::InstructionData::Comment(_) => {}
+            ir::InstructionData::NewRecord(i) => self
                 .types
                 .new_record(i.result, self.unique_allocation_id.next()),
-            ir::Instruction::RecordGet(i) => {
+            ir::InstructionData::RecordGet(i) => {
                 let field_typ = self.types.record_get_field(i.record, i.key);
                 self.types.assign_type(i.result, field_typ);
             }
-            ir::Instruction::RecordSet(i) => {
+            ir::InstructionData::RecordSet(i) => {
                 let value = i.value.map(|value| self.types.get(value));
 
                 self.types
                     .record_set_field(i.record, i.key, value, inst_idx);
             }
-            ir::Instruction::RecordHasKey(i) => {
+            ir::InstructionData::RecordHasKey(i) => {
                 match self.types.get(i.record) {
                     RegisterType::Record(_) => {
                         let has_field = match self.types.record_has_field(i.record, i.key) {
@@ -157,16 +157,16 @@ impl SymbWorker<'_> {
                     }
                 };
             }
-            &ir::Instruction::GetFnPtr(i) => self.make(i, RegisterType::FnPtr),
-            &ir::Instruction::MakeAtom(i) => todo!(),
-            &ir::Instruction::MakeInteger(i) => self.make(i, RegisterType::Int),
-            &ir::Instruction::MakeBoolean(i) => self.make(i, RegisterType::Bool),
-            ir::Instruction::MakeBytes(i) => {
+            &ir::InstructionData::GetFnPtr(i) => self.make(i, RegisterType::FnPtr),
+            &ir::InstructionData::MakeAtom(i) => todo!(),
+            &ir::InstructionData::MakeInteger(i) => self.make(i, RegisterType::Int),
+            &ir::InstructionData::MakeBoolean(i) => self.make(i, RegisterType::Bool),
+            ir::InstructionData::MakeBytes(i) => {
                 let c = self.program.constants.get(&i.item).unwrap();
                 let c = self.types.intern_constant(&c.payload);
                 self.types.assign_type(i.result, RegisterType::Byts(c));
             }
-            ir::Instruction::BinOp(i) => {
+            ir::InstructionData::BinOp(i) => {
                 let (lhs, rhs) = (self.types.get(i.lhs), self.types.get(i.rhs));
 
                 todo!()
@@ -177,7 +177,7 @@ impl SymbWorker<'_> {
 
                 // self.types.assign_type(i.result, res_typ);
             }
-            ir::Instruction::Negate(i) => {
+            ir::InstructionData::Negate(i) => {
                 let o = self.types.get(i.operand);
 
                 let res_typ = match o {
@@ -188,14 +188,14 @@ impl SymbWorker<'_> {
 
                 self.types.assign_type(i.result, res_typ);
             }
-            ir::Instruction::CallVirt(i) => {
+            ir::InstructionData::CallVirt(i) => {
                 let fn_id = self.types.get_fnptr(i.calling);
                 self.call_fn(system, i.result, fn_id, &i.args, inst_idx);
             }
-            ir::Instruction::CallStatic(i) => {
+            ir::InstructionData::CallStatic(i) => {
                 self.call_fn(system, i.result, i.calling, &i.args, inst_idx)
             }
-            ir::Instruction::CallExtern(i) => {
+            ir::InstructionData::CallExtern(i) => {
                 // TODO: ensure/make args are coercible into `fn_id`,
                 // although the `assembler` phase does this for us as of the time of writing
                 let ext_fn = self.program.external_functions.get(&i.calling).unwrap();
@@ -208,16 +208,16 @@ impl SymbWorker<'_> {
                     }
                 };
             }
-            ir::Instruction::Generalize(_) => {
+            ir::InstructionData::Generalize(_) => {
                 todo!("generalization algorithm");
             }
-            ir::Instruction::Assert(_) => todo!(),
-            ir::Instruction::IsType(_) => todo!(),
-            ir::Instruction::NewList(_) => todo!(),
-            ir::Instruction::ListGet(_) => todo!(),
-            ir::Instruction::ListSet(_) => todo!(),
-            ir::Instruction::ListHasKey(_) => todo!(),
-            ir::Instruction::ListLen(_) => todo!(),
+            ir::InstructionData::Assert(_) => todo!(),
+            ir::InstructionData::IsType(_) => todo!(),
+            ir::InstructionData::NewList(_) => todo!(),
+            ir::InstructionData::ListGet(_) => todo!(),
+            ir::InstructionData::ListSet(_) => todo!(),
+            ir::InstructionData::ListHasKey(_) => todo!(),
+            ir::InstructionData::ListLen(_) => todo!(),
             _ => todo!(),
         };
     }

@@ -414,8 +414,8 @@ impl<'i, 'c> InstExec<'i, 'c> {
             );
         }
 
-        use jssat_ir::frontend::ir::Instruction::*;
-        match inst {
+        use jssat_ir::frontend::ir::InstructionData::*;
+        match &inst.data {
             Comment(_) => {}
             NewRecord(i) => {
                 self.registers

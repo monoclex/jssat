@@ -168,99 +168,103 @@ impl<'r> FnTyper<'r, '_> {
     ) -> Instruction<AssemblerCtx> {
         use crate::frontend::ir;
 
-        match instruction {
-            ir::Instruction::Comment(i) => Instruction::Comment(*i),
-            ir::Instruction::NewRecord(i) => {
-                Instruction::NewRecord(i.retag(&mut self.reg_retagger))
-            }
-            ir::Instruction::RecordGet(i) => {
-                Instruction::RecordGet(i.retag(&mut self.reg_retagger))
-            }
-            ir::Instruction::RecordSet(i) => {
-                Instruction::RecordSet(i.retag(&mut self.reg_retagger))
-            }
-            ir::Instruction::RecordHasKey(i) => {
-                Instruction::RecordHasKey(i.retag(&mut self.reg_retagger))
-            }
-            ir::Instruction::GetFnPtr(i) => Instruction::GetFnPtr(Make {
-                result: self.reg_retagger.retag_new(i.result),
-                item: i.item,
-            }),
-            ir::Instruction::CallStatic(i) => {
-                // TODO: abstract out SymbWorker::exec_types and use their same logic
-                // TODO: this logic is also present in mapping a BlockJump, need to consolidaate
-                // the logic
-                let prev = inst_idx.back().unwrap();
-                let target_id =
-                    self.lookup_symbolic_fn_id_from_invocation(i.calling, &i.args, prev);
+        todo!()
+        // match instruction {
+        //     ir::Instruction::Comment(i) => Instruction::Comment(*i),
+        //     ir::Instruction::NewRecord(i) => {
+        //         Instruction::NewRecord(i.retag(&mut self.reg_retagger))
+        //     }
+        //     ir::Instruction::RecordGet(i) => {
+        //         Instruction::RecordGet(i.retag(&mut self.reg_retagger))
+        //     }
+        //     ir::Instruction::RecordSet(i) => {
+        //         Instruction::RecordSet(i.retag(&mut self.reg_retagger))
+        //     }
+        //     ir::Instruction::RecordHasKey(i) => {
+        //         Instruction::RecordHasKey(i.retag(&mut self.reg_retagger))
+        //     }
+        //     ir::Instruction::GetFnPtr(i) => Instruction::GetFnPtr(Make {
+        //         result: self.reg_retagger.retag_new(i.result),
+        //         item: i.item,
+        //     }),
+        //     ir::Instruction::CallStatic(i) => {
+        //         // TODO: abstract out SymbWorker::exec_types and use their
+        // same logic         // TODO: this logic is also present in
+        // mapping a BlockJump, need to consolidaate         // the
+        // logic         let prev = inst_idx.back().unwrap();
+        //         let target_id =
+        //             self.lookup_symbolic_fn_id_from_invocation(i.calling,
+        // &i.args, prev);
 
-                Instruction::CallStatic(Call {
-                    result: i.result.map(|r| self.reg_retagger.retag_new(r)),
-                    calling: self.fn_id_mapper.retag_old(target_id),
-                    args: i
-                        .args
-                        .iter()
-                        .map(|r| self.reg_retagger.retag_old(*r))
-                        .collect(),
-                })
-            }
-            ir::Instruction::CallExtern(i) => Instruction::CallExtern(Call {
-                result: i.result.map(|r| self.reg_retagger.retag_new(r)),
-                calling: self.ext_fn_id_mapper.retag_old(i.calling),
-                args: i
-                    .args
-                    .iter()
-                    .map(|r| self.reg_retagger.retag_old(*r))
-                    .collect(),
-            }),
-            ir::Instruction::CallVirt(i) => {
-                // TODO: no support for unions of fnptrs yet
-                // SANITY: this is fine as SSA form prevents registers from being set and we
-                // should only have fnpts stored in the register id
-                let fn_id = self.results.types.get_fnptr(i.calling);
-                let prev = inst_idx.back().unwrap();
-                let target_id = self.lookup_symbolic_fn_id_from_invocation(fn_id, &i.args, prev);
+        //         Instruction::CallStatic(Call {
+        //             result: i.result.map(|r| self.reg_retagger.retag_new(r)),
+        //             calling: self.fn_id_mapper.retag_old(target_id),
+        //             args: i
+        //                 .args
+        //                 .iter()
+        //                 .map(|r| self.reg_retagger.retag_old(*r))
+        //                 .collect(),
+        //         })
+        //     }
+        //     ir::Instruction::CallExtern(i) => Instruction::CallExtern(Call {
+        //         result: i.result.map(|r| self.reg_retagger.retag_new(r)),
+        //         calling: self.ext_fn_id_mapper.retag_old(i.calling),
+        //         args: i
+        //             .args
+        //             .iter()
+        //             .map(|r| self.reg_retagger.retag_old(*r))
+        //             .collect(),
+        //     }),
+        //     ir::Instruction::CallVirt(i) => {
+        //         // TODO: no support for unions of fnptrs yet
+        //         // SANITY: this is fine as SSA form prevents registers from
+        // being set and we         // should only have fnpts stored in
+        // the register id         let fn_id =
+        // self.results.types.get_fnptr(i.calling);         let prev =
+        // inst_idx.back().unwrap();         let target_id =
+        // self.lookup_symbolic_fn_id_from_invocation(fn_id, &i.args, prev);
 
-                // TODO: once callvirt supports calling unions,
-                // replace this instruction with a different one maybe? maybe some kind of
-                // callvirt instruction? one that would handle the idea of "here
-                // are the unions of functions we may call bla bla bla"
-                Instruction::CallStatic(Call {
-                    result: i.result.map(|r| self.reg_retagger.retag_new(r)),
-                    calling: self.fn_id_mapper.retag_old(target_id),
-                    args: i
-                        .args
-                        .iter()
-                        .map(|r| self.reg_retagger.retag_old(*r))
-                        .collect(),
-                })
-            }
-            // ir::Instruction::MakeAtom(i) => {
-            //     Instruction::MakeAtom(i.retag(&mut self.reg_retagger))
-            // }
-            ir::Instruction::MakeBytes(i) => {
-                let const_retagger = self.constant_id_mapper;
-                let reg_retagger = &mut self.reg_retagger;
-                Instruction::MakeBytes(i.retag(reg_retagger, const_retagger))
-            }
-            ir::Instruction::MakeInteger(i) => {
-                Instruction::MakeInteger(i.retag(&mut self.reg_retagger))
-            }
-            ir::Instruction::MakeBoolean(i) => {
-                Instruction::MakeBoolean(i.retag(&mut self.reg_retagger))
-            }
-            ir::Instruction::BinOp(i) => Instruction::BinOp(i.retag(&mut self.reg_retagger)),
-            ir::Instruction::Negate(i) => Instruction::Negate(i.retag(&mut self.reg_retagger)),
-            ir::Instruction::Generalize(_) => todo!(),
-            ir::Instruction::Assert(_) => todo!(),
-            ir::Instruction::IsType(_) => todo!(),
-            ir::Instruction::NewList(_) => todo!(),
-            ir::Instruction::ListGet(_) => todo!(),
-            ir::Instruction::ListSet(_) => todo!(),
-            ir::Instruction::ListHasKey(_) => todo!(),
-            ir::Instruction::ListLen(_) => todo!(),
-            _ => todo!(),
-        }
+        //         // TODO: once callvirt supports calling unions,
+        //         // replace this instruction with a different one maybe? maybe
+        // some kind of         // callvirt instruction? one that would
+        // handle the idea of "here         // are the unions of
+        // functions we may call bla bla bla"         Instruction::
+        // CallStatic(Call {             result: i.result.map(|r|
+        // self.reg_retagger.retag_new(r)),             calling:
+        // self.fn_id_mapper.retag_old(target_id),             args: i
+        //                 .args
+        //                 .iter()
+        //                 .map(|r| self.reg_retagger.retag_old(*r))
+        //                 .collect(),
+        //         })
+        //     }
+        //     // ir::Instruction::MakeAtom(i) => {
+        //     //     Instruction::MakeAtom(i.retag(&mut self.reg_retagger))
+        //     // }
+        //     ir::Instruction::MakeBytes(i) => {
+        //         let const_retagger = self.constant_id_mapper;
+        //         let reg_retagger = &mut self.reg_retagger;
+        //         Instruction::MakeBytes(i.retag(reg_retagger, const_retagger))
+        //     }
+        //     ir::Instruction::MakeInteger(i) => {
+        //         Instruction::MakeInteger(i.retag(&mut self.reg_retagger))
+        //     }
+        //     ir::Instruction::MakeBoolean(i) => {
+        //         Instruction::MakeBoolean(i.retag(&mut self.reg_retagger))
+        //     }
+        //     ir::Instruction::BinOp(i) => Instruction::BinOp(i.retag(&mut
+        // self.reg_retagger)),     ir::Instruction::Negate(i) =>
+        // Instruction::Negate(i.retag(&mut self.reg_retagger)),
+        //     ir::Instruction::Generalize(_) => todo!(),
+        //     ir::Instruction::Assert(_) => todo!(),
+        //     ir::Instruction::IsType(_) => todo!(),
+        //     ir::Instruction::NewList(_) => todo!(),
+        //     ir::Instruction::ListGet(_) => todo!(),
+        //     ir::Instruction::ListSet(_) => todo!(),
+        //     ir::Instruction::ListHasKey(_) => todo!(),
+        //     ir::Instruction::ListLen(_) => todo!(),
+        //     _ => todo!(),
+        // }
     }
 
     fn process_end(

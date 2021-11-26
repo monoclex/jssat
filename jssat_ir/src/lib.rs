@@ -8,6 +8,7 @@ pub mod frontend;
 pub mod id;
 pub mod isa;
 pub mod lifted;
+pub mod pyramid_api;
 pub mod retag;
 
 /// can't have nice things :'( https://github.com/rust-lang/rust/issues/62633

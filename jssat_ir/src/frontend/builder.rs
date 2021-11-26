@@ -11,6 +11,8 @@ use crate::isa::*;
 
 use derive_more::{Deref, DerefMut};
 
+use super::source_map::SourceMapIdx;
+
 pub type BlockId = crate::id::BlockId<crate::id::IrCtx>;
 pub type FunctionId = crate::id::FunctionId<crate::id::IrCtx>;
 pub type ConstantId = crate::id::ConstantId<crate::id::IrCtx>;
@@ -475,6 +477,15 @@ impl DynBlockBuilder {
 
     fn push_inst(&mut self, inst: impl FnOnce(RegisterId) -> Instruction) -> RegisterId {
         self.with_result(|me, result| me.instructions.push(inst(result)))
+    }
+
+    /// Connects the index specified
+    pub fn connect_src(&mut self, source: SourceMapIdx) {
+        let inst = self
+            .instructions
+            .last_mut()
+            .expect("expected instruction to connect source");
+        inst.source_map_idx = Some(source);
     }
 
     /// Used in the emitter API. Basically a hacky workaround, shouldn't need to

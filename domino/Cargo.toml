@@ -6,10 +6,9 @@ edition = "2021"
 [features]
 default = ["server"]
 server = ["tiny_http"]
-moment = ["derive_more", "jssat_ir", "rustc-hash"]
+moment = ["jssat_ir", "rustc-hash"]
 
 [dependencies]
-derive_more = { version = "0.99.16", optional = true }
 jssat_ir = { path = "../jssat_ir", optional = true }
 miniserde = "0.1.16"
 rustc-hash = { version = "1.1.0", optional = true }

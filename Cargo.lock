@@ -352,7 +352,6 @@ dependencies = [
 name = "domino"
 version = "0.1.0"
 dependencies = [
- "derive_more",
  "jssat_ir",
  "miniserde",
  "rustc-hash",

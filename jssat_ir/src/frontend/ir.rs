@@ -1,5 +1,6 @@
 use std::fmt::Display;
 use std::hash::Hash;
+use std::panic::Location;
 use std::sync::Arc;
 
 use rustc_hash::FxHashMap;
@@ -13,6 +14,8 @@ use crate::id::RegisterId;
 
 use crate::isa::*;
 use crate::retag::{BlkRetagger, CnstRetagger, ExtFnRetagger, FnRetagger, RegRetagger};
+
+use super::source_map::SourceMapIdx;
 type PlainRegisterId = RegisterId<IrCtx>;
 type ExternalFunctionId = crate::id::ExternalFunctionId<IrCtx>;
 
@@ -88,7 +91,61 @@ pub struct FunctionBlock {
 }
 
 #[derive(Debug, Clone)]
-pub enum Instruction<C: Tag = crate::id::IrCtx, F: Tag = crate::id::IrCtx> {
+pub struct Instruction<C: Tag = crate::id::IrCtx, F: Tag = crate::id::IrCtx> {
+    pub source_map_idx: Option<SourceMapIdx>,
+    pub constructed_at: &'static Location<'static>,
+    pub data: InstructionData<C, F>,
+}
+
+macro_rules! enum_bridge {
+    ($variant:ident,$kind:ty) => {
+        #[track_caller]
+        #[allow(non_snake_case)]
+        pub fn $variant(x: $kind) -> Self {
+            Self::make(InstructionData::$variant(x))
+        }
+    };
+}
+
+impl<C: Tag, F: Tag> Instruction<C, F> {
+    #[track_caller]
+    fn make(data: InstructionData<C, F>) -> Self {
+        Self {
+            source_map_idx: None,
+            constructed_at: std::panic::Location::caller(),
+            data,
+        }
+    }
+
+    enum_bridge!(Comment, Comment);
+    enum_bridge!(NewRecord, NewRecord<C>);
+    enum_bridge!(RecordGet, RecordGet<C>);
+    enum_bridge!(RecordSet, RecordSet<C>);
+    enum_bridge!(RecordHasKey, RecordHasKey<C>);
+    enum_bridge!(NewList, NewList<C>);
+    enum_bridge!(ListGet, ListGet<C>);
+    enum_bridge!(ListSet, ListSet<C>);
+    enum_bridge!(ListHasKey, ListHasKey<C>);
+    enum_bridge!(ListLen, ListLen<C>);
+    enum_bridge!(GetFnPtr, Make<C, crate::id::FunctionId<F>>);
+    enum_bridge!(CallStatic, Call<C, crate::id::FunctionId<F>>);
+    enum_bridge!(CallExtern, Call<C, crate::id::ExternalFunctionId<F>>);
+    enum_bridge!(CallVirt, Call<C, crate::id::RegisterId<C>>);
+    enum_bridge!(MakeAtom, Make<C, Atom>);
+    enum_bridge!(MakeBytes, Make<C, crate::id::ConstantId<F>>);
+    enum_bridge!(MakeInteger, Make<C, i64>);
+    enum_bridge!(MakeBoolean, Make<C, bool>);
+    enum_bridge!(BinOp, BinOp<C>);
+    enum_bridge!(Negate, Negate<C>);
+    enum_bridge!(Generalize, Generalize<C>);
+    enum_bridge!(Assert, Assert<C>);
+    enum_bridge!(IsType, IsType<C>);
+    enum_bridge!(GetRuntime, GetRuntime<C>);
+    enum_bridge!(Unreachable, Unreachable<C>);
+}
+
+#[derive(Debug, Clone)]
+pub enum InstructionData<C: Tag = crate::id::IrCtx, F: Tag = crate::id::IrCtx> {
     Comment(Comment),
     NewRecord(NewRecord<C>),
     RecordGet(RecordGet<C>),
@@ -103,28 +160,8 @@ pub enum Instruction<C: Tag = crate::id::IrCtx, F: Tag = crate::id::IrCtx> {
     CallStatic(Call<C, crate::id::FunctionId<F>>),
     CallExtern(Call<C, crate::id::ExternalFunctionId<F>>),
     CallVirt(Call<C, crate::id::RegisterId<C>>),
-    // RefIsEmpty(RegisterId /*=*/, RegisterId),
-    // RefDeref(RegisterId /*=*/, RegisterId),
-    // FAR FUTURE: GcMakeRegion(RegisterId /*=*/),
-    // FAR FUTURE: GcEndRegion(RegisterId),
-    // FAR FUTURE: GcTracingMarkRoot(RegisterId),
-    // FAR FUTURE: GcTracingUnmarkRoot(RegisterId),
     MakeAtom(Make<C, Atom>),
-    /// # `MakeString`
-    ///
-    /// Will instantiate a string, using the constant referenced as payload for
-    /// the value of the string. JS strings are UTF-16, so it is expected that
-    /// the constant referenced is a valid UTF-16 string.
-    // TODO: the conv_bb_block phase doesn't mutate constants, so they're still
-    // in the old constant phase. is this valid?
     MakeBytes(Make<C, crate::id::ConstantId<F>>),
-    // /// # [`Instruction::Unreachable`]
-    // ///
-    // /// Indicates that the executing code path will never reach this instruction.
-    // /// It is undefined behavior for code to reach an Unreachable instruction.
-    // /// This is used to implement functions that recurse an unknown amount of
-    // /// times.
-    // Unreachable,
     MakeInteger(Make<C, i64>),
     MakeBoolean(Make<C, bool>),
     BinOp(BinOp<C>),
@@ -134,9 +171,29 @@ pub enum Instruction<C: Tag = crate::id::IrCtx, F: Tag = crate::id::IrCtx> {
     IsType(IsType<C>),
     GetRuntime(GetRuntime<C>),
     Unreachable(Unreachable<C>),
+    /* RefIsEmpty(RegisterId /*=*/, RegisterId),
+     * RefDeref(RegisterId /*=*/, RegisterId),
+     * FAR FUTURE: GcMakeRegion(RegisterId /*=*/),
+     * FAR FUTURE: GcEndRegion(RegisterId),
+     * FAR FUTURE: GcTracingMarkRoot(RegisterId),
+     * FAR FUTURE: GcTracingUnmarkRoot(RegisterId),
+     * # `MakeString`
+     *
+     * Will instantiate a string, using the constant referenced as payload for
+     * the value of the string. JS strings are UTF-16, so it is expected that
+     * the constant referenced is a valid UTF-16 string.
+     * TODO: the conv_bb_block phase doesn't mutate constants, so they're still
+     * in the old constant phase. is this valid?
+     * /// # [`Instruction::Unreachable`]
+     * ///
+     * /// Indicates that the executing code path will never reach this instruction.
+     * /// It is undefined behavior for code to reach an Unreachable instruction.
+     * /// This is used to implement functions that recurse an unknown amount of
+     * /// times.
+     * Unreachable, */
 }
 
-pub struct DisplayInst<'instruction, C: Tag, F: Tag>(&'instruction Instruction<C, F>);
+pub struct DisplayInst<'instruction, C: Tag, F: Tag>(&'instruction InstructionData<C, F>);
 impl<'i, C: Tag, F: Tag> Display for DisplayInst<'i, C, F> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.display(f)
@@ -160,38 +217,88 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
         fn_retagger: &impl FnRetagger<F, F2>,
         const_retagger: &impl CnstRetagger<F, F2>,
     ) -> Instruction<C2, F2> {
+        Instruction {
+            source_map_idx: self.source_map_idx,
+            constructed_at: self.constructed_at,
+            data: self
+                .data
+                .retag(retagger, ext_fn_retagger, fn_retagger, const_retagger),
+        }
+    }
+
+    pub fn assigned_to(&self) -> Option<RegisterId<C>> {
+        self.data.assigned_to()
+    }
+
+    pub fn used_registers(&self) -> TinyVec<[RegisterId<C>; 3]> {
+        self.data.used_registers()
+    }
+
+    pub fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
+        self.data.used_registers_mut()
+    }
+
+    pub fn as_display(&self) -> DisplayInst<C, F> {
+        self.data.as_display()
+    }
+
+    pub fn display(&self, w: &mut impl std::fmt::Write) -> std::fmt::Result {
+        self.data.display(w)
+    }
+}
+
+impl<C: Tag, F: Tag> InstructionData<C, F> {
+    // this should turn into a no-op lol
+    #[track_caller]
+    pub fn retag<C2: Tag, F2: Tag>(
+        self,
+        retagger: &mut impl RegRetagger<C, C2>,
+        ext_fn_retagger: &impl ExtFnRetagger<F, F2>,
+        fn_retagger: &impl FnRetagger<F, F2>,
+        const_retagger: &impl CnstRetagger<F, F2>,
+    ) -> InstructionData<C2, F2> {
         match self {
-            Instruction::Comment(c) => Instruction::Comment(c.retag()),
-            Instruction::MakeBytes(inst) => {
-                Instruction::MakeBytes(inst.retag(retagger, const_retagger))
+            InstructionData::Comment(c) => InstructionData::Comment(c.retag()),
+            InstructionData::MakeBytes(inst) => {
+                InstructionData::MakeBytes(inst.retag(retagger, const_retagger))
             }
-            Instruction::BinOp(inst) => Instruction::BinOp(inst.retag(retagger)),
-            Instruction::NewRecord(inst) => Instruction::NewRecord(inst.retag(retagger)),
-            Instruction::RecordGet(inst) => Instruction::RecordGet(inst.retag(retagger)),
-            Instruction::RecordSet(inst) => Instruction::RecordSet(inst.retag(retagger)),
-            Instruction::RecordHasKey(inst) => Instruction::RecordHasKey(inst.retag(retagger)),
-            Instruction::NewList(inst) => Instruction::NewList(inst.retag(retagger)),
-            Instruction::ListGet(inst) => Instruction::ListGet(inst.retag(retagger)),
-            Instruction::ListSet(inst) => Instruction::ListSet(inst.retag(retagger)),
-            Instruction::ListHasKey(inst) => Instruction::ListHasKey(inst.retag(retagger)),
-            Instruction::ListLen(inst) => Instruction::ListLen(inst.retag(retagger)),
-            Instruction::GetFnPtr(inst) => Instruction::GetFnPtr(inst.retag(retagger, fn_retagger)),
-            Instruction::CallStatic(inst) => {
-                Instruction::CallStatic(inst.retag(retagger, fn_retagger))
+            InstructionData::BinOp(inst) => InstructionData::BinOp(inst.retag(retagger)),
+            InstructionData::NewRecord(inst) => InstructionData::NewRecord(inst.retag(retagger)),
+            InstructionData::RecordGet(inst) => InstructionData::RecordGet(inst.retag(retagger)),
+            InstructionData::RecordSet(inst) => InstructionData::RecordSet(inst.retag(retagger)),
+            InstructionData::RecordHasKey(inst) => {
+                InstructionData::RecordHasKey(inst.retag(retagger))
             }
-            Instruction::CallExtern(inst) => {
-                Instruction::CallExtern(inst.retag(retagger, ext_fn_retagger))
+            InstructionData::NewList(inst) => InstructionData::NewList(inst.retag(retagger)),
+            InstructionData::ListGet(inst) => InstructionData::ListGet(inst.retag(retagger)),
+            InstructionData::ListSet(inst) => InstructionData::ListSet(inst.retag(retagger)),
+            InstructionData::ListHasKey(inst) => InstructionData::ListHasKey(inst.retag(retagger)),
+            InstructionData::ListLen(inst) => InstructionData::ListLen(inst.retag(retagger)),
+            InstructionData::GetFnPtr(inst) => {
+                InstructionData::GetFnPtr(inst.retag(retagger, fn_retagger))
             }
-            Instruction::CallVirt(inst) => Instruction::CallVirt(inst.retag(retagger)),
-            Instruction::MakeAtom(inst) => Instruction::MakeAtom(inst.retag(retagger)),
-            Instruction::MakeInteger(inst) => Instruction::MakeInteger(inst.retag(retagger)),
-            Instruction::MakeBoolean(inst) => Instruction::MakeBoolean(inst.retag(retagger)),
-            Instruction::Negate(inst) => Instruction::Negate(inst.retag(retagger)),
-            Instruction::Generalize(inst) => Instruction::Generalize(inst.retag(retagger)),
-            Instruction::Assert(inst) => Instruction::Assert(inst.retag(retagger)),
-            Instruction::IsType(inst) => Instruction::IsType(inst.retag(retagger)),
-            Instruction::GetRuntime(inst) => Instruction::GetRuntime(inst.retag(retagger)),
-            Instruction::Unreachable(inst) => Instruction::Unreachable(inst.retag(retagger)),
+            InstructionData::CallStatic(inst) => {
+                InstructionData::CallStatic(inst.retag(retagger, fn_retagger))
+            }
+            InstructionData::CallExtern(inst) => {
+                InstructionData::CallExtern(inst.retag(retagger, ext_fn_retagger))
+            }
+            InstructionData::CallVirt(inst) => InstructionData::CallVirt(inst.retag(retagger)),
+            InstructionData::MakeAtom(inst) => InstructionData::MakeAtom(inst.retag(retagger)),
+            InstructionData::MakeInteger(inst) => {
+                InstructionData::MakeInteger(inst.retag(retagger))
+            }
+            InstructionData::MakeBoolean(inst) => {
+                InstructionData::MakeBoolean(inst.retag(retagger))
+            }
+            InstructionData::Negate(inst) => InstructionData::Negate(inst.retag(retagger)),
+            InstructionData::Generalize(inst) => InstructionData::Generalize(inst.retag(retagger)),
+            InstructionData::Assert(inst) => InstructionData::Assert(inst.retag(retagger)),
+            InstructionData::IsType(inst) => InstructionData::IsType(inst.retag(retagger)),
+            InstructionData::GetRuntime(inst) => InstructionData::GetRuntime(inst.retag(retagger)),
+            InstructionData::Unreachable(inst) => {
+                InstructionData::Unreachable(inst.retag(retagger))
+            }
         }
     }
 }
@@ -216,94 +323,94 @@ impl<CO: Tag, PO: Tag> ControlFlowInstruction<CO, PO> {
     }
 }
 
-impl<C: Tag, F: Tag> Instruction<C, F> {
+impl<C: Tag, F: Tag> InstructionData<C, F> {
     pub fn assigned_to(&self) -> Option<RegisterId<C>> {
         match self {
-            Instruction::Comment(inst) => inst.declared_register(),
-            Instruction::GetFnPtr(inst) => inst.declared_register(),
-            Instruction::MakeBytes(inst) => inst.declared_register(),
-            Instruction::NewRecord(isa) => isa.declared_register(),
-            Instruction::BinOp(inst) => inst.declared_register(),
-            Instruction::CallStatic(inst) => inst.declared_register(),
-            Instruction::CallExtern(inst) => inst.declared_register(),
-            Instruction::CallVirt(inst) => inst.declared_register(),
-            Instruction::MakeAtom(inst) => inst.declared_register(),
-            Instruction::RecordGet(inst) => inst.declared_register(),
-            Instruction::RecordSet(inst) => inst.declared_register(),
-            Instruction::RecordHasKey(inst) => inst.declared_register(),
-            Instruction::MakeInteger(inst) => inst.declared_register(),
-            Instruction::MakeBoolean(inst) => inst.declared_register(),
-            Instruction::Negate(inst) => inst.declared_register(),
-            Instruction::Generalize(inst) => inst.declared_register(),
-            Instruction::Assert(inst) => inst.declared_register(),
-            Instruction::IsType(inst) => inst.declared_register(),
-            Instruction::NewList(inst) => inst.declared_register(),
-            Instruction::ListGet(inst) => inst.declared_register(),
-            Instruction::ListSet(inst) => inst.declared_register(),
-            Instruction::ListHasKey(inst) => inst.declared_register(),
-            Instruction::ListLen(inst) => inst.declared_register(),
-            Instruction::GetRuntime(inst) => inst.declared_register(),
-            Instruction::Unreachable(inst) => inst.declared_register(),
+            InstructionData::Comment(inst) => inst.declared_register(),
+            InstructionData::GetFnPtr(inst) => inst.declared_register(),
+            InstructionData::MakeBytes(inst) => inst.declared_register(),
+            InstructionData::NewRecord(isa) => isa.declared_register(),
+            InstructionData::BinOp(inst) => inst.declared_register(),
+            InstructionData::CallStatic(inst) => inst.declared_register(),
+            InstructionData::CallExtern(inst) => inst.declared_register(),
+            InstructionData::CallVirt(inst) => inst.declared_register(),
+            InstructionData::MakeAtom(inst) => inst.declared_register(),
+            InstructionData::RecordGet(inst) => inst.declared_register(),
+            InstructionData::RecordSet(inst) => inst.declared_register(),
+            InstructionData::RecordHasKey(inst) => inst.declared_register(),
+            InstructionData::MakeInteger(inst) => inst.declared_register(),
+            InstructionData::MakeBoolean(inst) => inst.declared_register(),
+            InstructionData::Negate(inst) => inst.declared_register(),
+            InstructionData::Generalize(inst) => inst.declared_register(),
+            InstructionData::Assert(inst) => inst.declared_register(),
+            InstructionData::IsType(inst) => inst.declared_register(),
+            InstructionData::NewList(inst) => inst.declared_register(),
+            InstructionData::ListGet(inst) => inst.declared_register(),
+            InstructionData::ListSet(inst) => inst.declared_register(),
+            InstructionData::ListHasKey(inst) => inst.declared_register(),
+            InstructionData::ListLen(inst) => inst.declared_register(),
+            InstructionData::GetRuntime(inst) => inst.declared_register(),
+            InstructionData::Unreachable(inst) => inst.declared_register(),
         }
     }
 
     pub fn used_registers(&self) -> TinyVec<[RegisterId<C>; 3]> {
         match self {
-            Instruction::Comment(inst) => inst.used_registers(),
-            Instruction::GetFnPtr(inst) => inst.used_registers(),
-            Instruction::MakeBytes(inst) => inst.used_registers(),
-            Instruction::NewRecord(inst) => inst.used_registers(),
-            Instruction::BinOp(inst) => inst.used_registers(),
-            Instruction::CallStatic(inst) => inst.used_registers(),
-            Instruction::CallExtern(inst) => inst.used_registers(),
-            Instruction::CallVirt(inst) => inst.used_registers(),
-            Instruction::MakeAtom(inst) => inst.used_registers(),
-            Instruction::RecordGet(inst) => inst.used_registers(),
-            Instruction::RecordSet(inst) => inst.used_registers(),
-            Instruction::RecordHasKey(inst) => inst.used_registers(),
-            Instruction::MakeInteger(inst) => inst.used_registers(),
-            Instruction::MakeBoolean(inst) => inst.used_registers(),
-            Instruction::Negate(inst) => inst.used_registers(),
-            Instruction::Generalize(inst) => inst.used_registers(),
-            Instruction::Assert(inst) => inst.used_registers(),
-            Instruction::IsType(inst) => inst.used_registers(),
-            Instruction::NewList(inst) => inst.used_registers(),
-            Instruction::ListGet(inst) => inst.used_registers(),
-            Instruction::ListSet(inst) => inst.used_registers(),
-            Instruction::ListHasKey(inst) => inst.used_registers(),
-            Instruction::ListLen(inst) => inst.used_registers(),
-            Instruction::GetRuntime(inst) => inst.used_registers(),
-            Instruction::Unreachable(inst) => inst.used_registers(),
+            InstructionData::Comment(inst) => inst.used_registers(),
+            InstructionData::GetFnPtr(inst) => inst.used_registers(),
+            InstructionData::MakeBytes(inst) => inst.used_registers(),
+            InstructionData::NewRecord(inst) => inst.used_registers(),
+            InstructionData::BinOp(inst) => inst.used_registers(),
+            InstructionData::CallStatic(inst) => inst.used_registers(),
+            InstructionData::CallExtern(inst) => inst.used_registers(),
+            InstructionData::CallVirt(inst) => inst.used_registers(),
+            InstructionData::MakeAtom(inst) => inst.used_registers(),
+            InstructionData::RecordGet(inst) => inst.used_registers(),
+            InstructionData::RecordSet(inst) => inst.used_registers(),
+            InstructionData::RecordHasKey(inst) => inst.used_registers(),
+            InstructionData::MakeInteger(inst) => inst.used_registers(),
+            InstructionData::MakeBoolean(inst) => inst.used_registers(),
+            InstructionData::Negate(inst) => inst.used_registers(),
+            InstructionData::Generalize(inst) => inst.used_registers(),
+            InstructionData::Assert(inst) => inst.used_registers(),
+            InstructionData::IsType(inst) => inst.used_registers(),
+            InstructionData::NewList(inst) => inst.used_registers(),
+            InstructionData::ListGet(inst) => inst.used_registers(),
+            InstructionData::ListSet(inst) => inst.used_registers(),
+            InstructionData::ListHasKey(inst) => inst.used_registers(),
+            InstructionData::ListLen(inst) => inst.used_registers(),
+            InstructionData::GetRuntime(inst) => inst.used_registers(),
+            InstructionData::Unreachable(inst) => inst.used_registers(),
         }
     }
 
     pub fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
         match self {
-            Instruction::Comment(inst) => inst.used_registers_mut(),
-            Instruction::GetFnPtr(inst) => inst.used_registers_mut(),
-            Instruction::MakeBytes(inst) => inst.used_registers_mut(),
-            Instruction::NewRecord(inst) => inst.used_registers_mut(),
-            Instruction::BinOp(inst) => inst.used_registers_mut(),
-            Instruction::CallStatic(inst) => inst.used_registers_mut(),
-            Instruction::CallExtern(inst) => inst.used_registers_mut(),
-            Instruction::CallVirt(inst) => inst.used_registers_mut(),
-            Instruction::MakeAtom(inst) => inst.used_registers_mut(),
-            Instruction::RecordGet(inst) => inst.used_registers_mut(),
-            Instruction::RecordSet(inst) => inst.used_registers_mut(),
-            Instruction::RecordHasKey(inst) => inst.used_registers_mut(),
-            Instruction::MakeInteger(inst) => inst.used_registers_mut(),
-            Instruction::MakeBoolean(inst) => inst.used_registers_mut(),
-            Instruction::Negate(inst) => inst.used_registers_mut(),
-            Instruction::Generalize(inst) => inst.used_registers_mut(),
-            Instruction::Assert(inst) => inst.used_registers_mut(),
-            Instruction::IsType(inst) => inst.used_registers_mut(),
-            Instruction::NewList(inst) => inst.used_registers_mut(),
-            Instruction::ListGet(inst) => inst.used_registers_mut(),
-            Instruction::ListSet(inst) => inst.used_registers_mut(),
-            Instruction::ListHasKey(inst) => inst.used_registers_mut(),
-            Instruction::ListLen(inst) => inst.used_registers_mut(),
-            Instruction::GetRuntime(inst) => inst.used_registers_mut(),
-            Instruction::Unreachable(inst) => inst.used_registers_mut(),
+            InstructionData::Comment(inst) => inst.used_registers_mut(),
+            InstructionData::GetFnPtr(inst) => inst.used_registers_mut(),
+            InstructionData::MakeBytes(inst) => inst.used_registers_mut(),
+            InstructionData::NewRecord(inst) => inst.used_registers_mut(),
+            InstructionData::BinOp(inst) => inst.used_registers_mut(),
+            InstructionData::CallStatic(inst) => inst.used_registers_mut(),
+            InstructionData::CallExtern(inst) => inst.used_registers_mut(),
+            InstructionData::CallVirt(inst) => inst.used_registers_mut(),
+            InstructionData::MakeAtom(inst) => inst.used_registers_mut(),
+            InstructionData::RecordGet(inst) => inst.used_registers_mut(),
+            InstructionData::RecordSet(inst) => inst.used_registers_mut(),
+            InstructionData::RecordHasKey(inst) => inst.used_registers_mut(),
+            InstructionData::MakeInteger(inst) => inst.used_registers_mut(),
+            InstructionData::MakeBoolean(inst) => inst.used_registers_mut(),
+            InstructionData::Negate(inst) => inst.used_registers_mut(),
+            InstructionData::Generalize(inst) => inst.used_registers_mut(),
+            InstructionData::Assert(inst) => inst.used_registers_mut(),
+            InstructionData::IsType(inst) => inst.used_registers_mut(),
+            InstructionData::NewList(inst) => inst.used_registers_mut(),
+            InstructionData::ListGet(inst) => inst.used_registers_mut(),
+            InstructionData::ListSet(inst) => inst.used_registers_mut(),
+            InstructionData::ListHasKey(inst) => inst.used_registers_mut(),
+            InstructionData::ListLen(inst) => inst.used_registers_mut(),
+            InstructionData::GetRuntime(inst) => inst.used_registers_mut(),
+            InstructionData::Unreachable(inst) => inst.used_registers_mut(),
         }
     }
 
@@ -313,31 +420,33 @@ impl<C: Tag, F: Tag> Instruction<C, F> {
 
     pub fn display(&self, w: &mut impl std::fmt::Write) -> std::fmt::Result {
         match self {
-            Instruction::Comment(inst) => ISAInstruction::<crate::id::NoContext>::display(inst, w),
-            Instruction::GetFnPtr(inst) => inst.display(w),
-            Instruction::MakeBytes(inst) => inst.display(w),
-            Instruction::NewRecord(inst) => inst.display(w),
-            Instruction::BinOp(inst) => inst.display(w),
-            Instruction::CallStatic(inst) => inst.display(w),
-            Instruction::CallExtern(inst) => inst.display(w),
-            Instruction::CallVirt(inst) => inst.display(w),
-            Instruction::MakeAtom(inst) => inst.display(w),
-            Instruction::RecordGet(inst) => inst.display(w),
-            Instruction::RecordSet(inst) => inst.display(w),
-            Instruction::RecordHasKey(inst) => inst.display(w),
-            Instruction::MakeInteger(inst) => inst.display(w),
-            Instruction::MakeBoolean(inst) => inst.display(w),
-            Instruction::Negate(inst) => inst.display(w),
-            Instruction::Generalize(inst) => inst.display(w),
-            Instruction::Assert(inst) => inst.display(w),
-            Instruction::IsType(inst) => inst.display(w),
-            Instruction::NewList(inst) => inst.display(w),
-            Instruction::ListGet(inst) => inst.display(w),
-            Instruction::ListSet(inst) => inst.display(w),
-            Instruction::ListHasKey(inst) => inst.display(w),
-            Instruction::ListLen(inst) => inst.display(w),
-            Instruction::GetRuntime(inst) => inst.display(w),
-            Instruction::Unreachable(inst) => inst.display(w),
+            InstructionData::Comment(inst) => {
+                ISAInstruction::<crate::id::NoContext>::display(inst, w)
+            }
+            InstructionData::GetFnPtr(inst) => inst.display(w),
+            InstructionData::MakeBytes(inst) => inst.display(w),
+            InstructionData::NewRecord(inst) => inst.display(w),
+            InstructionData::BinOp(inst) => inst.display(w),
+            InstructionData::CallStatic(inst) => inst.display(w),
+            InstructionData::CallExtern(inst) => inst.display(w),
+            InstructionData::CallVirt(inst) => inst.display(w),
+            InstructionData::MakeAtom(inst) => inst.display(w),
+            InstructionData::RecordGet(inst) => inst.display(w),
+            InstructionData::RecordSet(inst) => inst.display(w),
+            InstructionData::RecordHasKey(inst) => inst.display(w),
+            InstructionData::MakeInteger(inst) => inst.display(w),
+            InstructionData::MakeBoolean(inst) => inst.display(w),
+            InstructionData::Negate(inst) => inst.display(w),
+            InstructionData::Generalize(inst) => inst.display(w),
+            InstructionData::Assert(inst) => inst.display(w),
+            InstructionData::IsType(inst) => inst.display(w),
+            InstructionData::NewList(inst) => inst.display(w),
+            InstructionData::ListGet(inst) => inst.display(w),
+            InstructionData::ListSet(inst) => inst.display(w),
+            InstructionData::ListHasKey(inst) => inst.display(w),
+            InstructionData::ListLen(inst) => inst.display(w),
+            InstructionData::GetRuntime(inst) => inst.display(w),
+            InstructionData::Unreachable(inst) => inst.display(w),
         }
     }
 }
