@@ -1,4 +1,5 @@
 {
+    "rust-analyzer.cargo.features": ["moment"],
     "prettier.proseWrap": "always",
     "files.exclude": {
         "**/.git": true,

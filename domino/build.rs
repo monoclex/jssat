@@ -1,6 +1,11 @@
-use std::{path::Path, process::Command};
+use std::process::Command;
 
 fn main() {
+    #[cfg(feature = "server")]
+    include_server();
+}
+
+fn include_server() {
     let status = Command::new("npm")
         .arg("run")
         .arg("build")

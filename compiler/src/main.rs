@@ -13,6 +13,7 @@
 #![feature(slice_pattern)]
 #![feature(associated_type_bounds)]
 #![feature(nonzero_ops)]
+#![feature(format_args_capture)]
 // this is to silence `.map_context()` for the time being
 // #![allow(deprecated)]
 
@@ -196,9 +197,6 @@ f(print);
     });
 
     println!("executed");
-    // let callstack = interpreter.print_callstack_depth(200);
-    // let graph = interpreter.construct_callstack_graph(200);
-    // std::fs::write("graph.dot", &graph).unwrap();
 
     println!(
         "executed: {:?}",
@@ -209,6 +207,10 @@ f(print);
             // Err(_) => "error".to_string(),
         }
     );
+
+    let listen_url = "127.0.0.1:8000";
+    println!("starting domino on http://{listen_url}");
+    domino::launch(listen_url, &interpreter.moment.into());
 
     panic!("done");
     let program = time(|| symbolic_execution::execute(&program));

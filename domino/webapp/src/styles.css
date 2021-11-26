@@ -12,12 +12,19 @@ body,
 .callstack {
   display: flex;
   min-width: 33vw;
+  max-width: 33vw;
   flex-direction: column;
 }
 
 .callstack-current-frame {
   padding: 1em;
   min-height: 10vh;
+  overflow-y: auto;
+  font-family: monospace;
+}
+
+.highlighted-line {
+  background-color: lime;
 }
 
 .callstack-frames {

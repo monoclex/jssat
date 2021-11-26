@@ -38,7 +38,7 @@ pub fn launch(listen_url: &str, data: &Data) -> Result<(), Box<dyn Error + Send 
         let path = (request.url().trim_matches('/').split('/')).collect::<Vec<_>>();
 
         let response = match (request.method(), path.as_slice()) {
-            (Method::Get, []) => request.respond(resp_from_str(INDEX_HTML)),
+            (Method::Get, [""]) => request.respond(resp_from_str(INDEX_HTML)),
             (Method::Get, ["index.js"]) => request.respond(resp_from_str(INDEX_JS)),
             (Method::Get, ["overview"]) => {
                 request.respond(resp_from_string(json::to_string(&data.overview())))
@@ -47,7 +47,10 @@ pub fn launch(listen_url: &str, data: &Data) -> Result<(), Box<dyn Error + Send 
                 let moment = moment.parse::<usize>()?;
                 request.respond(resp_from_string(json::to_string(&data.moment(moment))))
             }
-            _ => continue,
+            (unknown, route) => {
+                println!("unhandled route {} {:?}", unknown, route);
+                continue;
+            }
         };
 
         response?;

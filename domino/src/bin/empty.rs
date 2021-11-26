@@ -4,5 +4,5 @@ use domino::Data;
 
 fn main() {
     println!("launching on http://localhost:8000");
-    domino::launch("127.0.0.1:8000", &Data {}).unwrap();
+    domino::launch("127.0.0.1:8000", todo!()).unwrap();
 }

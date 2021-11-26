@@ -14,6 +14,8 @@ use petgraph::graph::DiGraph;
 #[cfg(test)]
 mod tests;
 
+use domino::moment::MomentApi;
+
 use std::convert::TryInto;
 use std::panic::Location;
 
@@ -37,9 +39,7 @@ use jssat_ir::{
 pub struct Interpreter<'parent> {
     code: &'parent LiftedProgram,
     external_fns: &'parent FxHashMap<ExternalFunctionId, ExtFnImpl>,
-    current_comment: FxHashMap<usize, jssat_ir::isa::Comment>,
-    top: Option<FunctionId>,
-    callstack_path: Vec<Edge>,
+    pub moment: MomentApi,
 }
 
 pub struct Edge {
@@ -246,35 +246,19 @@ impl<'p> Interpreter<'p> {
         Interpreter {
             code,
             external_fns: ext_fns,
-            current_comment: Default::default(),
-            top: None,
-            callstack_path: Vec::new(),
+            moment: MomentApi::new(code),
         }
     }
 
+    #[allow(non_upper_case_globals)]
     pub fn execute_fn_id(&mut self, id: FunctionId, args: Vec<Value>) -> InstResult<Option<Value>> {
-        let parent = self.top;
-
-        let edge = Edge {
-            goes_in: true,
-            from: parent,
-            to: Some(id),
-        };
-        self.callstack_path.push(edge);
-        self.top = Some(id);
-
         const KiB: usize = 1024;
         const MiB: usize = 1024 * KiB;
+        self.moment.enter(id);
         let results = stacker::maybe_grow(32 * KiB, 4 * MiB, || self.execute_fn_id_impl(id, args));
 
         if results.is_ok() {
-            let edge = Edge {
-                goes_in: false,
-                from: Some(id),
-                to: parent,
-            };
-            self.callstack_path.push(edge);
-            self.top = parent;
+            self.moment.exit();
         }
 
         results
@@ -302,8 +286,8 @@ impl<'p> Interpreter<'p> {
             function,
         };
 
-        for inst in function.instructions.iter() {
-            inst_exec.exec(inst)?;
+        for (idx, inst) in function.instructions.iter().enumerate() {
+            inst_exec.exec(idx, inst)?;
         }
 
         match &function.end {
@@ -337,116 +321,6 @@ impl<'p> Interpreter<'p> {
                 None => Ok(None),
             },
         }
-    }
-}
-
-impl<'p> Interpreter<'p> {
-    pub fn print_callstack_depth(&self, mut depth: usize) -> String {
-        if depth == 0 {
-            depth = usize::MAX
-        };
-
-        let mut s = String::new();
-        let mut indent = String::new();
-
-        let name = |x| match x {
-            Some(x) => match &self.code.functions.get(&x).unwrap().name {
-                Some(y) => format!("{}({})", y, x),
-                None => format!("{}", x),
-            },
-            None => "".to_string(),
-        };
-        let arrow = |x| if x { "->" } else { "<-" };
-
-        for Edge { from, goes_in, to } in self.callstack_path.iter().rev().take(depth).rev() {
-            let path = format!("{}{}{}", name(*from), arrow(*goes_in), name(*to));
-
-            if !*goes_in {
-                indent.pop();
-            }
-
-            s.push_str(&format!("{}{}\n", indent, path));
-
-            if *goes_in {
-                indent.push(' ');
-            }
-        }
-
-        s
-    }
-
-    pub fn construct_callstack_graph(&self, mut depth: usize) -> String {
-        if depth == 0 {
-            depth = usize::MAX
-        };
-        let mut graph = DiGraph::new();
-
-        struct DebugIsDisplay<T>(T);
-        impl<T> std::fmt::Debug for DebugIsDisplay<T>
-        where
-            T: std::fmt::Display,
-        {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                write!(f, "{}", self.0)
-            }
-        }
-
-        let root = graph.add_node(DebugIsDisplay("ROOT".to_string()));
-
-        let mut nodes = FxHashMap::default();
-
-        let mut add_node = |id| {
-            if nodes.get(&id).is_some() {
-                return;
-            }
-
-            let body = self.code.functions.get(&id).unwrap();
-            let code = jssat_ir::lifted::display(id, body);
-            let node = graph.add_node(DebugIsDisplay(code));
-            nodes.insert(id, node);
-        };
-
-        for Edge { from, to, .. } in self.callstack_path.iter().rev().take(depth).rev() {
-            if let Some(id) = from {
-                add_node(*id);
-            }
-
-            if let Some(id) = to {
-                add_node(*id);
-            }
-        }
-
-        let get_node = |id| {
-            if let Some(id) = nodes.get(&id) {
-                return *id;
-            }
-
-            unreachable!("wat");
-        };
-
-        for (
-            edge_num,
-            Edge {
-                from,
-                goes_in: _,
-                to,
-            },
-        ) in self
-            .callstack_path
-            .iter()
-            .enumerate()
-            .rev()
-            .take(depth)
-            .rev()
-        {
-            let from = from.map(&get_node).unwrap_or(root);
-            let to = to.map(&get_node).unwrap_or(root);
-
-            graph.add_edge(from, to, edge_num);
-        }
-
-        let dot = petgraph::dot::Dot::with_config(&graph, &[petgraph::dot::Config::EdgeIndexLabel]);
-        format!("{:?}", dot)
     }
 }
 
@@ -524,22 +398,12 @@ pub enum BorrowErrorWrapper {
 use InstErr::*;
 
 impl<'i, 'c> InstExec<'i, 'c> {
-    pub fn exec(&mut self, inst: &Instruction<LiftedCtx, LiftedCtx>) -> InstResult<()> {
-        #[cfg(debug_assertions)]
-        if let Instruction::Comment(comment) = inst {
-            self.interpreter
-                .current_comment
-                .insert(self.function.ir_fn_id.get_the_value(), *comment);
-        }
-
-        #[cfg(debug_assertions)]
-        if let Some(c) = self
-            .interpreter
-            .current_comment
-            .get(&self.function.ir_fn_id.get_the_value())
-        {
-            // println!(":: {:?}", c);
-        }
+    pub fn exec(
+        &mut self,
+        inst_idx: usize,
+        inst: &Instruction<LiftedCtx, LiftedCtx>,
+    ) -> InstResult<()> {
+        self.interpreter.moment.snapshot(inst_idx);
 
         if let Some(result) = inst.assigned_to() {
             assert!(

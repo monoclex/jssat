@@ -51,7 +51,7 @@ interface CallstackViewProps {
 }
 
 const CallstackView = (props: CallstackViewProps) => {
-  const [value, setValue] = createSignal(1);
+  const [value, setValue] = createSignal(0);
 
   const [moment, setMoment] = createSignal<Moment | undefined>(undefined);
   createEffect(async () => setMoment(await fetchMoment(value())));
@@ -61,11 +61,18 @@ const CallstackView = (props: CallstackViewProps) => {
       <div className="callstack-current-frame">
         <Show when={moment()}>
           {(moment) => (
-            <pre>
-              <For each={moment.code.lines}>
-                {(line) => line.display + "\n"}
-              </For>
-            </pre>
+            <For each={moment.code.lines}>
+              {(line, idx) => (
+                <>
+                  {idx() == moment.code.highlighted ? (
+                    <span className="highlighted-line">{line.display}</span>
+                  ) : (
+                    <span>{line.display}</span>
+                  )}
+                  <br />
+                </>
+              )}
+            </For>
           )}
         </Show>
       </div>
@@ -109,8 +116,8 @@ const Slider = (props: SliderProps) => (
   <input
     className="time-slider"
     type="range"
-    min={1}
-    max={props.totalMoments}
+    min={0}
+    max={props.totalMoments - 1}
     value={props.value()}
     onInput={(e) => props.setValue(parseInt(e.currentTarget.value))}
   />

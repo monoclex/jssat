@@ -352,7 +352,10 @@ dependencies = [
 name = "domino"
 version = "0.1.0"
 dependencies = [
+ "derive_more",
+ "jssat_ir",
  "miniserde",
+ "rustc-hash",
  "tiny_http",
 ]
 
@@ -613,6 +616,7 @@ dependencies = [
  "bumpalo",
  "cc",
  "derive_more",
+ "domino",
  "enum-kinds",
  "gc",
  "grammar_notation_helper",
@@ -662,6 +666,7 @@ name = "jssat_interpreter"
 version = "0.1.0"
 dependencies = [
  "derive_more",
+ "domino",
  "gc",
  "grammar_notation_helper",
  "ir_file",
