@@ -33,7 +33,6 @@ impl MomentApi {
             })
             .collect::<FxHashMap<_, _>>();
 
-        let s = self.pyramid_api.snapshots.len();
         Data {
             dealer,
             snapshots: (self.pyramid_api.snapshots.into_iter().enumerate())
@@ -42,7 +41,7 @@ impl MomentApi {
                         .get(&x.clone().0.unwrap().info.func)
                         .unwrap()
                         .clone(),
-                    frame: into_raw_frame(x, &functions, 0, i, s).unwrap(),
+                    frame: into_raw_frame(x, &functions).unwrap(),
                 })
                 .collect(),
             sources: SourceMapImpl::new("".to_owned()),
@@ -50,7 +49,6 @@ impl MomentApi {
     }
 
     pub fn into_data_with(self, dealer: Arc<AtomDealer>, source_map: SourceMap) -> Data {
-        println!("!! making fns");
         let functions = self
             .functions
             .into_iter()
@@ -64,7 +62,6 @@ impl MomentApi {
             })
             .collect::<FxHashMap<_, _>>();
 
-        let s = self.pyramid_api.snapshots.len();
         Data {
             dealer,
             snapshots: (self.pyramid_api.snapshots.into_iter().enumerate())
@@ -73,7 +70,7 @@ impl MomentApi {
                         .get(&x.clone().0.unwrap().info.func)
                         .unwrap()
                         .clone(),
-                    frame: into_raw_frame(x, &functions, 0, i, s).unwrap(),
+                    frame: into_raw_frame(x, &functions).unwrap(),
                 })
                 .collect(),
             sources: source_map.try_into(),
@@ -84,13 +81,9 @@ impl MomentApi {
 fn into_raw_frame(
     ptr: LayerPtr<FrameInfo>,
     functions: &FxHashMap<FunctionId, Rc<RawFrameCode>>,
-    depth: usize,
-    idx: usize,
-    max: usize,
 ) -> Option<Rc<RawFrame>> {
     let call_frame = ptr.0?;
 
-    println!("!! into frame raw {} at {}/{}", depth, idx, max);
     let frame = Rc::new(RawFrame {
         raw_frame_code: functions.get(&call_frame.info.func).unwrap().clone(),
         function: call_frame.info.func,
@@ -98,7 +91,7 @@ fn into_raw_frame(
         moment: call_frame.moment,
         next_moment: call_frame.next_moment,
         prev_moment: call_frame.prev_moment,
-        parent: into_raw_frame(call_frame.parent.clone(), functions, depth + 1, idx, max),
+        parent: into_raw_frame(call_frame.parent.clone(), functions),
         source_idx: call_frame.info.source,
         values: call_frame.info.values.clone(),
     });

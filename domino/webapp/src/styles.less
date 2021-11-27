@@ -54,17 +54,15 @@ body {
   .look-like-code();
   .force-height(10em);
   font-size: large;
-  cursor: pointer;
   overflow-y: auto;
 }
 
 .frame {
-  &:hover {
-    color: lightseagreen;
-  }
+  .clickable();
 }
 
 .frame-focus {
+  cursor: pointer;
   color: olive;
 
   &:hover {
@@ -78,6 +76,22 @@ body {
   input {
     width: 100%;
   }
+}
+
+.clickable {
+  cursor: pointer;
+
+  &:hover {
+    color: lightseagreen;
+  }
+}
+
+.type-list {
+  .look-like-code();
+  margin: 0;
+  padding: 0;
+  padding-left: 1em;
+  list-style-type: none;
 }
 
 .look-like-code() {

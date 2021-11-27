@@ -386,18 +386,17 @@ interface PanelViewProps {
 
 const PanelView = (props: PanelViewProps) => {
   return (
-    <>
+    <ul className="type-list">
       <For each={Object.entries(props.values.registers)}>
         {([id, value]) => (
-          <>
-            <span>
-              {parseInt(id) - 1} goes to{" "}
-              <ShowMomentValue values={props.values} value={value} />
-            </span>
-          </>
+          <li>
+            %{parseInt(id) - 1}
+            {" = "}
+            <ShowMomentValue values={props.values} value={value} />
+          </li>
         )}
       </For>
-    </>
+    </ul>
   );
 };
 
@@ -426,11 +425,12 @@ const ShowMomentValue = (props: ShowMomentValueProps) => {
       elem = <>fnptr {props.value.fnptr}</>;
       break;
     case "list":
+      const list = props.values.lists[props.value.list];
       elem = (
         <>
-          list
-          <ul>
-            <For each={props.values.lists[props.value.list]}>
+          list (len {list.length})
+          <ul className="type-list">
+            <For each={list}>
               {(value) => (
                 <li>
                   <LazyShowMomentValue values={props.values} value={value} />
@@ -442,15 +442,16 @@ const ShowMomentValue = (props: ShowMomentValueProps) => {
       );
       break;
     case "rec":
+      const record = props.values.records[props.value.rec];
       elem = (
         <>
-          rec
-          <ul>
-            <For each={props.values.records[props.value.rec]}>
+          record (entries {record.length})
+          <ul className="type-list">
+            <For each={record}>
               {([k, v]) => (
                 <li>
                   <LazyShowMomentValue values={props.values} value={k} />
-                  goes to
+                  {" ↦ "}
                   <LazyShowMomentValue values={props.values} value={v} />
                 </li>
               )}
@@ -470,7 +471,10 @@ const LazyShowMomentValue = (props: ShowMomentValueProps) => {
 
     return (
       <span onClick={() => setShow(true)}>
-        <Show when={show()} fallback={<>... click to expand ...</>}>
+        <Show
+          when={show()}
+          fallback={<span className="clickable">...expand...</span>}
+        >
           {() => <ShowMomentValue values={props.values} value={props.value} />}
         </Show>
       </span>

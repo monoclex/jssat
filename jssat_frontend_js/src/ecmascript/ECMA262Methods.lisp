@@ -2107,7 +2107,6 @@
    (exec-ctx-stack-pop)
    (exec-ctx-stack-push :callerContext)
    ;;; 8. If result.[[Type]] is return, return NormalCompletion(result.[[Value]]).
-   (assert :result "check If result.[[Type]] is return, return NormalCompletion(result.[[Value]]).")
    (if (:result -> Type == atom-return)
        ((return (NormalCompletion (:result -> Value)))))
    ;;; 9. ReturnIfAbrupt(result).
