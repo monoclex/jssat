@@ -15,6 +15,8 @@
     "babel-preset-solid": "^1.2.5",
     "css-loader": "^6.5.1",
     "html-webpack-plugin": "^5.5.0",
+    "less": "^4.1.2",
+    "less-loader": "^10.2.0",
     "style-loader": "^3.3.1",
     "webpack": "^5.64.4",
     "webpack-cli": "^4.9.1",

@@ -77,8 +77,6 @@ impl Data {
         };
 
         let source = snapshot.frame.source_idx.map(|s| {
-            println!("{:?}, {}", s, self.sources.pyramid.snapshots.len());
-
             let mut snapshot = (self.sources.pyramid.snapshots)
                 .get(s.0)
                 .expect("should be valid sourcemapidx");

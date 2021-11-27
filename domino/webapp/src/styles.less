@@ -1,0 +1,194 @@
+// /app
+
+body,
+.app-container {
+  width: 100vw;
+  height: 100vh;
+  margin: 0;
+}
+
+.app-container {
+  display: flex;
+}
+
+// /app/callstack
+
+.callstack {
+  .column-grid();
+  .force-width(33vw);
+}
+
+// /app/callstack/codeview
+
+.callstack-codeview {
+  .column-grid();
+  .look-like-code();
+  flex-grow: 1;
+  overflow-y: auto;
+}
+
+.callstack-codeview-prefocus {
+  .prefocus();
+}
+
+.callstack-codeview-focus {
+  background-color: green;
+}
+
+.callstack-codeview-postfocus {
+  .postfocus();
+}
+
+// /app/callstack/frames
+
+.callstack-frames {
+  .callframe();
+  .force-height(25vh);
+  overflow-y: auto;
+}
+
+.callstack-frame {
+  &:hover {
+    color: lightseagreen;
+  }
+}
+
+.callstack-frame-current {
+  color: olive;
+
+  &:hover {
+    color: darkolivegreen;
+  }
+}
+
+// /app/callstack/slider
+
+.callstack-time-slider {
+  padding: 1em;
+}
+
+.time-slider {
+  width: 100%;
+}
+
+// /app/source
+
+.source {
+  .column-grid();
+  .force-width(33vw);
+}
+
+// /app/source/codeview
+
+.source-codeview {
+  .column-grid();
+  .look-like-code();
+  flex-grow: 1;
+  overflow-y: auto;
+}
+
+.source-codeview-prefocus {
+  .prefocus();
+}
+
+.source-codeview-focus {
+  .column-grid();
+}
+
+.source-codeview-postfocus {
+  .postfocus();
+}
+
+.source-codeiew-linesplit {
+  display: flex;
+}
+
+.source-codeview-linesplit-unfocus {
+}
+
+.source-codeview-linesplit-focus {
+  background-color: green;
+}
+
+// /app/source/frames
+
+.source-frames {
+  .callframe();
+  .column-grid();
+  .force-height(25vh);
+  overflow-y: auto;
+}
+
+.source-frame {
+  &:hover {
+    color: lightseagreen;
+  }
+}
+
+.source-frame-current {
+  color: olive;
+
+  &:hover {
+    color: darkolivegreen;
+  }
+}
+
+// /app/panel
+
+.panel {
+  flex-grow: 1;
+}
+
+// /codeview
+
+.prefocus() {
+  .column-grid();
+  .take-up-space();
+  justify-content: flex-end;
+}
+
+.postfocus() {
+  .column-grid();
+  .take-up-space();
+  justify-self: flex-start;
+}
+
+// /looks
+
+.callframe() {
+  .look-like-code();
+  .column-grid();
+  font-size: large;
+  cursor: pointer;
+}
+
+.look-like-code() {
+  font-family: monospace;
+  white-space: pre;
+}
+
+// /spacing-utils
+
+.force-width(@width) {
+  min-width: @width;
+  max-width: @width;
+}
+
+.force-height(@height) {
+  min-height: @height;
+  max-height: @height;
+}
+
+.take-up-space() {
+  // grow to the available space
+  flex: 1;
+  // tell the flex layout engine to not care about our inner content
+  // that way, we don't offset the other flex elements
+  flex-basis: 0;
+  overflow: hidden;
+}
+
+.column-grid() {
+  display: flex;
+  flex-direction: column;
+}
