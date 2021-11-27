@@ -9,8 +9,10 @@ import {
   JSX,
   JSXElement,
   lazy,
+  Match,
   Show,
   Suspense,
+  Switch,
 } from "solid-js";
 import { render } from "solid-js/web";
 import {
@@ -20,6 +22,8 @@ import {
   Frame,
   Moment,
   MomentSource,
+  MomentValue,
+  MomentValues,
   Overview,
   Source,
   SourceLocation,
@@ -68,6 +72,8 @@ const AppContainer = (props: AppContainerProps) => {
   const [moment, setMoment] = createSignal<Moment | undefined>(undefined);
   createEffect(async () => setMoment(await fetchMoment(value())));
 
+  createEffect(() => console.log("moment", moment()));
+
   return (
     <>
       <div className="vertical-panel">
@@ -85,7 +91,11 @@ const AppContainer = (props: AppContainerProps) => {
           )}
         </Show>
       </div>
-      <PanelView />
+      <div className="vertical-panel">
+        <Show when={moment()?.values}>
+          {(values) => <PanelView values={values} />}
+        </Show>
+      </div>
     </>
   );
 };
@@ -198,7 +208,11 @@ interface CodeLineProps {
 const DrawCodeLine = (props: CodeLineProps) => {
   // TODO: add clickables for registers (to view values),
   //   and clickables for "go to snapshot moment"
-  return <span>{props.codeLine.display}</span>;
+  return props.codeLine ? (
+    <span>{props.codeLine.display}</span>
+  ) : (
+    <span>wtf???</span>
+  );
 };
 
 interface CallstackFrameProps {
@@ -366,6 +380,104 @@ const SourceView = (props: SourceViewProps) => {
   );
 };
 
-const PanelView = () => <div className="panel">ill put some stuff here</div>;
+interface PanelViewProps {
+  values: MomentValues;
+}
+
+const PanelView = (props: PanelViewProps) => {
+  return (
+    <>
+      <For each={Object.entries(props.values.registers)}>
+        {([id, value]) => (
+          <>
+            <span>
+              {parseInt(id) - 1} goes to{" "}
+              <ShowMomentValue values={props.values} value={value} />
+            </span>
+          </>
+        )}
+      </For>
+    </>
+  );
+};
+
+interface ShowMomentValueProps {
+  values: MomentValues;
+  value: MomentValue;
+}
+
+const ShowMomentValue = (props: ShowMomentValueProps) => {
+  let elem;
+
+  switch (props.value.kind) {
+    case "atom":
+      elem = <>atom {props.value.atom}</>;
+      break;
+    case "num":
+      elem = <>num {props.value.num}</>;
+      break;
+    case "bool":
+      elem = <>bool {props.value.bool}</>;
+      break;
+    case "bytes":
+      elem = <>bytes {props.value.bytes}</>;
+      break;
+    case "fnptr":
+      elem = <>fnptr {props.value.fnptr}</>;
+      break;
+    case "list":
+      elem = (
+        <>
+          list
+          <ul>
+            <For each={props.values.lists[props.value.list]}>
+              {(value) => (
+                <li>
+                  <LazyShowMomentValue values={props.values} value={value} />
+                </li>
+              )}
+            </For>
+          </ul>
+        </>
+      );
+      break;
+    case "rec":
+      elem = (
+        <>
+          rec
+          <ul>
+            <For each={props.values.records[props.value.rec]}>
+              {([k, v]) => (
+                <li>
+                  <LazyShowMomentValue values={props.values} value={k} />
+                  goes to
+                  <LazyShowMomentValue values={props.values} value={v} />
+                </li>
+              )}
+            </For>
+          </ul>
+        </>
+      );
+      break;
+  }
+
+  return elem;
+};
+
+const LazyShowMomentValue = (props: ShowMomentValueProps) => {
+  if (props.value.kind === "rec" || props.value.kind === "list") {
+    const [show, setShow] = createSignal(false);
+
+    return (
+      <span onClick={() => setShow(true)}>
+        <Show when={show()} fallback={<>... click to expand ...</>}>
+          {() => <ShowMomentValue values={props.values} value={props.value} />}
+        </Show>
+      </span>
+    );
+  } else {
+    return <ShowMomentValue values={props.values} value={props.value} />;
+  }
+};
 
 render(App, document.body);
