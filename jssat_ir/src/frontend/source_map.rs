@@ -1,10 +1,10 @@
 //! Contains utilities for building source maps.
 
-use std::sync::Mutex;
 use crate::pyramid_api::PyramidApi;
+use std::sync::Mutex;
 
 #[derive(Clone, Copy, Debug)]
-pub struct SourceMapIdx(usize);
+pub struct SourceMapIdx(pub usize);
 
 #[derive(Clone, Copy)]
 pub struct SourceSpan {
@@ -41,11 +41,15 @@ impl SourceMap {
         let mut me = self.0.lock().unwrap();
         me.end();
     }
+
+    pub fn try_into(self) -> SourceMapImpl {
+        self.0.into_inner().unwrap()
+    }
 }
 
 pub struct SourceMapImpl {
-    source: String,
-    pyramid: PyramidApi<SourceSpan>,
+    pub source: String,
+    pub pyramid: PyramidApi<SourceSpan>,
 }
 
 impl SourceMapImpl {

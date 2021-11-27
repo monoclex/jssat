@@ -47,18 +47,18 @@ fn main() {
         .unwrap();
 
     moment.enter(lifted.entrypoint);
-    moment.snapshot(0);
-    moment.snapshot(1);
-    moment.snapshot(2);
-    moment.snapshot(3);
+    moment.snapshot(0, None);
+    moment.snapshot(1, None);
+    moment.snapshot(2, None);
+    moment.snapshot(3, None);
     moment.enter(child_fn);
-    moment.snapshot(0);
-    moment.snapshot(1);
-    moment.snapshot(2);
-    moment.snapshot(3);
+    moment.snapshot(0, None);
+    moment.snapshot(1, None);
+    moment.snapshot(2, None);
+    moment.snapshot(3, None);
     moment.exit();
-    moment.snapshot(4);
-    moment.snapshot(5);
+    moment.snapshot(4, None);
+    moment.snapshot(5, None);
     moment.exit();
 
     domino::launch("127.0.0.1:8000", &moment.into_data()).unwrap();

@@ -211,7 +211,7 @@ f(print);
 
     let listen_url = "127.0.0.1:8000";
     println!("starting domino on http://{listen_url}");
-    domino::launch(listen_url, &interpreter.moment.into_data()).unwrap();
+    domino::launch(listen_url, &interpreter.moment.into_data_with(source_map)).unwrap();
 
     panic!("done");
     let program = time(|| symbolic_execution::execute(&program));

@@ -1,11 +1,15 @@
 use std::rc::Rc;
 
-use jssat_ir::lifted::FunctionId;
+use jssat_ir::{
+    frontend::source_map::{SourceMapIdx, SourceMapImpl},
+    lifted::FunctionId,
+};
 
 use crate::server_data::*;
 
 pub struct Data {
     pub snapshots: Vec<Snapshot>,
+    pub sources: SourceMapImpl,
 }
 
 pub struct Snapshot {
@@ -26,12 +30,17 @@ pub struct RawFrame {
     pub next_moment: Option<usize>,
     pub prev_moment: Option<usize>,
     pub parent: Option<Rc<RawFrame>>,
+    pub source_idx: Option<SourceMapIdx>,
 }
 
 impl Data {
     pub fn overview(&self) -> Overview {
         Overview {
             total_moments: self.snapshots.len(),
+            sources: vec![Source {
+                name: None,
+                text: self.sources.source.clone(),
+            }],
         }
     }
 
@@ -59,10 +68,7 @@ impl Data {
 
         let lines = snapshot.code.lines.clone();
         let lines = (lines.into_iter())
-            .map(|line| CodeLine {
-                display: line,
-                source: SourceSpan {},
-            })
+            .map(|line| CodeLine { display: line })
             .collect();
 
         let code = FrameCode {
@@ -70,6 +76,40 @@ impl Data {
             highlighted: snapshot.frame.inst_idx,
         };
 
-        Moment { callstack, code }
+        let source = snapshot.frame.source_idx.map(|s| {
+            println!("{:?}, {}", s, self.sources.pyramid.snapshots.len());
+
+            let mut snapshot = (self.sources.pyramid.snapshots)
+                .get(s.0)
+                .expect("should be valid sourcemapidx");
+
+            let mut locations = vec![];
+            while let Some(x) = &snapshot.0 {
+                locations.push(SourceLocation {
+                    start: SourceSpan {
+                        line: x.info.start.line,
+                        column: x.info.start.column,
+                    },
+                    end: SourceSpan {
+                        line: x.info.end.line,
+                        column: x.info.end.column,
+                    },
+                });
+
+                snapshot = &x.parent
+            }
+
+            MomentSource {
+                // we don't support multiple source maps yet
+                source_id: 0,
+                locations,
+            }
+        });
+
+        Moment {
+            callstack,
+            code,
+            source,
+        }
     }
 }

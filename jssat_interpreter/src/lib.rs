@@ -290,7 +290,7 @@ impl<'p> Interpreter<'p> {
             inst_exec.exec(idx, inst)?;
         }
 
-        (inst_exec.interpreter.moment).snapshot(function.instructions.len());
+        (inst_exec.interpreter.moment).snapshot(function.instructions.len(), None);
 
         match &function.end {
             EndInstruction::Jump(i) => {
@@ -405,7 +405,9 @@ impl<'i, 'c> InstExec<'i, 'c> {
         inst_idx: usize,
         inst: &Instruction<LiftedCtx, LiftedCtx>,
     ) -> InstResult<()> {
-        self.interpreter.moment.snapshot(inst_idx);
+        self.interpreter
+            .moment
+            .snapshot(inst_idx, inst.source_map_idx);
 
         if let Some(result) = inst.assigned_to() {
             assert!(

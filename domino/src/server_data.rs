@@ -11,11 +11,24 @@ pub use callstack::*;
 pub struct Overview {
     #[serde(rename = "totalMoments")]
     pub total_moments: usize,
+    pub sources: Vec<Source>,
+}
+
+/// Represents a single source file that JSSAT IR was generated from.
+#[derive(Serialize)]
+pub struct Source {
+    /// The name of the source file.
+    pub name: Option<String>,
+    /// The source code of the source file.
+    pub text: String,
 }
 
 /// Represents a span to the original source of some thing.
 #[derive(Serialize)]
-pub struct SourceSpan {}
+pub struct SourceSpan {
+    pub line: usize,
+    pub column: usize,
+}
 
 pub mod callstack {
     use super::SourceSpan;
@@ -27,15 +40,17 @@ pub mod callstack {
         /// A list of frames to preview, with the first element being considered
         /// the top of the callstack, and the last element being the bottom.
         pub callstack: Vec<Frame>,
-        /// The source code of the frame at the top of the callstack.
+        /// The instructions of the frame at the top of the callstack.
         pub code: FrameCode,
+        /// The source code correlating to this moment, if any.
+        pub source: Option<MomentSource>,
     }
 
     #[derive(Serialize)]
     pub struct Frame {
-        /// A string preview of the function name and arguments
+        /// A string preview of the function name and arguments.
         pub preview: String,
-        /// The moment at which this frame is at
+        /// The moment at which this frame is at.
         pub moment: usize,
         /// The next moment that is in this frame. When `moment` is advanced by
         /// 1, it will automatically step into functions and such. However, this
@@ -63,6 +78,22 @@ pub mod callstack {
     #[derive(Serialize)]
     pub struct CodeLine {
         pub display: String,
-        pub source: SourceSpan,
+    }
+
+    #[derive(Serialize)]
+    pub struct MomentSource {
+        /// The ID of the source that this is from. This represents an index
+        /// into the `Vec<Source>` that was present in the [`Overview`]
+        #[serde(rename = "sourceId")]
+        pub source_id: usize,
+        /// A list of locations that this instruction is contained within, with
+        /// the top being closest to the point when the instruction was emitted.
+        pub locations: Vec<SourceLocation>,
+    }
+
+    #[derive(Serialize)]
+    pub struct SourceLocation {
+        pub start: SourceSpan,
+        pub end: SourceSpan,
     }
 }

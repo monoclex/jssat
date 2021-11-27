@@ -3,6 +3,7 @@
 use std::rc::Rc;
 
 use jssat_ir::{
+    frontend::source_map::{SourceMap, SourceMapIdx, SourceMapImpl},
     lifted::{Function, FunctionId, LiftedProgram},
     pyramid_api::{LayerPtr, PyramidApi},
 };
@@ -40,6 +41,35 @@ impl MomentApi {
                     frame: into_raw_frame(x, &functions).unwrap(),
                 })
                 .collect(),
+            sources: SourceMapImpl::new("".to_owned()),
+        }
+    }
+
+    pub fn into_data_with(self, source_map: SourceMap) -> Data {
+        let functions = self
+            .functions
+            .into_iter()
+            .map(|(k, v)| {
+                (k, {
+                    Rc::new(RawFrameCode {
+                        fn_name: v.fn_name,
+                        lines: v.lines,
+                    })
+                })
+            })
+            .collect::<FxHashMap<_, _>>();
+
+        Data {
+            snapshots: (self.pyramid_api.snapshots.into_iter())
+                .map(|x| Snapshot {
+                    code: functions
+                        .get(&x.clone().0.unwrap().info.func)
+                        .unwrap()
+                        .clone(),
+                    frame: into_raw_frame(x, &functions).unwrap(),
+                })
+                .collect(),
+            sources: source_map.try_into(),
         }
     }
 }
@@ -58,6 +88,7 @@ fn into_raw_frame(
         next_moment: call_frame.next_moment,
         prev_moment: call_frame.prev_moment,
         parent: into_raw_frame(call_frame.parent.clone(), functions),
+        source_idx: call_frame.info.source,
     });
 
     Some(frame)
@@ -93,6 +124,7 @@ impl CodeInfo {
 pub struct FrameInfo {
     func: FunctionId,
     inst_idx: usize,
+    source: Option<SourceMapIdx>,
 }
 
 impl MomentApi {
@@ -106,13 +138,18 @@ impl MomentApi {
     }
 
     pub fn enter(&mut self, func: FunctionId) {
-        let info = FrameInfo { func, inst_idx: 0 };
+        let info = FrameInfo {
+            func,
+            inst_idx: 0,
+            source: None,
+        };
         self.pyramid_api.begin(info);
     }
 
-    pub fn snapshot(&mut self, inst_idx: usize) {
+    pub fn snapshot(&mut self, inst_idx: usize, source_map_idx: Option<SourceMapIdx>) {
         self.pyramid_api.sample(|mut frame| {
             frame.inst_idx = inst_idx;
+            frame.source = source_map_idx;
             frame
         });
     }

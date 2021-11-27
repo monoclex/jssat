@@ -1,6 +1,9 @@
 // all values explained in ./domino/src/server_data.rs
 
-export interface SourceSpan {}
+export interface SourceSpan {
+  line: number;
+  column: number;
+}
 
 export const fetchOverview = () =>
   fetch("http://localhost:8000/overview").then(
@@ -9,6 +12,12 @@ export const fetchOverview = () =>
 
 export interface Overview {
   totalMoments: number;
+  sources: Source[];
+}
+
+export interface Source {
+  name?: string;
+  text: string;
 }
 
 export const fetchMoment = (idx: number) =>
@@ -19,6 +28,7 @@ export const fetchMoment = (idx: number) =>
 export interface Moment {
   callstack: Frame[];
   code: FrameCode;
+  source?: MomentSource;
 }
 
 export interface Frame {
@@ -35,5 +45,14 @@ export interface FrameCode {
 
 export interface CodeLine {
   display: string;
-  source: SourceSpan;
+}
+
+export interface MomentSource {
+  sourceId: number;
+  locations: SourceLocation[];
+}
+
+export interface SourceLocation {
+  start: SourceSpan;
+  end: SourceSpan;
 }
