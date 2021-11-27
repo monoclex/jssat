@@ -30,7 +30,7 @@ macro_rules! list {
         Value::List(Default::default())
     };
     ($x: expr, $($rest: expr),+) => {{
-        let list_value = Value::List(Default::default());
+        let list_value = Value::List(crate::List::new_gc(0));
         let mut list = list_value.try_into_list_mut().unwrap();
         list!(>>, list, $x, $($rest),+);
         drop(list);

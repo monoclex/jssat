@@ -67,6 +67,10 @@ impl AtomDealer {
         self.rodeo.resolve(&atom)
     }
 
+    pub fn try_resolve_name(&self, atom: Atom) -> Option<&str> {
+        self.rodeo.try_resolve(&atom)
+    }
+
     /// Issues a unique [`Atom`] that corresponds to only the string given.
     pub fn deal(&mut self, name: &'static str) -> Atom {
         self.rodeo.get_or_intern_static(name)

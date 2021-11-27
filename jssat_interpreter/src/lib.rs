@@ -7,8 +7,11 @@
 //! Performance is not necessarily a goal, although in the future that may be
 //! reconsidered.
 
+#![feature(lint_reasons)]
+
 mod build;
 pub use build::*;
+use jssat_ir::UnwrapNone;
 use petgraph::graph::DiGraph;
 
 #[cfg(test)]
@@ -37,6 +40,7 @@ use jssat_ir::{
 };
 
 pub struct Interpreter<'parent> {
+    alloc_id: usize,
     code: &'parent LiftedProgram,
     external_fns: &'parent FxHashMap<ExternalFunctionId, ExtFnImpl>,
     pub moment: MomentApi,
@@ -61,8 +65,6 @@ pub enum RecordKey {
     Number(i64),
     Boolean(bool),
     FnPtr(FunctionId),
-    // TODO: implement
-    Symbol(()),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -181,10 +183,27 @@ impl Value {
     }
 }
 
-#[derive(Deref, DerefMut, Debug, Finalize, Default)]
-pub struct Record(FxHashMap<RecordKey, Value>);
+#[derive(Deref, DerefMut, Debug, Finalize)]
+pub struct Record {
+    alloc_id: usize,
+    #[deref]
+    #[deref_mut]
+    values: FxHashMap<RecordKey, Value>,
+}
 
 impl Record {
+    pub fn new(alloc_id: usize) -> Self {
+        Self {
+            alloc_id,
+            values: Default::default(),
+        }
+    }
+
+    pub fn new_gc(alloc_id: usize) -> Gc<GcCell<Self>> {
+        let me = Self::new(alloc_id);
+        Gc::new(GcCell::new(me))
+    }
+
     #[track_caller]
     pub fn try_get(&self, key: &RecordKey) -> InstResult<&Value> {
         self.get(key)
@@ -202,17 +221,34 @@ unsafe impl Trace for Record {
     custom_trace! {
         this,
         {
-            for (_, v) in this.0.iter() {
+            for (_, v) in this.values.iter() {
                 mark(v);
             }
         }
     }
 }
 
-#[derive(Deref, DerefMut, Debug, Finalize, Trace, Default)]
-pub struct List(Vec<Value>);
+#[derive(Deref, DerefMut, Debug, Finalize, Trace)]
+pub struct List {
+    alloc_id: usize,
+    #[deref]
+    #[deref_mut]
+    values: Vec<Value>,
+}
 
 impl List {
+    pub fn new(alloc_id: usize) -> Self {
+        Self {
+            alloc_id,
+            values: Default::default(),
+        }
+    }
+
+    pub fn new_gc(alloc_id: usize) -> Gc<GcCell<Self>> {
+        let me = Self::new(alloc_id);
+        Gc::new(GcCell::new(me))
+    }
+
     #[track_caller]
     pub fn try_get(&self, key: &ListKey) -> InstResult<&Value> {
         let ListKey::Index(idx) = key;
@@ -238,16 +274,104 @@ pub fn ensure_arg_count(expected: usize, got: usize) -> InstResult<()> {
     Ok(())
 }
 
+use jssat_ir::value_snapshot::*;
+
+trait ValueSnapshotArenaExt {
+    fn new() -> Self;
+    fn snapshot(&mut self, register: RegisterId, value: &Value);
+    fn map_value(&mut self, value: &Value) -> SnapshotValue;
+    fn map_key(&mut self, key: &RecordKey) -> SnapshotRecordKey;
+}
+
+impl ValueSnapshotArenaExt for ValueSnapshotArena {
+    fn new() -> Self {
+        Self {
+            registers: Default::default(),
+            records: Default::default(),
+            lists: Default::default(),
+        }
+    }
+
+    fn snapshot(&mut self, register: RegisterId, value: &Value) {
+        let value = self.map_value(value);
+        self.registers.insert(register, value);
+    }
+
+    fn map_value(&mut self, value: &Value) -> SnapshotValue {
+        match value {
+            Value::Atom(x) => SnapshotValue::Atom(*x),
+            Value::Bytes(x) => SnapshotValue::Bytes(x.clone()),
+            Value::Number(x) => SnapshotValue::Number(*x),
+            Value::Boolean(x) => SnapshotValue::Boolean(*x),
+            Value::FnPtr(x) => SnapshotValue::FnPtr(*x),
+            Value::Record(x) => {
+                let record = x.borrow();
+
+                if !self.records.contains_key(&record.alloc_id) {
+                    // put in a temp nonsense value to prevent recursion
+                    self.records
+                        .insert(record.alloc_id, SnapshotRecord(Default::default()))
+                        .expect_none("should not be reinserting");
+
+                    let values = (record.values.iter())
+                        .map(|(k, v)| (self.map_key(k), self.map_value(v)))
+                        .collect::<FxHashMap<_, _>>();
+
+                    self.records.insert(record.alloc_id, SnapshotRecord(values));
+                }
+
+                SnapshotValue::Record(record.alloc_id)
+            }
+            Value::List(x) => {
+                let list = x.borrow();
+
+                if !self.lists.contains_key(&list.alloc_id) {
+                    // put in a temp nonsense value to prevent recursion
+                    self.lists
+                        .insert(list.alloc_id, SnapshotList(Default::default()))
+                        .expect_none("should not be reinserting");
+
+                    let values = (list.values.iter())
+                        .map(|v| self.map_value(v))
+                        .collect::<Vec<_>>();
+                    self.lists.insert(list.alloc_id, SnapshotList(values));
+                }
+
+                SnapshotValue::List(list.alloc_id)
+            }
+            Value::Runtime => SnapshotValue::Runtime,
+        }
+    }
+
+    // keep this `mut self` as we may want to intern bytes in the future
+    fn map_key(&mut self, key: &RecordKey) -> SnapshotRecordKey {
+        match key {
+            RecordKey::Atom(x) => SnapshotRecordKey::Atom(*x),
+            RecordKey::Bytes(x) => SnapshotRecordKey::Bytes(x.clone()),
+            RecordKey::Number(x) => SnapshotRecordKey::Number(*x),
+            RecordKey::Boolean(x) => SnapshotRecordKey::Boolean(*x),
+            RecordKey::FnPtr(x) => SnapshotRecordKey::FnPtr(*x),
+        }
+    }
+}
+
 impl<'p> Interpreter<'p> {
     pub fn new(
         code: &'p LiftedProgram,
         ext_fns: &'p FxHashMap<ExternalFunctionId, ExtFnImpl>,
     ) -> Self {
         Interpreter {
+            alloc_id: 0,
             code,
             external_fns: ext_fns,
             moment: MomentApi::new(code),
         }
+    }
+
+    fn next_alloc_id(&mut self) -> usize {
+        let id = self.alloc_id;
+        self.alloc_id += 1;
+        id
     }
 
     #[allow(non_upper_case_globals)]
@@ -287,15 +411,53 @@ impl<'p> Interpreter<'p> {
         };
 
         for (idx, inst) in function.instructions.iter().enumerate() {
-            inst_exec.exec(idx, inst)?;
+            let mut pre = ValueSnapshotArena::new();
+
+            for r in inst.used_registers() {
+                pre.snapshot(r, inst_exec.registers.get(&r).unwrap());
+            }
+
+            inst_exec
+                .interpreter
+                .moment
+                .snapshot(idx, inst.source_map_idx, pre);
+
+            let result = inst_exec.exec(inst);
+
+            let mut post = ValueSnapshotArena::new();
+
+            if let Some(r) = inst.assigned_to() {
+                // may not be assigned if instruction fails
+                if let Some(v) = inst_exec.registers.get(&r) {
+                    post.snapshot(r, v);
+                }
+            }
+
+            for r in inst.used_registers() {
+                post.snapshot(r, inst_exec.registers.get(&r).unwrap());
+            }
+
+            inst_exec
+                .interpreter
+                .moment
+                .snapshot(idx, inst.source_map_idx, post);
+
+            result?;
         }
 
-        (inst_exec.interpreter.moment).snapshot(function.instructions.len(), None);
+        let inst_idx = function.instructions.len();
+        let mut pre = ValueSnapshotArena::new();
 
-        match &function.end {
+        for r in function.end.used_registers() {
+            pre.snapshot(r, inst_exec.registers.get(&r).unwrap());
+        }
+
+        (inst_exec.interpreter.moment).snapshot(inst_idx, None, pre);
+
+        let (registers, result) = match &function.end {
             EndInstruction::Jump(i) => {
                 let args = inst_exec.load_args(&i.0 .1)?;
-                self.execute_fn_id(i.0 .0, args)
+                (inst_exec.registers, self.execute_fn_id(i.0 .0, args))
             }
             EndInstruction::JumpIf(i) => {
                 let condition = inst_exec.get(i.condition)?;
@@ -313,16 +475,26 @@ impl<'p> Interpreter<'p> {
                 let jump = if condition { &i.if_so } else { &i.other };
 
                 let args = inst_exec.load_args(&jump.1)?;
-                self.execute_fn_id(jump.0, args)
+                (inst_exec.registers, self.execute_fn_id(jump.0, args))
             }
             EndInstruction::Return(i) => match i.0 {
                 Some(register) => {
-                    let value = inst_exec.get(register)?;
-                    Ok(Some(value.clone()))
+                    let value = inst_exec.get(register)?.clone();
+                    (inst_exec.registers, Ok(Some(value)))
                 }
-                None => Ok(None),
+                None => (inst_exec.registers, Ok(None)),
             },
+        };
+
+        let mut post = ValueSnapshotArena::new();
+
+        for r in function.end.used_registers() {
+            post.snapshot(r, registers.get(&r).unwrap());
         }
+
+        self.moment.snapshot(inst_idx, None, post);
+
+        result
     }
 }
 
@@ -400,15 +572,7 @@ pub enum BorrowErrorWrapper {
 use InstErr::*;
 
 impl<'i, 'c> InstExec<'i, 'c> {
-    pub fn exec(
-        &mut self,
-        inst_idx: usize,
-        inst: &Instruction<LiftedCtx, LiftedCtx>,
-    ) -> InstResult<()> {
-        self.interpreter
-            .moment
-            .snapshot(inst_idx, inst.source_map_idx);
-
+    pub fn exec(&mut self, inst: &Instruction<LiftedCtx, LiftedCtx>) -> InstResult<()> {
         if let Some(result) = inst.assigned_to() {
             assert!(
                 !self.registers.contains_key(&result),
@@ -420,8 +584,10 @@ impl<'i, 'c> InstExec<'i, 'c> {
         match &inst.data {
             Comment(_) => {}
             NewRecord(i) => {
-                self.registers
-                    .insert(i.result, Value::Record(Default::default()));
+                self.registers.insert(
+                    i.result,
+                    Value::Record(Record::new_gc(self.interpreter.next_alloc_id())),
+                );
             }
             RecordGet(i) => {
                 let key = self.to_key(i.key)?;
@@ -589,8 +755,10 @@ impl<'i, 'c> InstExec<'i, 'c> {
                 self.registers.insert(i.result, is_type);
             }
             NewList(i) => {
-                self.registers
-                    .insert(i.result, Value::List(Default::default()));
+                self.registers.insert(
+                    i.result,
+                    Value::List(List::new_gc(self.interpreter.next_alloc_id())),
+                );
             }
             ListGet(i) => {
                 let key = self.list_to_key(i.key)?;

@@ -182,6 +182,8 @@ f(print);
     builder.end_function(f);
     let ir = builder.finish();
 
+    let dealer = ir.dealer.clone();
+
     // println!("{}", crate::frontend::display_jssatir::display(&ir));
 
     println!("lifting program");
@@ -210,8 +212,10 @@ f(print);
     );
 
     let listen_url = "127.0.0.1:8000";
+    println!("preparing data for domino");
+    let data = interpreter.moment.into_data_with(dealer, source_map);
     println!("starting domino on http://{listen_url}");
-    domino::launch(listen_url, &interpreter.moment.into_data_with(source_map)).unwrap();
+    domino::launch(listen_url, &data).unwrap();
 
     panic!("done");
     let program = time(|| symbolic_execution::execute(&program));

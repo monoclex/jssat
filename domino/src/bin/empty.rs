@@ -34,6 +34,7 @@ fn main() {
     builder.end_function(main);
 
     let ir = builder.finish();
+    let dealer = ir.dealer.clone();
     let lifted = jssat_ir::lifted::lift(ir);
 
     let mut moment = MomentApi::new(&lifted);
@@ -47,19 +48,19 @@ fn main() {
         .unwrap();
 
     moment.enter(lifted.entrypoint);
-    moment.snapshot(0, None);
-    moment.snapshot(1, None);
-    moment.snapshot(2, None);
-    moment.snapshot(3, None);
+    moment.snapshot(0, None, Default::default());
+    moment.snapshot(1, None, Default::default());
+    moment.snapshot(2, None, Default::default());
+    moment.snapshot(3, None, Default::default());
     moment.enter(child_fn);
-    moment.snapshot(0, None);
-    moment.snapshot(1, None);
-    moment.snapshot(2, None);
-    moment.snapshot(3, None);
+    moment.snapshot(0, None, Default::default());
+    moment.snapshot(1, None, Default::default());
+    moment.snapshot(2, None, Default::default());
+    moment.snapshot(3, None, Default::default());
     moment.exit();
-    moment.snapshot(4, None);
-    moment.snapshot(5, None);
+    moment.snapshot(4, None, Default::default());
+    moment.snapshot(5, None, Default::default());
     moment.exit();
 
-    domino::launch("127.0.0.1:8000", &moment.into_data()).unwrap();
+    domino::launch("127.0.0.1:8000", &moment.into_data(dealer)).unwrap();
 }

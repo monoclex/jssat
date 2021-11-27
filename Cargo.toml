@@ -21,3 +21,7 @@ lto = true
 [profile.dev.build-override]
 opt-level = 3
 codegen-units = 16
+
+[profile.release.build-override]
+opt-level = 3
+codegen-units = 16
