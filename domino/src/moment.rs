@@ -15,9 +15,9 @@ pub struct MomentApi {
     pyramid_api: PyramidApi<FrameInfo>,
 }
 
-impl From<MomentApi> for Data {
-    fn from(api: MomentApi) -> Self {
-        let functions = api
+impl MomentApi {
+    pub fn into_data(self) -> Data {
+        let functions = self
             .functions
             .into_iter()
             .map(|(k, v)| {
@@ -30,8 +30,8 @@ impl From<MomentApi> for Data {
             })
             .collect::<FxHashMap<_, _>>();
 
-        Self {
-            snapshots: (api.pyramid_api.snapshots.into_iter())
+        Data {
+            snapshots: (self.pyramid_api.snapshots.into_iter())
                 .map(|x| Snapshot {
                     code: functions
                         .get(&x.clone().0.unwrap().info.func)

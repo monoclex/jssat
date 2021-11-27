@@ -1,5 +1,8 @@
+use lexpr::datum::Span;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AST {
+    pub source: String,
     pub sections: Vec<Section>,
 }
 
@@ -7,6 +10,8 @@ pub struct AST {
 pub struct Section {
     pub header: Header,
     pub body: Vec<Statement>,
+    pub span: Span,
+    pub body_span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -14,6 +19,7 @@ pub struct Header {
     pub document_index: String,
     pub method_name: FnName,
     pub parameters: Vec<Variable>,
+    pub span: Span,
 }
 
 type Variable = String;
@@ -28,7 +34,13 @@ pub struct Assign {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Statement {
+pub struct Statement {
+    pub span: Span,
+    pub data: StatementData,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StatementData {
     Assign(Assign),
     /// An if statement as an expression is different than an if statement as a
     /// statement becuase an if statement as an expression MUST have a carry
@@ -86,7 +98,13 @@ pub enum Statement {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Expression {
+pub struct Expression {
+    pub span: Option<Span>,
+    pub data: ExpressionData,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExpressionData {
     /// If enabled, there is a piece of "threaded state" which will
     /// automatically thread itself through every single function declaration
     /// and call. This is an instruction to get that piece of threaded state.
@@ -240,9 +258,9 @@ pub trait Visitor {
     }
 
     fn visit_stmt_impl(&mut self, stmt: &mut Statement) {
-        match stmt {
-            Statement::Assign(assign) => self.visit_assign(assign),
-            Statement::If {
+        match &mut stmt.data {
+            StatementData::Assign(assign) => self.visit_assign(assign),
+            StatementData::If {
                 condition,
                 then,
                 r#else,
@@ -251,7 +269,7 @@ pub trait Visitor {
                 self.visit_stmts(then);
                 self.visit_maybe_stmts(r#else.as_deref_mut());
             }
-            Statement::RecordSetProp {
+            StatementData::RecordSetProp {
                 record,
                 prop,
                 value,
@@ -260,7 +278,7 @@ pub trait Visitor {
                 self.visit_expr(prop);
                 self.visit_maybe_expr(value.as_mut());
             }
-            Statement::RecordSetSlot {
+            StatementData::RecordSetSlot {
                 record,
                 slot,
                 value,
@@ -269,28 +287,28 @@ pub trait Visitor {
                 self.visit_slot(slot);
                 self.visit_maybe_expr(value.as_mut());
             }
-            Statement::ListSet { list, prop, value } => {
+            StatementData::ListSet { list, prop, value } => {
                 self.visit_expr(list);
                 self.visit_expr(prop);
                 self.visit_maybe_expr(value.as_mut());
             }
-            Statement::Return { expr } => {
+            StatementData::Return { expr } => {
                 self.visit_maybe_expr(expr.as_mut());
             }
-            Statement::CallStatic {
+            StatementData::CallStatic {
                 function_name: _,
                 args,
             } => {
                 self.visit_exprs(args);
             }
-            Statement::CallVirt { fn_ptr, args } => {
+            StatementData::CallVirt { fn_ptr, args } => {
                 self.visit_expr(fn_ptr);
                 self.visit_exprs(args);
             }
-            Statement::Assert { expr, message: _ } => {
+            StatementData::Assert { expr, message: _ } => {
                 self.visit_expr(expr);
             }
-            Statement::Loop {
+            StatementData::Loop {
                 init,
                 cond,
                 next,
@@ -335,8 +353,8 @@ pub trait Visitor {
     }
 
     fn visit_expr_impl(&mut self, expr: &mut Expression) {
-        match expr {
-            Expression::If {
+        match &mut expr.data {
+            ExpressionData::If {
                 condition,
                 then: (then_stmts, then_expr),
                 r#else: (else_stmts, else_expr),
@@ -347,7 +365,7 @@ pub trait Visitor {
                 self.visit_stmts(else_stmts);
                 self.visit_expr(else_expr);
             }
-            Expression::LetIn {
+            ExpressionData::LetIn {
                 variable: _,
                 be_bound_to,
                 r#in: (stmts, expr),
@@ -356,69 +374,69 @@ pub trait Visitor {
                 self.visit_stmts(stmts);
                 self.visit_expr(expr);
             }
-            Expression::RecordGetProp { record, property } => {
+            ExpressionData::RecordGetProp { record, property } => {
                 self.visit_expr(record);
                 self.visit_expr(property);
             }
-            Expression::RecordGetSlot { record, slot } => {
-                self.visit_expr(record);
-                self.visit_slot(slot);
-            }
-            Expression::RecordHasProp { record, property } => {
-                self.visit_expr(record);
-                self.visit_expr(property);
-            }
-            Expression::RecordHasSlot { record, slot } => {
+            ExpressionData::RecordGetSlot { record, slot } => {
                 self.visit_expr(record);
                 self.visit_slot(slot);
             }
-            Expression::ListGet { list, property } => {
+            ExpressionData::RecordHasProp { record, property } => {
+                self.visit_expr(record);
+                self.visit_expr(property);
+            }
+            ExpressionData::RecordHasSlot { record, slot } => {
+                self.visit_expr(record);
+                self.visit_slot(slot);
+            }
+            ExpressionData::ListGet { list, property } => {
                 self.visit_expr(list);
                 self.visit_expr(property);
             }
-            Expression::ListHas { list, property } => {
+            ExpressionData::ListHas { list, property } => {
                 self.visit_expr(list);
                 self.visit_expr(property);
             }
-            Expression::ListLen { list } => {
+            ExpressionData::ListLen { list } => {
                 self.visit_expr(list);
             }
-            Expression::CallStatic {
+            ExpressionData::CallStatic {
                 function_name: _,
                 args,
             } => {
                 self.visit_exprs(args);
             }
-            Expression::CallVirt { fn_ptr, args } => {
+            ExpressionData::CallVirt { fn_ptr, args } => {
                 self.visit_expr(fn_ptr);
                 self.visit_exprs(args);
             }
-            Expression::BinOp { kind: _, lhs, rhs } => {
+            ExpressionData::BinOp { kind: _, lhs, rhs } => {
                 self.visit_expr(lhs);
                 self.visit_expr(rhs);
             }
-            Expression::Negate { expr } => {
+            ExpressionData::Negate { expr } => {
                 self.visit_expr(expr);
             }
-            Expression::IsTypeOf { expr, kind: _ } => {
+            ExpressionData::IsTypeOf { expr, kind: _ } => {
                 self.visit_expr(expr);
             }
-            Expression::IsTypeAs { lhs, rhs } => {
+            ExpressionData::IsTypeAs { lhs, rhs } => {
                 self.visit_expr(lhs);
                 self.visit_expr(rhs);
             }
-            Expression::MakeAtom { atom } => {
+            ExpressionData::MakeAtom { atom } => {
                 self.visit_slot(atom);
             }
-            Expression::GetFnPtr { function_name: _ }
-            | Expression::MakeBytes { bytes: _ }
-            | Expression::MakeInteger { value: _ }
-            | Expression::MakeBoolean { value: _ }
-            | Expression::VarReference { variable: _ }
-            | Expression::GetGlobal
-            | Expression::Unreachable
-            | Expression::RecordNew
-            | Expression::ListNew => {}
+            ExpressionData::GetFnPtr { function_name: _ }
+            | ExpressionData::MakeBytes { bytes: _ }
+            | ExpressionData::MakeInteger { value: _ }
+            | ExpressionData::MakeBoolean { value: _ }
+            | ExpressionData::VarReference { variable: _ }
+            | ExpressionData::GetGlobal
+            | ExpressionData::Unreachable
+            | ExpressionData::RecordNew
+            | ExpressionData::ListNew => {}
         }
     }
 

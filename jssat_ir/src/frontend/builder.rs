@@ -485,6 +485,11 @@ impl DynBlockBuilder {
             .instructions
             .last_mut()
             .expect("expected instruction to connect source");
+
+        if inst.source_map_idx.is_some() {
+            panic!("already assigned source map for instruction!");
+        }
+
         inst.source_map_idx = Some(source);
     }
 

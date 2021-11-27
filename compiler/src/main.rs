@@ -176,6 +176,7 @@ f(print);
     let result = frontend
         .parse(&content, &mut b, &mut JSSATHostEnvironment::new())
         .expect("should parse js");
+    let source_map = frontend.ecma_methods.source_map;
 
     f.end_block(b.ret(Some(result)));
     builder.end_function(f);
@@ -210,7 +211,7 @@ f(print);
 
     let listen_url = "127.0.0.1:8000";
     println!("starting domino on http://{listen_url}");
-    domino::launch(listen_url, &interpreter.moment.into());
+    domino::launch(listen_url, &interpreter.moment.into_data()).unwrap();
 
     panic!("done");
     let program = time(|| symbolic_execution::execute(&program));

@@ -51,12 +51,13 @@
 //! }
 //! ```
 
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Display};
 
 use codegen::{Block, Field, Formatter, Function, Impl, Scope};
+use lexpr::{datum::Span, parse::Position};
 use rustc_hash::FxHashSet;
 
-use crate::{Assign, Expression, Section, Statement, Visitor, AST};
+use crate::{Assign, Expression, ExpressionData, Section, Statement, StatementData, Visitor, AST};
 
 pub fn gen(name: &str, mut ast: AST) -> String {
     let mut scope = Scope::new();
@@ -65,6 +66,7 @@ pub fn gen(name: &str, mut ast: AST) -> String {
     r#struct.vis("pub");
 
     r#struct.push_field(Field::new("pub atoms", format!("{}Atoms", name)));
+    r#struct.push_field(Field::new("pub source_map", "SourceMap"));
 
     for method in ast.sections.iter() {
         r#struct.push_field(Field::new(
@@ -116,6 +118,7 @@ use jssat_ir::{{
     frontend::{{
         builder::{{FnSignature, RegisterId, ProgramBuilder}},
         emitter::{{ControlFlow, Emitter, LoopControlFlow}},
+        source_map::{{SourceMap, SourceSpan, SourcePos}},
     }},
     isa::{{Atom, AtomDealer, ValueType}},
 }};
@@ -130,6 +133,11 @@ fn emit_method_new(name: &str, ast: &AST) -> Function {
     f.vis("pub(crate)");
     f.arg("program", "&mut ProgramBuilder");
     f.ret("Self");
+
+    f.line(format!(
+        "let source_map = SourceMap::new({:?}.to_string());",
+        ast.source
+    ));
 
     for method in ast.sections.iter() {
         let fn_name = &method.header.method_name.replace(':', "_");
@@ -149,6 +157,7 @@ fn emit_method_new(name: &str, ast: &AST) -> Function {
 
     let mut fields = Block::new("");
     fields.line(format!("atoms: {}Atoms::new(&mut program.dealer),", name));
+    fields.line("source_map,");
 
     for method in ast.sections.iter() {
         fields.line(format!(
@@ -158,10 +167,11 @@ fn emit_method_new(name: &str, ast: &AST) -> Function {
     }
 
     f.line(format!("let methods = {} {};", name, blk_to_s(fields)));
+    f.line("let source_map = &methods.source_map;");
 
     for method in ast.sections.iter() {
         f.line(format!(
-            "methods.{}(Emitter::new(program, {0}), {0}_args);",
+            "methods.{}(&source_map, Emitter::new(program, {0}), {0}_args);",
             &method.header.method_name.replace(':', "_")
         ));
     }
@@ -171,12 +181,55 @@ fn emit_method_new(name: &str, ast: &AST) -> Function {
     f
 }
 
+pub struct WriteSpan(Span);
+
+impl std::fmt::Display for WriteSpan {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "SourceSpan {{ start: {}, end: {} }}",
+            WritePos(self.0.start()),
+            WritePos(self.0.end())
+        )
+    }
+}
+
+pub struct WritePos(Position);
+
+impl std::fmt::Display for WritePos {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "SourcePos {{ line: {}, column: {} }}",
+            self.0.line(),
+            self.0.column()
+        )
+    }
+}
+
+fn sample(span: Span) -> String {
+    format!(
+        r#"
+let source_map_idx = source_map.sample({});
+e.connect_src(source_map_idx);
+        "#,
+        WriteSpan(span)
+    )
+    .trim()
+    .to_string()
+}
+
+fn begin(span: Span) -> String {
+    format!("source_map.begin({});", WriteSpan(span))
+}
+
 pub fn emit_method(scope: &mut Impl, section: &Section) {
     let mut f = Function::new(&section.header.method_name.replace(':', "_"));
 
     f.arg_ref_self();
 
     let params = &section.header.parameters;
+    f.arg("source_map", "&SourceMap");
     f.arg("mut e", format!("Emitter<{}>", params.len()));
     f.arg(
         &format!(
@@ -196,17 +249,24 @@ pub fn emit_method(scope: &mut Impl, section: &Section) {
 
     let idx = &section.header.document_index;
     let name = &section.header.method_name.replace(':', "_");
+
+    code.line(format!("source_map.begin({});", WriteSpan(section.span)));
+
     code.line(format!(
         r#"e.comment("{} {} ( {} )");"#,
         idx,
         name,
         params.join(", ")
     ));
+    code.line(sample(section.header.span));
 
     let mut ret_expr = None;
 
     let stmts_to_emit = match section.body.last() {
-        Some(Statement::Return { expr }) => {
+        Some(Statement {
+            data: StatementData::Return { expr },
+            ..
+        }) => {
             ret_expr = Some(expr);
             &section.body[..section.body.len() - 1]
         }
@@ -215,18 +275,26 @@ pub fn emit_method(scope: &mut Impl, section: &Section) {
 
     let mut counter = 0;
 
+    code.line(format!(
+        "source_map.begin({});",
+        WriteSpan(section.body_span)
+    ));
     emit_stmts(&mut counter, &mut code, stmts_to_emit, false, false);
 
     match ret_expr {
         Some(Some(expr)) => {
             let value = emit_expr(&mut counter, &mut code, expr);
-            code.line(format!("e.finish(Some({}))", value));
+            code.line(format!("let result = e.finish(Some({}));", value));
         }
         Some(None) => {
-            code.line("e.finish(None)");
+            code.line("let result = e.finish(None);");
         }
         None => panic!("expected return to finish off block"),
     }
+
+    code.line("source_map.end();");
+    code.line("source_map.end();");
+    code.line("result");
 
     f.push_block(code);
 
@@ -245,6 +313,9 @@ fn emit_stmts(
     // emit statements
     let mut returned = false;
     for stmt in stmts.iter() {
+        let span = stmt.span;
+        block.line(begin(span));
+
         if returned {
             panic!(
                 "already returned yet more instructions?, {:#?} at {:#?}",
@@ -252,13 +323,13 @@ fn emit_stmts(
             );
         }
 
-        match stmt {
-            crate::Statement::Assign(x) => {
+        match &stmt.data {
+            crate::StatementData::Assign(x) => {
                 let Assign { variable, value } = x;
                 let value = emit_expr(counter, block, value);
                 block.line(format!("let {} = {};", varname(variable), value));
             }
-            crate::Statement::If {
+            crate::StatementData::If {
                 condition,
                 then,
                 r#else,
@@ -292,7 +363,7 @@ fn emit_stmts(
                     }
                 }
             }
-            crate::Statement::RecordSetProp {
+            crate::StatementData::RecordSetProp {
                 record,
                 prop,
                 value,
@@ -308,7 +379,7 @@ fn emit_stmts(
                     None => block.line(format!("e.record_del_prop({}, {});", record, prop)),
                 };
             }
-            crate::Statement::RecordSetSlot {
+            crate::StatementData::RecordSetSlot {
                 record,
                 slot,
                 value,
@@ -330,7 +401,7 @@ fn emit_stmts(
                     }
                 }
             }
-            crate::Statement::Return { expr } => {
+            crate::StatementData::Return { expr } => {
                 returned = true;
 
                 let cf = match emit_loop {
@@ -347,9 +418,12 @@ fn emit_stmts(
                     None => format!("{}::Return(None)", cf),
                 };
 
+                block.line("source_map.end();");
+
                 block.line(line);
+                continue;
             }
-            crate::Statement::CallStatic {
+            crate::StatementData::CallStatic {
                 function_name,
                 args,
             } => {
@@ -365,7 +439,7 @@ fn emit_stmts(
                     args
                 ));
             }
-            crate::Statement::CallVirt { fn_ptr, args } => {
+            crate::StatementData::CallVirt { fn_ptr, args } => {
                 let fn_ptr = emit_expr(counter, block, fn_ptr);
                 let args = args
                     .iter()
@@ -375,11 +449,11 @@ fn emit_stmts(
 
                 block.line(format!("e.call_virt_dynargs({}, vec![{}]);", fn_ptr, args));
             }
-            crate::Statement::Assert { expr, message } => {
+            crate::StatementData::Assert { expr, message } => {
                 let assertion = emit_expr(counter, block, expr);
                 block.line(format!("e.assert({}, {:?});", assertion, message));
             }
-            crate::Statement::ListSet { list, prop, value } => {
+            crate::StatementData::ListSet { list, prop, value } => {
                 let list = emit_expr(counter, block, list);
                 let prop = emit_expr(counter, block, prop);
 
@@ -390,7 +464,7 @@ fn emit_stmts(
                     None => block.line(format!("e.list_del({}, {});", list, prop)),
                 };
             }
-            Statement::Loop {
+            StatementData::Loop {
                 init,
                 cond,
                 body,
@@ -489,6 +563,8 @@ fn emit_stmts(
                 assert_eq!(init.len(), next.len());
             }
         }
+
+        block.line("source_map.end();");
     }
 
     if !returned && emit_fallthrough {
@@ -501,6 +577,12 @@ fn emit_stmts(
 /// Emits an expression to the block, and a string identifier used to refer to
 /// the result of the computation.
 fn emit_expr(counter: &mut usize, block: &mut Block, expr: &Expression) -> String {
+    let mut has_basis = false;
+    if let Some(span) = expr.span {
+        block.line(begin(span));
+        has_basis = true;
+    }
+
     let name = |c: &mut usize| {
         format!("tmp{}", {
             *c += 1;
@@ -512,11 +594,11 @@ fn emit_expr(counter: &mut usize, block: &mut Block, expr: &Expression) -> Strin
 
     let result = name(counter);
 
-    match expr {
-        Expression::GetGlobal => {
+    match &expr.data {
+        ExpressionData::GetGlobal => {
             panic!("get global instructions should automatically be replaced by threaded state");
         }
-        Expression::If {
+        ExpressionData::If {
             condition,
             then: (then, thene),
             r#else: (els, els_e),
@@ -547,11 +629,14 @@ fn emit_expr(counter: &mut usize, block: &mut Block, expr: &Expression) -> Strin
                 blk_to_s(else_scope)
             ));
         }
-        Expression::VarReference { variable } => {
+        ExpressionData::VarReference { variable } => {
             *counter -= 1;
+            if has_basis {
+                block.line("source_map.end();");
+            }
             return varname(variable);
         }
-        Expression::LetIn {
+        ExpressionData::LetIn {
             variable,
             be_bound_to,
             r#in: (stmts, expr),
@@ -563,52 +648,77 @@ fn emit_expr(counter: &mut usize, block: &mut Block, expr: &Expression) -> Strin
 
             emit_stmts(counter, block, stmts, false, false);
 
-            return emit_expr(counter, block, expr);
+            let e = emit_expr(counter, block, expr);
+            if has_basis {
+                block.line("source_map.end();");
+            }
+            return e;
         }
-        Expression::RecordNew => {
+        ExpressionData::RecordNew => {
             block.line(format!("let {} = e.record_new();", result));
+            if let Some(span) = expr.span {
+                block.line(sample(span));
+            }
         }
-        Expression::Unreachable => {
+        ExpressionData::Unreachable => {
             block.line(format!("let {} = e.unreachable();", result));
+            if let Some(span) = expr.span {
+                block.line(sample(span));
+            }
         }
-        Expression::RecordGetProp { record, property } => {
+        ExpressionData::RecordGetProp { record, property } => {
             let record = emit_expr(counter, block, record);
             let property = emit_expr(counter, block, property);
             block.line(format!(
                 "let {} = e.record_get_prop({}, {});",
                 result, record, property
             ));
+            if let Some(span) = expr.span {
+                block.line(sample(span));
+            }
         }
-        Expression::RecordGetSlot { record, slot } => {
+        ExpressionData::RecordGetSlot { record, slot } => {
             let record = emit_expr(counter, block, record);
             block.line(format!(
                 "let {} = e.record_get_atom({}, self.atoms.{});",
                 result, record, slot
             ));
+            if let Some(span) = expr.span {
+                block.line(sample(span));
+            }
         }
-        Expression::RecordHasProp { record, property } => {
+        ExpressionData::RecordHasProp { record, property } => {
             let record = emit_expr(counter, block, record);
             let property = emit_expr(counter, block, property);
             block.line(format!(
                 "let {} = e.record_has_prop({}, {});",
                 result, record, property
             ));
+            if let Some(span) = expr.span {
+                block.line(sample(span));
+            }
         }
-        Expression::RecordHasSlot { record, slot } => {
-            let expr = emit_expr(counter, block, record);
+        ExpressionData::RecordHasSlot { record, slot } => {
+            let texpr = emit_expr(counter, block, record);
             block.line(format!(
                 "let {} = e.record_has_atom({}, self.atoms.{});",
-                result, expr, slot
+                result, texpr, slot
             ));
+            if let Some(span) = expr.span {
+                block.line(sample(span));
+            }
         }
-        Expression::GetFnPtr { function_name } => {
+        ExpressionData::GetFnPtr { function_name } => {
             block.line(format!(
                 "let {} = e.make_fnptr(self.{}.id);",
                 result,
                 function_name.replace(':', "_")
             ));
+            if let Some(span) = expr.span {
+                block.line(sample(span));
+            }
         }
-        Expression::CallStatic {
+        ExpressionData::CallStatic {
             function_name,
             args,
         } => {
@@ -624,8 +734,11 @@ fn emit_expr(counter: &mut usize, block: &mut Block, expr: &Expression) -> Strin
                 function_name.replace(':', "_"),
                 args
             ));
+            if let Some(span) = expr.span {
+                block.line(sample(span));
+            }
         }
-        Expression::CallVirt { fn_ptr, args } => {
+        ExpressionData::CallVirt { fn_ptr, args } => {
             let fn_ptr = emit_expr(counter, block, fn_ptr);
 
             let args = args
@@ -638,97 +751,153 @@ fn emit_expr(counter: &mut usize, block: &mut Block, expr: &Expression) -> Strin
                 "let {} = e.call_virt_dynargs_with_result({}, vec![{}]);",
                 result, fn_ptr, args
             ));
+            if let Some(span) = expr.span {
+                block.line(sample(span));
+            }
         }
-        Expression::MakeAtom { atom } => {
+        ExpressionData::MakeAtom { atom } => {
             block.line(format!(
                 "let {} = e.make_atom(self.atoms.{});",
                 result, atom
             ));
+            if let Some(span) = expr.span {
+                block.line(sample(span));
+            }
         }
-        Expression::MakeBytes { bytes } => {
+        ExpressionData::MakeBytes { bytes } => {
             block.line(format!(
                 "let {} = e.load_constant((&{:?}).to_vec());",
                 result,
                 bytes.as_slice()
             ));
+            if let Some(span) = expr.span {
+                block.line(sample(span));
+            }
         }
-        Expression::MakeInteger { value } => {
+        ExpressionData::MakeInteger { value } => {
             block.line(format!(
                 "let {} = e.make_number_decimal({});",
                 result, value
             ));
+            if let Some(span) = expr.span {
+                block.line(sample(span));
+            }
         }
-        Expression::MakeBoolean { value } => {
+        ExpressionData::MakeBoolean { value } => {
             block.line(format!("let {} = e.make_bool({});", result, value));
+            if let Some(span) = expr.span {
+                block.line(sample(span));
+            }
         }
-        Expression::BinOp { kind, lhs, rhs } => {
+        ExpressionData::BinOp { kind, lhs, rhs } => {
             let lhs = emit_expr(counter, block, lhs);
             let rhs = emit_expr(counter, block, rhs);
 
             match kind {
                 crate::BinOpKind::Add => {
                     block.line(format!("let {} = e.add({}, {});", result, lhs, rhs));
+                    if let Some(span) = expr.span {
+                        block.line(sample(span));
+                    }
                 }
                 crate::BinOpKind::And => {
                     block.line(format!("let {} = e.and({}, {});", result, lhs, rhs));
+                    if let Some(span) = expr.span {
+                        block.line(sample(span));
+                    }
                 }
                 crate::BinOpKind::Or => {
                     block.line(format!("let {} = e.or({}, {});", result, lhs, rhs));
+                    if let Some(span) = expr.span {
+                        block.line(sample(span));
+                    }
                 }
                 crate::BinOpKind::Eq => {
                     block.line(format!(
                         "let {} = e.compare_equal({}, {});",
                         result, lhs, rhs
                     ));
+                    if let Some(span) = expr.span {
+                        block.line(sample(span));
+                    }
                 }
                 crate::BinOpKind::Lt => {
                     block.line(format!(
                         "let {} = e.compare_less_than({}, {});",
                         result, lhs, rhs
                     ));
+                    if let Some(span) = expr.span {
+                        block.line(sample(span));
+                    }
                 }
             };
         }
-        Expression::Negate { expr } => {
-            let expr = emit_expr(counter, block, expr);
-            block.line(format!("let {} = e.negate({});", result, expr));
+        ExpressionData::Negate { expr } => {
+            let texpr = emit_expr(counter, block, expr);
+            block.line(format!("let {} = e.negate({});", result, texpr));
+            if let Some(span) = expr.span {
+                block.line(sample(span));
+            }
         }
-        Expression::IsTypeOf { expr, kind } => {
-            let expr = emit_expr(counter, block, expr);
+        ExpressionData::IsTypeOf { expr, kind } => {
+            let texpr = emit_expr(counter, block, expr);
             block.line(format!(
                 "let {} = e.is_type_of({}, ValueType::{});",
-                result, expr, kind
+                result, texpr, kind
             ));
+            if let Some(span) = expr.span {
+                block.line(sample(span));
+            }
         }
-        Expression::IsTypeAs { lhs, rhs } => {
+        ExpressionData::IsTypeAs { lhs, rhs } => {
             let lhs = emit_expr(counter, block, lhs);
             let rhs = emit_expr(counter, block, rhs);
             block.line(format!("let {} = e.is_type_as({}, {});", result, lhs, rhs));
+            if let Some(span) = expr.span {
+                block.line(sample(span));
+            }
         }
-        Expression::ListNew => {
+        ExpressionData::ListNew => {
             block.line(format!("let {} = e.list_new();", result));
+            if let Some(span) = expr.span {
+                block.line(sample(span));
+            }
         }
-        Expression::ListGet { list, property } => {
+        ExpressionData::ListGet { list, property } => {
             let record = emit_expr(counter, block, list);
             let property = emit_expr(counter, block, property);
             block.line(format!(
                 "let {} = e.list_get({}, {});",
                 result, record, property
             ));
+            if let Some(span) = expr.span {
+                block.line(sample(span));
+            }
         }
-        Expression::ListHas { list, property } => {
+        ExpressionData::ListHas { list, property } => {
             let record = emit_expr(counter, block, list);
             let property = emit_expr(counter, block, property);
             block.line(format!(
                 "let {} = e.list_has({}, {});",
                 result, record, property
             ));
+            if let Some(span) = expr.span {
+                block.line(sample(span));
+            }
         }
-        Expression::ListLen { list } => {
+        ExpressionData::ListLen { list } => {
             let list = emit_expr(counter, block, list);
             block.line(format!("let {} = e.list_len({});", result, list));
+            if let Some(span) = expr.span {
+                block.line(sample(span));
+            }
         }
     };
+
+    if has_basis {
+        block.line("source_map.end();");
+    }
+
     result
 }
 
@@ -745,7 +914,7 @@ struct AtomVisitor {
 
 impl Visitor for AtomVisitor {
     fn visit_expr(&mut self, expr: &mut Expression) {
-        if let Expression::MakeAtom { atom } = expr {
+        if let ExpressionData::MakeAtom { atom } = &mut expr.data {
             self.atoms.insert(atom.clone());
         }
 

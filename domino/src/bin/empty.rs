@@ -61,5 +61,5 @@ fn main() {
     moment.snapshot(5);
     moment.exit();
 
-    domino::launch("127.0.0.1:8000", &moment.into()).unwrap();
+    domino::launch("127.0.0.1:8000", &moment.into_data()).unwrap();
 }

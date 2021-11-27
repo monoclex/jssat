@@ -2,7 +2,7 @@
 //! entirety of an AST into carrying a piece of "threaded state" throughout all
 //! functions in the application.
 
-use crate::{Assign, Expression, Statement, AST};
+use crate::{Assign, Expression, ExpressionData, Statement, StatementData, AST};
 
 pub fn thread_state(ast: &mut AST) -> bool {
     if has_global_expr(ast) {
@@ -15,8 +15,11 @@ pub fn thread_state(ast: &mut AST) -> bool {
 }
 
 fn threaded_global() -> Expression {
-    Expression::VarReference {
-        variable: "jssatGlobal".into(),
+    Expression {
+        span: None,
+        data: ExpressionData::VarReference {
+            variable: "jssatGlobal".into(),
+        },
     }
 }
 
@@ -27,9 +30,9 @@ fn has_global_expr(ast: &AST) -> bool {
 }
 
 fn expr_is_global(expression: &Expression) -> bool {
-    match expression {
-        Expression::GetGlobal => true,
-        Expression::If {
+    match &expression.data {
+        ExpressionData::GetGlobal => true,
+        ExpressionData::If {
             condition,
             then,
             r#else,
@@ -40,7 +43,7 @@ fn expr_is_global(expression: &Expression) -> bool {
                 || r#else.0.iter().any(statement_has_global)
                 || expr_is_global(&r#else.1)
         }
-        Expression::LetIn {
+        ExpressionData::LetIn {
             variable: _,
             be_bound_to,
             r#in,
@@ -49,44 +52,48 @@ fn expr_is_global(expression: &Expression) -> bool {
                 || r#in.0.iter().any(statement_has_global)
                 || expr_is_global(&r#in.1)
         }
-        Expression::RecordGetProp { record, property } => {
+        ExpressionData::RecordGetProp { record, property } => {
             expr_is_global(record) || expr_is_global(property)
         }
-        Expression::RecordGetSlot { record, slot: _ } => expr_is_global(record),
-        Expression::RecordHasProp { record, property } => {
+        ExpressionData::RecordGetSlot { record, slot: _ } => expr_is_global(record),
+        ExpressionData::RecordHasProp { record, property } => {
             expr_is_global(record) || expr_is_global(property)
         }
-        Expression::RecordHasSlot { record, slot: _ } => expr_is_global(record),
-        Expression::ListGet { list, property } => expr_is_global(list) || expr_is_global(property),
-        Expression::ListHas { list, property } => expr_is_global(list) || expr_is_global(property),
-        Expression::ListLen { list } => expr_is_global(list),
-        Expression::CallStatic {
+        ExpressionData::RecordHasSlot { record, slot: _ } => expr_is_global(record),
+        ExpressionData::ListGet { list, property } => {
+            expr_is_global(list) || expr_is_global(property)
+        }
+        ExpressionData::ListHas { list, property } => {
+            expr_is_global(list) || expr_is_global(property)
+        }
+        ExpressionData::ListLen { list } => expr_is_global(list),
+        ExpressionData::CallStatic {
             function_name: _,
             args,
         } => args.iter().any(expr_is_global),
-        Expression::CallVirt { fn_ptr, args } => {
+        ExpressionData::CallVirt { fn_ptr, args } => {
             expr_is_global(fn_ptr) || args.iter().any(expr_is_global)
         }
-        Expression::BinOp { kind: _, lhs, rhs } => expr_is_global(lhs) || expr_is_global(rhs),
-        Expression::Negate { expr } => expr_is_global(expr),
-        Expression::IsTypeOf { expr, kind: _ } => expr_is_global(expr),
-        Expression::IsTypeAs { lhs, rhs } => expr_is_global(lhs) || expr_is_global(rhs),
-        Expression::GetFnPtr { function_name: _ }
-        | Expression::Unreachable
-        | Expression::RecordNew
-        | Expression::ListNew
-        | Expression::MakeBytes { bytes: _ }
-        | Expression::MakeAtom { atom: _ }
-        | Expression::MakeInteger { value: _ }
-        | Expression::MakeBoolean { value: _ }
-        | Expression::VarReference { variable: _ } => false,
+        ExpressionData::BinOp { kind: _, lhs, rhs } => expr_is_global(lhs) || expr_is_global(rhs),
+        ExpressionData::Negate { expr } => expr_is_global(expr),
+        ExpressionData::IsTypeOf { expr, kind: _ } => expr_is_global(expr),
+        ExpressionData::IsTypeAs { lhs, rhs } => expr_is_global(lhs) || expr_is_global(rhs),
+        ExpressionData::GetFnPtr { function_name: _ }
+        | ExpressionData::Unreachable
+        | ExpressionData::RecordNew
+        | ExpressionData::ListNew
+        | ExpressionData::MakeBytes { bytes: _ }
+        | ExpressionData::MakeAtom { atom: _ }
+        | ExpressionData::MakeInteger { value: _ }
+        | ExpressionData::MakeBoolean { value: _ }
+        | ExpressionData::VarReference { variable: _ } => false,
     }
 }
 
 fn statement_has_global(statement: &Statement) -> bool {
-    match statement {
-        crate::Statement::Assign(a) => expr_is_global(&a.value),
-        crate::Statement::If {
+    match &statement.data {
+        crate::StatementData::Assign(a) => expr_is_global(&a.value),
+        crate::StatementData::If {
             condition,
             then,
             r#else,
@@ -98,7 +105,7 @@ fn statement_has_global(statement: &Statement) -> bool {
                     .map(|x| x.iter().any(statement_has_global))
                     .unwrap_or(false)
         }
-        crate::Statement::RecordSetProp {
+        crate::StatementData::RecordSetProp {
             record,
             prop,
             value,
@@ -107,28 +114,28 @@ fn statement_has_global(statement: &Statement) -> bool {
                 || expr_is_global(prop)
                 || value.as_ref().map(|x| expr_is_global(x)).unwrap_or(false)
         }
-        crate::Statement::RecordSetSlot {
+        crate::StatementData::RecordSetSlot {
             record,
             slot: _,
             value,
         } => expr_is_global(record) || value.as_ref().map(|x| expr_is_global(x)).unwrap_or(false),
-        crate::Statement::ListSet { list, prop, value } => {
+        crate::StatementData::ListSet { list, prop, value } => {
             expr_is_global(list)
                 || expr_is_global(prop)
                 || value.as_ref().map(|x| expr_is_global(x)).unwrap_or(false)
         }
-        crate::Statement::Return { expr } => {
+        crate::StatementData::Return { expr } => {
             expr.as_ref().map(|x| expr_is_global(x)).unwrap_or(false)
         }
-        crate::Statement::CallStatic {
+        crate::StatementData::CallStatic {
             function_name: _,
             args,
         } => args.iter().any(expr_is_global),
-        crate::Statement::CallVirt { fn_ptr, args } => {
+        crate::StatementData::CallVirt { fn_ptr, args } => {
             expr_is_global(fn_ptr) || args.iter().any(expr_is_global)
         }
-        crate::Statement::Assert { expr, message: _ } => expr_is_global(expr),
-        crate::Statement::Loop {
+        crate::StatementData::Assert { expr, message: _ } => expr_is_global(expr),
+        crate::StatementData::Loop {
             init,
             cond,
             next,
@@ -159,9 +166,9 @@ fn thread_statements(statements: &mut Vec<Statement>) {
 }
 
 fn thread_statement(statement: &mut Statement) {
-    match statement {
-        Statement::Assign(assign) => thread_assign(assign),
-        Statement::If {
+    match &mut statement.data {
+        StatementData::Assign(assign) => thread_assign(assign),
+        StatementData::If {
             condition,
             then,
             r#else,
@@ -170,7 +177,7 @@ fn thread_statement(statement: &mut Statement) {
             thread_statements(then);
             optional_do(r#else, thread_statements);
         }
-        Statement::RecordSetProp {
+        StatementData::RecordSetProp {
             record,
             prop,
             value,
@@ -179,7 +186,7 @@ fn thread_statement(statement: &mut Statement) {
             thread_expression(prop);
             optional_do(value, thread_expression);
         }
-        Statement::RecordSetSlot {
+        StatementData::RecordSetSlot {
             record,
             slot: _,
             value,
@@ -187,30 +194,30 @@ fn thread_statement(statement: &mut Statement) {
             thread_expression(record);
             optional_do(value, thread_expression);
         }
-        Statement::ListSet { list, prop, value } => {
+        StatementData::ListSet { list, prop, value } => {
             thread_expression(list);
             thread_expression(prop);
             optional_do(value, thread_expression);
         }
-        Statement::Return { expr } => {
+        StatementData::Return { expr } => {
             optional_do(expr, thread_expression);
         }
-        Statement::CallStatic {
+        StatementData::CallStatic {
             function_name: _,
             args,
         } => {
             thread_expressions(args);
             args.insert(0, threaded_global());
         }
-        Statement::CallVirt { fn_ptr, args } => {
+        StatementData::CallVirt { fn_ptr, args } => {
             thread_expression(fn_ptr);
             thread_expressions(args);
             args.insert(0, threaded_global());
         }
-        Statement::Assert { expr, message: _ } => {
+        StatementData::Assert { expr, message: _ } => {
             thread_expression(expr);
         }
-        Statement::Loop {
+        StatementData::Loop {
             init,
             cond,
             next,
@@ -237,15 +244,15 @@ fn thread_expressions(expressions: &mut Vec<Expression>) {
 }
 
 fn thread_expression(expression: &mut Expression) {
-    match expression {
-        Expression::GetGlobal => {
+    match &mut expression.data {
+        ExpressionData::GetGlobal => {
             // replace the `GetGlobal` expression as we're threading it through all state
             // now
-            *expression = Expression::VarReference {
+            expression.data = ExpressionData::VarReference {
                 variable: "jssatGlobal".into(),
             };
         }
-        Expression::If {
+        ExpressionData::If {
             condition,
             then,
             r#else,
@@ -258,8 +265,8 @@ fn thread_expression(expression: &mut Expression) {
             thread_statements(statements);
             thread_expression(expression);
         }
-        Expression::VarReference { variable: _ } => {}
-        Expression::LetIn {
+        ExpressionData::VarReference { variable: _ } => {}
+        ExpressionData::LetIn {
             variable: _,
             be_bound_to,
             r#in,
@@ -269,62 +276,62 @@ fn thread_expression(expression: &mut Expression) {
             thread_statements(statements);
             thread_expression(expression);
         }
-        Expression::Unreachable => {}
-        Expression::RecordNew => {}
-        Expression::RecordGetProp { record, property } => {
+        ExpressionData::Unreachable => {}
+        ExpressionData::RecordNew => {}
+        ExpressionData::RecordGetProp { record, property } => {
             thread_expression(record);
             thread_expression(property);
         }
-        Expression::RecordGetSlot { record, slot: _ } => {
+        ExpressionData::RecordGetSlot { record, slot: _ } => {
             thread_expression(record);
         }
-        Expression::RecordHasProp { record, property } => {
+        ExpressionData::RecordHasProp { record, property } => {
             thread_expression(record);
             thread_expression(property);
         }
-        Expression::RecordHasSlot { record, slot: _ } => {
+        ExpressionData::RecordHasSlot { record, slot: _ } => {
             thread_expression(record);
         }
-        Expression::ListNew => {}
-        Expression::ListGet { list, property } => {
+        ExpressionData::ListNew => {}
+        ExpressionData::ListGet { list, property } => {
             thread_expression(list);
             thread_expression(property);
         }
-        Expression::ListHas { list, property } => {
+        ExpressionData::ListHas { list, property } => {
             thread_expression(list);
             thread_expression(property);
         }
-        Expression::ListLen { list } => {
+        ExpressionData::ListLen { list } => {
             thread_expression(list);
         }
-        Expression::GetFnPtr { function_name: _ } => {}
-        Expression::CallStatic {
+        ExpressionData::GetFnPtr { function_name: _ } => {}
+        ExpressionData::CallStatic {
             function_name: _,
             args,
         } => {
             thread_expressions(args);
             args.insert(0, threaded_global());
         }
-        Expression::CallVirt { fn_ptr, args } => {
+        ExpressionData::CallVirt { fn_ptr, args } => {
             thread_expression(fn_ptr);
             thread_expressions(args);
             args.insert(0, threaded_global());
         }
-        Expression::MakeAtom { atom: _ } => {}
-        Expression::MakeBytes { bytes: _ } => {}
-        Expression::MakeInteger { value: _ } => {}
-        Expression::MakeBoolean { value: _ } => {}
-        Expression::BinOp { kind: _, lhs, rhs } => {
+        ExpressionData::MakeAtom { atom: _ } => {}
+        ExpressionData::MakeBytes { bytes: _ } => {}
+        ExpressionData::MakeInteger { value: _ } => {}
+        ExpressionData::MakeBoolean { value: _ } => {}
+        ExpressionData::BinOp { kind: _, lhs, rhs } => {
             thread_expression(lhs);
             thread_expression(rhs);
         }
-        Expression::Negate { expr } => {
+        ExpressionData::Negate { expr } => {
             thread_expression(expr);
         }
-        Expression::IsTypeOf { expr, kind: _ } => {
+        ExpressionData::IsTypeOf { expr, kind: _ } => {
             thread_expression(expr);
         }
-        Expression::IsTypeAs { lhs, rhs } => {
+        ExpressionData::IsTypeAs { lhs, rhs } => {
             thread_expression(lhs);
             thread_expression(rhs);
         }
