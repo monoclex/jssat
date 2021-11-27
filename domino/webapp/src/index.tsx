@@ -69,14 +69,16 @@ const AppContainer = (props: AppContainerProps) => {
   createEffect(async () => setMoment(await fetchMoment(value())));
 
   return (
-    <div className="app-container">
-      <CallstackView
-        overview={props.overview}
-        value={value}
-        setValue={setValue}
-        moment={moment}
-      />
-      <div className="source">
+    <>
+      <div className="vertical-panel">
+        <CallstackView
+          overview={props.overview}
+          value={value}
+          setValue={setValue}
+          moment={moment}
+        />
+      </div>
+      <div className="vertical-panel">
         <Show when={moment()?.source}>
           {(source) => (
             <SourcePanel sources={props.overview.sources} source={source} />
@@ -84,7 +86,7 @@ const AppContainer = (props: AppContainerProps) => {
         </Show>
       </div>
       <PanelView />
-    </div>
+    </>
   );
 };
 
@@ -115,13 +117,13 @@ const CallstackView = (props: CallstackViewProps) => {
   });
 
   return (
-    <div className="callstack">
-      <div className="callstack-codeview">
+    <>
+      <div className="codeview">
         <Show when={props.moment()}>
           {(moment) => <CodeView moment={moment} />}
         </Show>
       </div>
-      <div className="callstack-frames">
+      <div className="frames">
         <Show when={props.moment()}>
           {(moment) => (
             <For each={moment.callstack}>
@@ -136,14 +138,14 @@ const CallstackView = (props: CallstackViewProps) => {
           )}
         </Show>
       </div>
-      <div className="callstack-time-slider">
+      <div className="time-slider">
         <Slider
           totalMoments={props.overview.totalMoments}
           value={props.value}
           setValue={props.setValue}
         />
       </div>
-    </div>
+    </>
   );
 };
 
@@ -162,7 +164,7 @@ const CodeView = (props: CodeViewProps) => {
 
   return (
     <>
-      <div className="callstack-codeview-prefocus">
+      <div className="codeview-pre">
         <For
           each={props.moment.code.lines.filter((_, idx) =>
             inRangeRel(idx, props.moment.code.highlighted, MAX_LINES_AWAY, 0)
@@ -171,12 +173,12 @@ const CodeView = (props: CodeViewProps) => {
           {(line) => <DrawCodeLine codeLine={line} />}
         </For>
       </div>
-      <div className="callstack-codeview-focus">
+      <div className="highlighted">
         <DrawCodeLine
           codeLine={props.moment.code.lines[props.moment.code.highlighted]}
         />
       </div>
-      <div className="callstack-codeview-postfocus">
+      <div className="codeview-post">
         <For
           each={props.moment.code.lines.filter((_, idx) =>
             inRangeRel(idx, props.moment.code.highlighted, 0, MAX_LINES_AWAY)
@@ -208,9 +210,7 @@ interface CallstackFrameProps {
 const CallstackFrame = (props: CallstackFrameProps) => {
   return (
     <span
-      className={
-        props.isCurrent ? "callstack-frame-current" : "callstack-frame"
-      }
+      className={props.isCurrent ? "frame-focus" : "frame"}
       onClick={() => {
         props.setMoment(props.frame.moment);
       }}
@@ -228,7 +228,6 @@ interface SliderProps {
 
 const Slider = (props: SliderProps) => (
   <input
-    className="time-slider"
     type="range"
     min={0}
     max={props.totalMoments - 1}
@@ -267,15 +266,11 @@ const SourcePanel = (props: SourcePanelProps) => {
         source={source}
         location={() => props.source.locations[currentLocation()]}
       />
-      <div className="source-frames">
+      <div className="frames">
         <For each={props.source.locations}>
           {(location, idx) => (
             <span
-              className={
-                currentLocation() == idx()
-                  ? "source-frame-current"
-                  : "source-frame"
-              }
+              className={currentLocation() == idx() ? "frame-focus" : "frame"}
               onClick={() => setLocation(idx())}
             >
               {JSON.stringify(location.start)} to {JSON.stringify(location.end)}
@@ -313,40 +308,45 @@ const SourceView = (props: SourceViewProps) => {
         }
 
         return (
-          <div className="source-codeview">
-            <div className="source-codeview-prefocus">
+          <div className="codeview">
+            <div className="codeview-pre">
               <For each={pre}>{(line) => <span>{line}</span>}</For>
             </div>
-            <div className="source-codeview-focus">
+            <div className="codeview-focus">
               <For each={focus}>
                 {(line, idx) => {
                   let pre = "";
                   let content = line;
                   let post = "";
 
-                  if (idx() == 0) {
+                  const atStart = idx() == 0;
+                  if (atStart) {
                     const col = props.location().start.column;
                     pre = content.substr(0, col);
                     content = content.substring(col);
                   }
 
-                  if (idx() == focus.length - 1) {
+                  const atEnd = idx() == focus.length - 1;
+                  if (atEnd) {
                     const col = props.location().end.column - pre.length;
                     post = content.substr(col);
                     content = content.substring(0, col);
                   }
 
                   if (pre === "" && post === "") {
+                    const limitEnd = atEnd ? " limitEnd" : "";
                     return (
-                      <span className="source-codeview-linesplit-focus">
+                      <span className={"highlighted" + limitEnd}>
                         {content}
                       </span>
                     );
                   } else {
+                    const stretchToEnd = atStart && !atEnd;
+                    const stretchName = stretchToEnd ? " line-to-end" : "";
                     return (
-                      <div className="source-codeview-linesplit">
+                      <div className="line-split">
                         {pre && <span>{pre}</span>}
-                        <span className="source-codeview-linesplit-focus">
+                        <span className={"highlighted" + stretchName}>
                           {content}
                         </span>
                         {post && <span>{post}</span>}
@@ -356,7 +356,7 @@ const SourceView = (props: SourceViewProps) => {
                 }}
               </For>
             </div>
-            <div className="source-codeview-postfocus">
+            <div className="codeview-post">
               <For each={post}>{(line) => <span>{line}</span>}</For>
             </div>
           </div>
