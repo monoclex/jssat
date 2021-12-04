@@ -811,6 +811,9 @@ impl<'i, 'c> InstExec<'i, 'c> {
         match key {
             jssat_ir::isa::RecordKey::Prop(register) => self.value_to_key(self.get(register)?),
             jssat_ir::isa::RecordKey::Atom(atom) => Ok(RecordKey::Atom(atom)),
+            jssat_ir::isa::RecordKey::DynAtom(register) => {
+                Ok(RecordKey::Atom(self.get(register)?.try_into_atom()?))
+            }
         }
     }
 

@@ -564,6 +564,7 @@ name = "ir_file"
 version = "0.1.0"
 dependencies = [
  "codegen",
+ "convert_case",
  "criterion",
  "lexpr",
  "rustc-hash",

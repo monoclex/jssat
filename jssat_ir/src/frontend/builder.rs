@@ -677,6 +677,16 @@ impl DynBlockBuilder {
         })
     }
 
+    pub fn record_has_atom_dyn(&mut self, record: RegisterId, atom: RegisterId) -> RegisterId {
+        self.push_inst(|result| {
+            Instruction::RecordHasKey(RecordHasKey {
+                result,
+                record,
+                key: RecordKey::DynAtom(atom),
+            })
+        })
+    }
+
     pub fn list_new(&mut self) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions

@@ -54,10 +54,13 @@
 use std::{collections::HashMap, fmt::Display};
 
 use codegen::{Block, Field, Formatter, Function, Impl, Scope};
+use convert_case::{Case, Casing};
 use lexpr::{datum::Span, parse::Position};
 use rustc_hash::FxHashSet;
 
-use crate::{Assign, Expression, ExpressionData, Section, Statement, StatementData, Visitor, AST};
+use crate::{
+    Assign, Expression, ExpressionData, Section, SlotOrExpr, Statement, StatementData, Visitor, AST,
+};
 
 pub fn gen(name: &str, mut ast: AST) -> String {
     let mut scope = Scope::new();
@@ -84,7 +87,7 @@ pub fn gen(name: &str, mut ast: AST) -> String {
     visitor.visit_ast(&mut ast);
 
     for atom in &visitor.atoms {
-        atoms.field(&format!("pub {}", atom.as_str()), "Atom");
+        atoms.field(&format!("pub {}", atom_name(atom.as_str())), "Atom");
     }
 
     let atoms_impl = scope.new_impl(format!("{}Atoms", name).as_str());
@@ -97,7 +100,7 @@ pub fn gen(name: &str, mut ast: AST) -> String {
 
     let mut fields = Block::new("");
     for atom in &visitor.atoms {
-        fields.line(format!("{}: dealer.deal({:?}),", atom, atom));
+        fields.line(format!("{}: dealer.deal({:?}),", atom_name(atom), atom));
     }
     new.push_block(fields);
 
@@ -126,6 +129,24 @@ use jssat_ir::{{
 {}",
         scope.to_string()
     )
+}
+
+fn atom_name(name: &str) -> String {
+    if name.contains('_') {
+        return name
+            .split('_')
+            .map(|s| atom_name(s))
+            .collect::<Vec<_>>()
+            .join("_");
+    }
+
+    let mut name = name.to_case(Case::Pascal);
+
+    if name.starts_with("Jssat") {
+        name.replace_range(0.."JSSAT".len(), "JSSAT");
+    }
+
+    name
 }
 
 fn emit_method_new(name: &str, ast: &AST) -> Function {
@@ -390,13 +411,16 @@ fn emit_stmts(
                         let value = emit_expr(counter, block, value);
                         block.line(format!(
                             "e.record_set_atom({}, self.atoms.{}, {});",
-                            record, slot, value
+                            record,
+                            atom_name(slot),
+                            value
                         ));
                     }
                     None => {
                         block.line(format!(
                             "e.record_del_atom({}, self.atoms.{});",
-                            record, slot
+                            record,
+                            atom_name(slot)
                         ));
                     }
                 }
@@ -681,7 +705,9 @@ fn emit_expr(counter: &mut usize, block: &mut Block, expr: &Expression) -> Strin
             let record = emit_expr(counter, block, record);
             block.line(format!(
                 "let {} = e.record_get_atom({}, self.atoms.{});",
-                result, record, slot
+                result,
+                record,
+                atom_name(slot)
             ));
             if let Some(span) = expr.span {
                 block.line(sample(span));
@@ -698,16 +724,31 @@ fn emit_expr(counter: &mut usize, block: &mut Block, expr: &Expression) -> Strin
                 block.line(sample(span));
             }
         }
-        ExpressionData::RecordHasSlot { record, slot } => {
-            let texpr = emit_expr(counter, block, record);
-            block.line(format!(
-                "let {} = e.record_has_atom({}, self.atoms.{});",
-                result, texpr, slot
-            ));
-            if let Some(span) = expr.span {
-                block.line(sample(span));
+        ExpressionData::RecordHasSlot { record, slot } => match slot {
+            SlotOrExpr::Slot(slot) => {
+                let texpr = emit_expr(counter, block, record);
+                block.line(format!(
+                    "let {} = e.record_has_atom({}, self.atoms.{});",
+                    result,
+                    texpr,
+                    atom_name(slot)
+                ));
+                if let Some(span) = expr.span {
+                    block.line(sample(span));
+                }
             }
-        }
+            SlotOrExpr::Expr(expr) => {
+                let texpr = emit_expr(counter, block, record);
+                let slot_expr = emit_expr(counter, block, expr);
+                block.line(format!(
+                    "let {} = e.record_has_atom_dyn({}, {});",
+                    result, texpr, slot_expr
+                ));
+                if let Some(span) = expr.span {
+                    block.line(sample(span));
+                }
+            }
+        },
         ExpressionData::GetFnPtr { function_name } => {
             block.line(format!(
                 "let {} = e.make_fnptr(self.{}.id);",
@@ -758,7 +799,8 @@ fn emit_expr(counter: &mut usize, block: &mut Block, expr: &Expression) -> Strin
         ExpressionData::MakeAtom { atom } => {
             block.line(format!(
                 "let {} = e.make_atom(self.atoms.{});",
-                result, atom
+                result,
+                atom_name(atom)
             ));
             if let Some(span) = expr.span {
                 block.line(sample(span));
@@ -915,13 +957,13 @@ struct AtomVisitor {
 impl Visitor for AtomVisitor {
     fn visit_expr(&mut self, expr: &mut Expression) {
         if let ExpressionData::MakeAtom { atom } = &mut expr.data {
-            self.atoms.insert(atom.clone());
+            self.atoms.insert(atom_name(atom));
         }
 
         self.visit_expr_impl(expr);
     }
 
     fn visit_slot(&mut self, slot: &mut String) {
-        self.atoms.insert(slot.clone());
+        self.atoms.insert(atom_name(slot));
     }
 }

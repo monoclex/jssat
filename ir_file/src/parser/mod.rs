@@ -583,7 +583,14 @@ fn parse_expression(node: Node<&str>) -> Expression {
                     span: node_span,
                     data: ExpressionData::RecordHasSlot {
                         record: Box::new(parse_expression(record)),
-                        slot: slot.to_owned(),
+                        slot: SlotOrExpr::Slot(slot.to_owned()),
+                    },
+                },
+                (Some(Node::Word("record-has-slot", _)), Some(record), Some(expr)) => Expression {
+                    span: node_span,
+                    data: ExpressionData::RecordHasSlot {
+                        record: Box::new(parse_expression(record)),
+                        slot: SlotOrExpr::Expr(Box::new(parse_expression(expr))),
                     },
                 },
                 (Some(Node::Word("list-get", _)), Some(list), Some(expr)) => Expression {

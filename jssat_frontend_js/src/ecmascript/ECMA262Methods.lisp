@@ -56,13 +56,13 @@
       (elif :cond1 :then1
             (elif :cond2 :then2 :else))))
 
-; TODO: implement a real list pop
-(def (exec-ctx-stack-pop) (get-global JSSATExecutionContextStack <- list-new))
+(def (exec-ctx-stack-pop) (list-del exec-ctx-stack (list-end exec-ctx-stack)))
 (def exec-ctx-stack (get-global -> JSSATExecutionContextStack))
 (def (exec-ctx-stack-push :x) (list-push exec-ctx-stack :x))
 (def exec-ctx-stack-size (list-len exec-ctx-stack))
 (def curr-exec-ctx (list-get exec-ctx-stack (list-end exec-ctx-stack)))
 (def current-realm (curr-exec-ctx -> Realm))
+(def realm-intrinsics (current-realm -> Intrinsics))
 
 (def for-item (list-get :jssat_list :jssat_i))
 (def for-item-rev (list-get :jssat_list (:jssat_len - (:jssat_i + 1))))
@@ -77,7 +77,7 @@
 
 (def
   (list-push :list :x)
-  (list-set :list (math-max (list-end :list) 0) :x))
+  (list-set :list (list-len :list) :x))
 
 (def
   (list-pop :list)
@@ -86,7 +86,19 @@
     (list-del :list (list-end :list))
     (:it))))
 
+; TODO: UNIT TEST LISTS!
+; a bug was encountered where `list-push` would insert in this order:
+; [2, 3, ..., n, 1]
+; we should unit test all list stuff
+
 (def (list-end :list) ((list-len :list) - 1))
+
+(def
+  (list-try-get-else :list :n :else)
+  (expr-block
+   ((if ((list-len :list) >= :n)
+        (:else)
+        ((list-get :list :n))))))
 
 (def
   (list-new-1 :1)
@@ -101,6 +113,15 @@
    ((jssat_list_temp = list-new)
     (list-push :jssat_list_temp :1)
     (list-push :jssat_list_temp :2)
+    (:jssat_list_temp))))
+
+(def
+  (list-new-3 :1 :2 :3)
+  (expr-block
+   ((jssat_list_temp = list-new)
+    (list-push :jssat_list_temp :1)
+    (list-push :jssat_list_temp :2)
+    (list-push :jssat_list_temp :3)
     (:jssat_list_temp))))
 
 (def
@@ -146,9 +167,10 @@
 
 (def null (atom Null))
 (def undefined (atom Undefined))
+(def (ecmatext normal) (atom Normal))
 (def normal (atom Normal))
+(def (ecmatext empty) (atom Empty))
 (def empty (atom Empty))
-(def sync (atom Sync))
 (def unresolvable (atom Unresolvable))
 (def non-lexical-this (atom NonLexicalThis))
 (def lexical-this (atom LexicalThis))
@@ -161,6 +183,7 @@
 (def atom-base (atom Base))
 (def atom-throw (atom Throw))
 (def (atom throw) (atom Throw))
+(def (ecmatext :x) (atom :x))
 
 (def (ifAtom :x :y) (lazyAnd (is-type-of Atom :x) :y))
 
@@ -196,6 +219,8 @@
 
 (def (match-pn :parseNode :kind :variant_idx) (match-pn :parseNode (atom :kind) :variant_idx))
 
+(def (is-a-parse-node :x) (record-has-slot :x JSSATParseNodeKind))
+
 (def
   (is-pn :kind :variant_idx)
   (match-pn :parseNode :kind :variant_idx))
@@ -209,6 +234,10 @@
         ((:x))
         ((:y))))))
 
+(def (call-closure :x) (call-virt (:x -> Body) :x))
+(def (call-closure :x :1) (call-virt (:x -> Body) :x :1))
+(def (call-closure :x :1 :2) (call-virt (:x -> Body) :x :1 :2))
+
 (def (:1 = :2 -> :3) (:1 = (:2 -> :3)))
 (def (:1 = :2 => :3) (:1 = (:2 => :3)))
 (def (:1 -> :2) (record-get-slot :1 :2))
@@ -218,6 +247,8 @@
 (def (:1 => :2 -> :3) ((:1 => :2) -> :3))
 (def (:record :slot <- :expr) (record-set-slot :record :slot :expr))
 (def (:record :slot <-) (record-del-slot :record :slot))
+(def (:record :prop <== :expr) (record-set-prop :record :prop :expr))
+(def (:record :prop <==) (record-del-prop :record :prop))
 (def (record-absent-slot :record :slot) (not (record-has-slot :record :slot)))
 (def (record-absent-prop :record :prop) (not (record-has-prop :record :prop)))
 
@@ -515,6 +546,18 @@
   ((get-global JSSATExecutionContextStack <- list-new)
    (return)))
 
+;;;;;;;;;;;;;;;;;;;;
+; PROTOTYPE THINGS ;
+;;;;;;;;;;;;;;;;;;;;
+
+; TODO: put these near the end
+(section
+  (:27.5.1.2 GeneratorPrototype_next (self, this, argumentsList))
+  ((thisValue = :this)
+   (value = (list-try-get-else :argumentsList 0 undefined))
+   ;;; 1. Return ? GeneratorResume(this value, value, empty).
+   (return (? (call GeneratorResume :thisValue :value (ecmatext empty))))))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; METHOD IMPLEMENTATIONS ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -597,6 +640,48 @@
         (assert (is-environment-record :base) "base is an Environment Record.")
         ;;; c. Return ? base.GetBindingValue(V.[[ReferencedName]], V.[[Strict]]) (see 9.1).
         (return (? (:base .. GetBindingValue (:V -> ReferencedName) (:V -> Strict))))))
+   (return unreachable)))
+
+(section
+  (:6.2.4.6 PutValue (V, W))
+  (;;; 1. ReturnIfAbrupt(V).
+   (V = (? :V))
+   ;;; 2. ReturnIfAbrupt(W).
+   (W = (? :W))
+   ;;; 3. If V is not a Reference Record, throw a ReferenceError exception.
+   (if (isnt-reference-record :V)
+       ((throw (ReferenceError "V is not a Reference Record"))))
+   ;;; 4. If IsUnresolvableReference(V) is true, then
+   (if (is-true (call IsUnresolvableReference :V))
+       (;;; a. If V.[[Strict]] is true, throw a ReferenceError exception.
+        (if (is-true (:V -> Strict))
+            ((throw (ReferenceError "V.[[Strict]] is true"))))
+        ;;; b. Let globalObj be GetGlobalObject().
+        (globalObj = (call GetGlobalObject))
+        ;;; c. Return ? Set(globalObj, V.[[ReferencedName]], W, false).
+        (return (? (call Set :globalObj (:V -> ReferencedName) :W false)))))
+   ;;; 5. If IsPropertyReference(V) is true, then
+   (if (is-true (call IsPropertyReference :V))
+       (;;; a. Let baseObj be ? ToObject(V.[[Base]]).
+        (baseObj = (? (call ToObject (:V -> Base))))
+        ;;; b. If IsPrivateReference(V) is true, then
+        (if (is-true (call IsPrivateReference :V))
+            (;;; i. Return ? PrivateSet(baseObj, V.[[ReferencedName]], W).
+             ; (return (? (call PrviateSet :baseObj (:V -> ReferencedName) :W)))
+            ))
+        ;;; c. Let succeeded be ? baseObj.[[Set]](V.[[ReferencedName]], W, GetThisValue(V)).
+        (succeeded = (? (:baseObj .. Set (:V -> ReferencedName) :W (call GetThisValue :V))))
+        ;;; d. If succeeded is false and V.[[Strict]] is true, throw a TypeError exception.
+        (if ((is-false :succeeded) and (is-true (:V -> Strict)))
+            ((throw (TypeError "succeeded is false and V.[[Strict]] is true"))))
+        ;;; e. Return.
+        (return))
+       ;;; 6. Else,
+       (;;; a. Let base be V.[[Base]].
+        (base = :V -> Base)
+        ;;; b. Assert: base is an Environment Record.
+        ;;; c. Return ? base.SetMutableBinding(V.[[ReferencedName]], W, V.[[Strict]]) (see 9.1).
+        (return (? (:base .. SetMutableBinding (:V -> ReferencedName) :W (:V -> Strict))))))
    (return unreachable)))
 
 (section
@@ -913,7 +998,7 @@
 (section
   (:7.4.1 GetIterator (obj, hint, method))
   (;;; 1. If hint is not present, set hint to sync.
-   (hint = (expr-block ((if (is-undef :hint) (sync) (:hint)))))
+   (hint = (expr-block ((if (is-undef :hint) ((ecmatext sync)) (:hint)))))
    ;;; 2. If method is not present, then
    (todo)
    ;;; a. If hint is async, then
@@ -933,14 +1018,18 @@
 (section
   (:7.4.2 IteratorNext (iteratorRecord, value))
   (;;; 1. If value is not present, then
-   (todo)
-   (return unreachable)
-   ;;; a. Let result be ? Call(iteratorRecord.[[NextMethod]], iteratorRecord.[[Iterator]]).
-   ;;; 2. Else,
-   ;;; a. Let result be ? Call(iteratorRecord.[[NextMethod]], iteratorRecord.[[Iterator]], « value »).
+   (result =
+           (if (is-undef :value)
+               (;;; a. Let result be ? Call(iteratorRecord.[[NextMethod]], iteratorRecord.[[Iterator]]).
+                (? (call Call (:iteratorRecord -> NextMethod) (:iteratorRecord -> Iterator) list-new)))
+               ;;; 2. Else,
+               (;;; a. Let result be ? Call(iteratorRecord.[[NextMethod]], iteratorRecord.[[Iterator]], « value »).
+                (? (call Call (:iteratorRecord -> NextMethod) (:iteratorRecord -> Iterator) (list-new-1 :value))))))
    ;;; 3. If Type(result) is not Object, throw a TypeError exception.
+   (if (isnt-object :result)
+       ((throw (TypeError "Type(result) is not Object"))))
    ;;; 4. Return result.
-  ))
+   (return :result)))
 
 (section
   (:7.4.3 IteratorComplete (iterResult))
@@ -964,17 +1053,42 @@
    ;;; 4. Return result.
    (return :result)))
 
-(section (:7.4.10 CreateListIteratorRecord (list))
+(section
+  (:7.4.9 CreateIterResultObject (value, done))
+  (;;; 1. Let obj be ! OrdinaryObjectCreate(%Object.prototype%).
+   (obj = (! (call OrdinaryObjectCreate (realm-intrinsics => "%Object.prototype%") list-new)))
+   ;;; 2. Perform ! CreateDataPropertyOrThrow(obj, "value", value).
+   (_dontCare = (! (call CreateDataPropertyOrThrow :obj "value" :value)))
+   ;;; 3. Perform ! CreateDataPropertyOrThrow(obj, "done", done).
+   (_dontCare = (! (call CreateDataPropertyOrThrow :obj "done" :done)))
+   ;;; 4. Return obj.
+   (return :obj)))
+
+(section
+  (:7.4.10 CreateListIteratorRecord (list))
   (;;; 1. Let closure be a new Abstract Closure with no parameters that captures list and performs the following steps when called:
-   ;;; a. For each element E of list, do
-   ;;; i. Perform ? Yield(E).
-   (todo) ; we need to yield
-   ; generators may be some effort to do
-   ;;; b. Return undefined.
+   (closure = record-new)
+   (:closure Body <- (get-fn-ptr CreateListIteratorRecord_AbstractClosure))
+   (:closure list <- :list)
    ;;; 2. Let iterator be ! CreateIteratorFromClosure(closure, empty, %IteratorPrototype%).
+   (iterator = (! (call CreateIteratorFromClosure :closure empty null)))
    ;;; 3. Return Record { [[Iterator]]: iterator, [[NextMethod]]: %GeneratorFunction.prototype.prototype.next%, [[Done]]: false }.
-   (return unreachable)))
-(section (:7.4.10-abstractclosure CreateListIteratorRecord_AbstractClosure (self)) ((todo) (return unreachable)))
+   (rec = record-new)
+   (:rec Iterator <- :iterator)
+   (:rec NextMethod <- (realm-intrinsics => "%GeneratorFunction.prototype.prototype.next%"))
+   (:rec Done <- false)
+   (return :rec)))
+
+;;; 1. Let closure be a new Abstract Closure with no parameters that captures list and performs the following steps when called:
+(section (:7.4.10-abstractclosure CreateListIteratorRecord_AbstractClosure (self))
+  ((list = :self -> list)
+   ;;; a. For each element E of list, do
+   (for :list
+        ((E = for-item)
+         ;;; i. Perform ? Yield(E).
+         (_dontCaare = (? (call Yield :E)))))
+   ;;; b. Return undefined.
+   (return (NormalCompletion undefined))))
 
 (section
   (:8.1.1 BoundNames (parseNode))
@@ -1134,14 +1248,13 @@
         (return (NormalCompletion empty))))
    ; FormalParameterList : FormalParameterList , FormalParameter
    (if (is-pn FormalParameterList 1)
-       (;;; 1. Perform ? IteratorBindingInitialization for FormalParameterList using iteratorRecord and environment as the arguments.
-        ;;; 2. Return the result of performing IteratorBindingInitialization for FormalParameter using iteratorRecord and environment as the arguments.
-        ; we dont do iterators yet, so we will run our own hacky algo!
-        ; we can mutate `:iteratorRecord` because we clone it before passing it in here
-        ; TODO: figure out how to do this
-        (todo)
-        (_dontCare = (? (call IteratorBindingInitialization (:parseNode -> JSSATParseNodeSlot1) :iteratorRecord :environment)))
-        (return (call IteratorBindingInitialization (:parseNode -> JSSATParseNodeSlot2) :iteratorRecord :environment))))
+       ((FormalParameterList = :parseNode -> JSSATParseNodeSlot1)
+        (FormalParameter = :parseNode -> JSSATParseNodeSlot2)
+        ;;; 1. Perform ? IteratorBindingInitialization for FormalParameterList using iteratorRecord and environment as the arguments.
+        (result = (? (call IteratorBindingInitialization :FormalParameterList :iteratorRecord :environment)))
+        ;;; 2. Return the result of performing IteratorBindingInitialization for FormalParameter using iteratorRecord and
+        ;;;    environment as the arguments.
+        (return :result)))
    ; SingleNameBinding : BindingIdentifier Initializeropt (opt not included)
    (if (is-pn SingleNameBinding 0)
        (;;; 1. Let bindingId be StringValue of BindingIdentifier.
@@ -1152,19 +1265,30 @@
         (v = undefined)
         ;;; 4. If iteratorRecord.[[Done]] is false, then
         (v =
-           (if ((list-len :iteratorRecord) > 0)
+           (if (is-false (:iteratorRecord -> Done))
                (;;; a. Let next be IteratorStep(iteratorRecord).
-                (next = (list-pop :iteratorRecord))
+                (next = (call IteratorStep :iteratorRecord))
                 ;;; b. If next is an abrupt completion, set iteratorRecord.[[Done]] to true.
+                (if (is-abrupt-completion :next)
+                    ((:iteratorRecord Done <- true)))
                 ;;; c. ReturnIfAbrupt(next).
+                (next = (? :next))
                 ;;; d. If next is false, set iteratorRecord.[[Done]] to true.
-                ;;; e. Else,
-                ;;; i. Set v to IteratorValue(next).
-                ;;; ii. If v is an abrupt completion, set iteratorRecord.[[Done]] to true.
-                ;;; iii. ReturnIfAbrupt(v).
-                (:next))
+                (if (is-false :next)
+                    ((:iteratorRecord Done <- true)
+                     (:v))
+                    ;;; e. Else,
+                    (;;; i. Set v to IteratorValue(next).
+                     (v = (call IteratorValue :next))
+                     ;;; ii. If v is an abrupt completion, set iteratorRecord.[[Done]] to true.
+                     (if (is-abrupt-completion :v)
+                         ((:iteratorRecord Done <- true)))
+                     ;;; iii. ReturnIfAbrupt(v).
+                     (v = (? :v))
+                     (:v))))
                ((:v))))
         ;;; 5. If Initializer is present and v is undefined, then
+        ; Initializer is not present
         ;;; a. If IsAnonymousFunctionDefinition(Initializer) is true, then
         ;;; i. Set v to the result of performing NamedEvaluation for Initializer with argument bindingId.
         ;;; b. Else,
@@ -1172,7 +1296,7 @@
         ;;; ii. Set v to ? GetValue(defaultValue).
         ;;; 6. If environment is undefined, return ? PutValue(lhs, v).
         (if (is-undef :environment)
-            ((assert false "TODO: environment is undefined, implement Putvalue")))
+            ((return (? (call PutValue :lhs :v)))))
         ;;; 7. Return InitializeReferencedBinding(lhs, v).
         (return (call InitializeReferencedBinding :lhs :v))))
    (return (call IteratorBindingInitialization (:parseNode -> JSSATParseNodeSlot1) :iteratorRecord :environment))))
@@ -1638,10 +1762,23 @@
    (intrinsics = record-new)
    ;;; 2. Set realmRec.[[Intrinsics]] to intrinsics.
    (:realmRec Intrinsics <- :intrinsics)
-   ;;; 3. Set fields of intrinsics with the values listed in Table 8. The field names are the names listed in column one
-   ;;;    of the table. The value of each field is a new object value fully and recursively populated with property values
-   ;;;    as defined by the specification of each object in clauses 19 through 28. All object property values are newly
-   ;;;    created object values. All values that are built-in function objects are created by performing CreateBuiltinFunction(steps, length, name, slots, realmRec, prototype) where steps is the definition of that function provided by this specification, name is the initial value of the function's name property, length is the initial value of the function's length property, slots is a list of the names, if any, of the function's specified internal slots, and prototype is the specified value of the function's [[Prototype]] internal slot. The creation of the intrinsics and their properties must be ordered to avoid any dependencies upon objects that have not yet been created.
+   ;;; 3. Set fields of intrinsics with the values listed in Table 8. The field names are the names listed in column one of the table.
+   ;;;    The value of each field is a new object value fully and recursively populated with property values
+   ;;;    as defined by the specification of each object in clauses 19 through 28.
+   ;;;    All object property values are newly created object values.
+   ;;;    All values that are built-in function objects are created by performing
+   ;;;        CreateBuiltinFunction(steps, length, name, slots, realmRec, prototype)
+   ;;;    where steps is the definition of that function provided by this specification,
+   ;;;          name is the initial value of the function's name property,
+   ;;;          length is the initial value of the function's length property,
+   ;;;          slots is a list of the names, if any, of the function's specified internal slots, and
+   ;;;          prototype is the specified value of the function's [[Prototype]] internal slot.
+   ;;;    The creation of the intrinsics and their properties must be ordered to avoid any dependencies upon objects that have
+   ;;;    not yet been created.
+   ; TODO: right now these aren't "fully implemented", they're just sorta partially there
+   (:intrinsics "%Object.prototype%" <== (! (call OrdinaryObjectCreate null list-new)))
+   (:intrinsics "%GeneratorFunction.prototype.prototype.next%" <==
+                (! (call CreateBuiltinFunction (get-fn-ptr GeneratorPrototype_next) 1 "next" list-new :realmRec null undefined)))
    ;;; 4. Perform AddRestrictedFunctionProperties(intrinsics.[[%Function.prototype%]], realmRec).
    ;;; 5. Return intrinsics.
    (return :intrinsics)))
@@ -1655,8 +1792,7 @@
                     (;;; a. Let intrinsics be realmRec.[[Intrinsics]].
                      (intrinsics = (:realmRec -> Intrinsics))
                      ;;; b. Set globalObj to ! OrdinaryObjectCreate(intrinsics.[[%Object.prototype%]]).
-                     ; TODO: actually use the intrinsics
-                     (! (call OrdinaryObjectCreate null list-new)))
+                     (! (call OrdinaryObjectCreate (realm-intrinsics => "%Object.prototype%") list-new)))
                     ((:globalObj))))))
    ;;; 2. Assert: Type(globalObj) is Object.
    (assert (is-object :globalObj) "Type(globalObj) is Object")
@@ -1716,6 +1852,13 @@
    (return (? (call GetIdentifierReference :env :name :strict)))))
 
 (section
+  (:9.4.6 GetGlobalObject ())
+  (;;; 1. Let currentRealm be the current Realm Record.
+   (currentRealm = current-realm)
+   ;;; 2. Return currentRealm.[[GlobalObject]].
+   (return (:currentRealm -> GlobalObject))))
+
+(section
   (:9.5 InitializeHostDefinedRealm ())
   (;;; 1. Let realm be CreateRealm().
    (realm = (call CreateRealm))
@@ -1723,6 +1866,7 @@
    (newContext = record-new)
    ; TODO: have a subroutine to make new execution context properly
    (:newContext LexicalEnvironment <- record-new)
+   (:newContext LexicalEnvironmentIsCreatedNewlly <- "yeah it is bro")
    ;;; 3. Set the Function of newContext to null.
    (:newContext Function <- null)
    ;;; 4. Set the Realm of newContext to realm.
@@ -2082,6 +2226,16 @@
    (return :O)))
 
 (section
+  (:10.1.15 RequireInternalSlot (O, internalSlot))
+  (;;; 1. If Type(O) is not Object, throw a TypeError exception.
+   (if (isnt-object :O)
+       ((throw (TypeError "Type(O) is not Object"))))
+   ;;; 2. If O does not have an internalSlot internal slot, throw a TypeError exception.
+   (if (record-absent-slot :O :internalSlot)
+       ((throw (TypeError "O does not have an internalSlot internal slot"))))
+   (return (NormalCompletion empty))))
+
+(section
   (:10.2.1 FunctionObject_Call (F, thisArgument, argumentsList))
   (;;; 1. Let callerContext be the running execution context.
    (callerContext = curr-exec-ctx)
@@ -2096,7 +2250,6 @@
         (error = (TypeError "function is class constructor"))
         ;;; c. Remove calleeContext from the execution context stack and restore callerContext as the running execution context.
         (exec-ctx-stack-pop)
-        (exec-ctx-stack-push :callerContext)
         ;;; d. Return ThrowCompletion(error).
         (return (ThrowCompletion :error))))
    ;;; 5. Perform OrdinaryCallBindThis(F, calleeContext, thisArgument).
@@ -2105,7 +2258,6 @@
    (result = (call OrdinaryCallEvaluateBody :F :argumentsList))
    ;;; 7. Remove calleeContext from the execution context stack and restore callerContext as the running execution context.
    (exec-ctx-stack-pop)
-   (exec-ctx-stack-push :callerContext)
    ;;; 8. If result.[[Type]] is return, return NormalCompletion(result.[[Value]]).
    (if (:result -> Type == atom-return)
        ((return (NormalCompletion (:result -> Value)))))
@@ -2132,12 +2284,12 @@
    (localEnv = (call NewFunctionEnvironment :F :newTarget))
    ;;; 8. Set the LexicalEnvironment of calleeContext to localEnv.
    (:calleeContext LexicalEnvironment <- :localEnv)
+   (:calleeContext LexicalEnvironmentIsCreatedNewlly <- "1localEnv")
    ;;; 9. Set the VariableEnvironment of calleeContext to localEnv.
    (:calleeContext VariableEnvironment <- :localEnv)
    ;;; 10. Set the PrivateEnvironment of calleeContext to F.[[PrivateEnvironment]].
    (:calleeContext PrivateEnvironment <- (:F -> PrivateEnvironment))
    ;;; 11. If callerContext is not already suspended, suspend callerContext.
-   (exec-ctx-stack-pop)
    ;;; 12. Push calleeContext onto the execution context stack; calleeContext is now the running execution context.
    (exec-ctx-stack-push :calleeContext)
    ;;; 13. NOTE: Any exception objects produced after this point are associated with calleeRealm.
@@ -2296,7 +2448,7 @@
    (prototype =
               (if (is-undef :prototype)
                   (;;; a. Set prototype to ! OrdinaryObjectCreate(%Object.prototype%).
-                   (prototype = (! (call OrdinaryObjectCreate null list-new)))
+                   (prototype = (! (call OrdinaryObjectCreate (realm-intrinsics => "%Object.prototype%") list-new)))
                    ;;; b. Perform ! DefinePropertyOrThrow(prototype, "constructor", PropertyDescriptor {
                    ;;;    [[Value]]: F, [[Writable]]: writablePrototype, [[Enumerable]]: false, [[Configurable]]: true }).
                    (desc = record-new)
@@ -2460,6 +2612,7 @@
              (assert ((:calleeContext -> VariableEnvironment) == :calleeEnv) "The VariableEnvironment of calleeContext is calleeEnv.")
              ;;; e. Set the LexicalEnvironment of calleeContext to env.
              (:calleeContext LexicalEnvironment <- :env)
+             (:calleeContext LexicalEnvironmentIsCreatedNewlly <- "2 env")
              (:env))))
    ;;; 21. For each String paramName of parameterNames, do
    (for :parameterNames
@@ -2502,9 +2655,8 @@
                           (;;; a. Let parameterBindings be parameterNames.
                            (:parameterNames))))
    ;  ;;; 24. Let iteratorRecord be CreateListIteratorRecord(argumentsList).
-   ;  (iteratorRecord = (call CreateListIteratorRecord :argumentsList))
+   (iteratorRecord = (call CreateListIteratorRecord :argumentsList))
    ;;; 25. If hasDuplicates is true, then
-   (iteratorRecord = (list-clone :argumentsList)) ; not implementing yield yet lmao
    (if (is-true :hasDuplicates)
        (;;; a. Perform ? IteratorBindingInitialization for formals with iteratorRecord and undefined as arguments.
         (_dontCare = (? (call IteratorBindingInitialization :formals :iteratorRecord undefined))))
@@ -2571,6 +2723,7 @@
                (:varEnv)))
    ;;; 32. Set the LexicalEnvironment of calleeContext to lexEnv.
    (:calleeContext LexicalEnvironment <- :lexEnv)
+   (:calleeContext LexicalEnvironmentIsCreatedNewlly <- "3 lexenv")
    ;;; 33. Let lexDeclarations be the LexicallyScopedDeclarations of code.
    (lexDeclarations = (call LexicallyScopedDeclarations :code))
    ;;; 34. For each element d of lexDeclarations, do
@@ -2660,7 +2813,7 @@
   (;;; 1. Let len be the number of elements in argumentsList.
    (len = (list-len :argumentsList))
    ;;; 2. Let obj be ! OrdinaryObjectCreate(%Object.prototype%, « [[ParameterMap]] »).
-   (obj = (! (call OrdinaryObjectCreate null (list-new-1 (atom ParameterMap)))))
+   (obj = (! (call OrdinaryObjectCreate (realm-intrinsics => "%Object.prototype%") (list-new-1 (atom ParameterMap)))))
    ;;; 3. Set obj.[[ParameterMap]] to undefined.
    (:obj ParameterMap <- undefined)
    ;;; 4. Perform DefinePropertyOrThrow(obj, "length", PropertyDescriptor { [[Value]]: 𝔽(len), [[Writable]]: true,
@@ -3213,8 +3366,8 @@
    (:scriptContext VariableEnvironment <- :globalEnv)
    ;;; 7. Set the LexicalEnvironment of scriptContext to globalEnv.
    (:scriptContext LexicalEnvironment <- :globalEnv)
+   (:scriptContext LexicalEnvironmentIsCreatedNewlly <- "globalenv")
    ;;; 8. Suspend the currently running execution context.
-   (exec-ctx-stack-pop)
    ;;; 9. Push scriptContext onto the execution context stack; scriptContext is now the running execution context.
    (exec-ctx-stack-push :scriptContext)
    ;;; 10. Let scriptBody be scriptRecord.[[ECMAScriptCode]].
@@ -3373,3 +3526,228 @@
         ))
    ;;; 18. Return NormalCompletion(empty).
    (return (NormalCompletion empty))))
+
+(section
+  (:27.5.3.1 GeneratorStart (generator, generatorBody))
+  (;;; 1. Assert: The value of generator.[[GeneratorState]] is undefined.
+   (assert ((:generator -> GeneratorState) == undefined) "The value of generator.[[GeneratorState]] is undefined.")
+   ;;; 2. Let genContext be the running execution context.
+   (genContext = curr-exec-ctx)
+   ;;; 3. Set the Generator component of genContext to generator.
+   (:genContext Generator <- :generator)
+   ;;; 4. Set the code evaluation state of genContext such that when evaluation is resumed for that execution context the
+   ;;;    following steps will be performed:
+   (closure = record-new)
+   (:closure Body <- (get-fn-ptr GeneratorStart_OnResume))
+   (:closure generatorBody <- :generatorBody)
+   (:closure generator <- :generator)
+   (:genContext CodeEvaluationState <- :closure)
+   ;;; 5. Set generator.[[GeneratorContext]] to genContext.
+   (:generator GeneratorContext <- :genContext)
+   ;;; 6. Set generator.[[GeneratorState]] to suspendedStart.
+   (:generator GeneratorState <- (ecmatext suspendedStart))
+   ;;; 7. Return NormalCompletion(undefined).
+   (return undefined)))
+
+;;; 4. Set the code evaluation state of genContext such that when evaluation is resumed for that execution context the
+;;;    following steps will be performed:
+(section
+  (:27.5.3.1 GeneratorStart_OnResume (self, _continuation_))
+  ((generatorBody = :self -> generatorBody)
+   (generator = :self -> generator)
+   ;;; a. If generatorBody is a Parse Node, then
+   (result =
+           (if (is-a-parse-node :generatorBody)
+               (;;; i. Let result be the result of evaluating generatorBody.
+                (evaluating :generatorBody))
+               ;;; b. Else,
+               (;;; i. Assert: generatorBody is an Abstract Closure with no parameters.
+                ;;; ii. Let result be generatorBody().
+                (call-closure :generatorBody))))
+   ;;; c. Assert: If we return here, the generator either threw an exception or performed either an implicit or explicit return.
+   ;;; d. Remove genContext from the execution context stack and restore the execution context that is at the top of the
+   ;;;    execution context stack as the running execution context.
+   (exec-ctx-stack-pop)
+   ;;; e. Set generator.[[GeneratorState]] to completed.
+   (:generator GeneratorState <- (ecmatext completed))
+   ;;; f. Once a generator enters the completed state it never leaves it and its associated execution context is never
+   ;;;    resumed. Any execution state associated with generator can be discarded at this point.
+   (resultValue =
+                ;;; g. If result.[[Type]] is normal, let resultValue be undefined.
+                (if ((:result -> Type) == (ecmatext normal))
+                    ((undefined))
+                    ;;; h. Else if result.[[Type]] is return, let resultValue be result.[[Value]].
+                    (elif ((:result -> Type) == (ecmatext return))
+                          ((:result -> Value))
+                          ;;; i. Else,
+                          (;;; i. Assert: result.[[Type]] is throw.
+                           (assert ((:result -> Type) == (ecmatext throw)) "result.[[Type]] is throw.")
+                           ;;; ii. Return Completion(result).
+                           (return :result)
+                           (unreachable)))))
+   ;;; j. Return CreateIterResultObject(resultValue, true).
+   (return (NormalCompletion (call CreateIterResultObject :resultValue true)))))
+
+(section
+  (:27.5.3.2 GeneratorValidate (generator, generatorBrand))
+  (;;; 1. Perform ? RequireInternalSlot(generator, [[GeneratorState]]).
+   (_dontCare = (? (call RequireInternalSlot :generator (atom GeneratorState))))
+   ;;; 2. Perform ? RequireInternalSlot(generator, [[GeneratorBrand]]).
+   (_dontCare = (? (call RequireInternalSlot :generator (atom GeneratorBrand))))
+   ;;; 3. If generator.[[GeneratorBrand]] is not the same value as generatorBrand, throw a TypeError exception.
+   (if ((:generator -> GeneratorBrand) != :generatorBrand)
+       ((throw (TypeError "generator.[[GeneratorBrand]] is not the same value as generatorBrand"))))
+   ;;; 4. Assert: generator also has a [[GeneratorContext]] internal slot.
+   (assert (record-has-slot :generator (atom GeneratorContext)) "generator also has a [[GeneratorContext]] internal slot.")
+   ;;; 5. Let state be generator.[[GeneratorState]].
+   (state = :generator -> GeneratorState)
+   ;;; 6. If state is executing, throw a TypeError exception.
+   (if (:state == (ecmatext executing))
+       ((throw (TypeError "state is executing"))))
+   ;;; 7. Return state.
+   (return :state)))
+
+(section
+  (:27.5.3.3 GeneratorResume (generator, value, generatorBrand))
+  (;;; 1. Let state be ? GeneratorValidate(generator, generatorBrand).
+   (state = (? (call GeneratorValidate :generator :generatorBrand)))
+   ;;; 2. If state is completed, return CreateIterResultObject(undefined, true).
+   (if (:state == (ecmatext completed))
+       ((return (call CreateIterResultObject undefined true))))
+   ;;; 3. Assert: state is either suspendedStart or suspendedYield.
+   (assert ((:state == (ecmatext suspendedStart)) or (:state == (ecmatext suspendedYield))) "state is either suspendedStart or suspendedYield.")
+   ;;; 4. Let genContext be generator.[[GeneratorContext]].
+   (genContext = :generator -> GeneratorContext)
+   ;;; 5. Let methodContext be the running execution context.
+   (methodContext = curr-exec-ctx)
+   ;;; 6. Suspend methodContext.
+   ;;; 7. Set generator.[[GeneratorState]] to executing.
+   (:generator GeneratorState <- (ecmatext executing))
+   ;;; 8. Push genContext onto the execution context stack; genContext is now the running execution context.
+   (exec-ctx-stack-push :genContext)
+   ;;; 9. Resume the suspended evaluation of genContext using NormalCompletion(value) as the result of the operation that
+   ;;;    suspended it. Let result be the value returned by the resumed computation.
+   (result = (call-closure (:genContext -> CodeEvaluationState) (NormalCompletion :value)))
+   ;;; 10. Assert: When we return here, genContext has already been removed from the execution context stack and
+   ;;;     methodContext is the currently running execution context.
+   (assert (:methodContext == curr-exec-ctx) "methodContext is the currently running execution context")
+   ;;; 11. Return Completion(result).
+   (return :result)))
+
+(section
+  (:27.5.3.5 GetGeneratorKind ())
+  (;;; 1. Let genContext be the running execution context.
+   (genContext = curr-exec-ctx)
+   ;;; 2. If genContext does not have a Generator component, return non-generator.
+   (if (not (record-has-slot :genContext Generator))
+       ((return (ecmatext non-generator))))
+   ;;; 3. Let generator be the Generator component of genContext.
+   (generator = :genContext -> Generator)
+   ;;; 4. If generator has an [[AsyncGeneratorState]] internal slot, return async.
+   (if (record-has-slot :generator AsyncGeneratorState)
+       ((return (ecmatext async)))
+       ;;; 5. Else, return sync.
+       ((return (ecmatext sync))))
+   (return unreachable)))
+
+(section
+  (:27.5.3.6 GeneratorYield (iterNextObj))
+  (;;; 1. Let genContext be the running execution context.
+   (genContext = curr-exec-ctx)
+   ;;; 2. Assert: genContext is the execution context of a generator.
+   ;;; 3. Let generator be the value of the Generator component of genContext.
+   (generator = :genContext -> Generator)
+   ;;; 4. Assert: GetGeneratorKind() is sync.
+   (assert ((call GetGeneratorKind) == (ecmatext sync)) "GetGeneratorKind() is sync.")
+   ;;; 5. Set generator.[[GeneratorState]] to suspendedYield.
+   (:generator GeneratorState <- (ecmatext suspendedYield))
+   ;;; 6. Remove genContext from the execution context stack and restore the execution context that is at the top of
+   ;;;    the execution context stack as the running execution context.
+   (exec-ctx-stack-pop)
+   ;;; 7. Set the code evaluation state of genContext such that when evaluation is resumed with a Completion
+   ;;;    resumptionValue the following steps will be performed:
+   (codeEvalClosure = record-new)
+   (:codeEvalClosure Body <- (get-fn-ptr GeneratorYield_OnResume))
+   (:genContext CodeEvaluationState <- :codeEvalClosure)
+   ;;; 8. Return NormalCompletion(iterNextObj).
+   ; TODO: this is horribly wrong, engine262 does something far different with yield fun-ness
+   ;;; 9. NOTE: This returns to the evaluation of the operation that had most previously resumed evaluation of genContext.
+   (return :iterNextObj)))
+
+;;; 7. Set the code evaluation state of genContext such that when evaluation is resumed with a Completion
+;;;    resumptionValue the following steps will be performed:
+(section
+  (:27.5.3.6.1 GeneratorYield_OnResume (self, resumptionValue))
+  (;;; a. Return resumptionValue.
+   ;;; b. NOTE: This returns to the evaluation of the YieldExpression that originally called this abstract operation.
+   (return :resumptionValue)))
+
+(section
+  (:27.5.3.7 Yield (value))
+  (;;; 1. Let generatorKind be ! GetGeneratorKind().
+   (generatorKind = (! (call GetGeneratorKind)))
+   ;;; 2. If generatorKind is async, return ? AsyncGeneratorYield(value).
+   (if (:generatorKind == (ecmatext async))
+       ((return (? (call AsyncGeneratorYield :value)))))
+   ;;; 3. Otherwise, return ? GeneratorYield(! CreateIterResultObject(value, false)).
+   (return (? (call GeneratorYield (! (call CreateIterResultObject :value false)))))))
+
+(section
+  (:27.5.3.8 CreateIteratorFromClosure (closure, generatorBrand, generatorPrototype))
+  (;;; 1. NOTE: closure can contain uses of the Yield shorthand to yield an IteratorResult object.
+   ;;; 2. Let internalSlotsList be « [[GeneratorState]], [[GeneratorContext]], [[GeneratorBrand]] ».
+   (internalSlotsList = (list-new-3 (atom GeneratorState) (atom GeneratorContext) (atom GeneratorBrand)))
+   ;;; 3. Let generator be ! OrdinaryObjectCreate(generatorPrototype, internalSlotsList).
+   (generator = (! (call OrdinaryObjectCreate :generatorPrototype :internalSlotsList)))
+   ;;; 4. Set generator.[[GeneratorBrand]] to generatorBrand.
+   (:generator GeneratorBrand <- :generatorBrand)
+   ;;; 5. Set generator.[[GeneratorState]] to undefined.
+   (:generator GeneratorState <- undefined)
+   ;;; 6. Let callerContext be the running execution context.
+   (callerContext = curr-exec-ctx)
+   ;;; 7. Let calleeContext be a new execution context.
+   (calleeContext = record-new)
+   ;;; 8. Set the Function of calleeContext to null.
+   (:calleeContext Function <- null)
+   ;;; 9. Set the Realm of calleeContext to the current Realm Record.
+   (:calleeContext Realm <- current-realm)
+   ;;; 10. Set the ScriptOrModule of calleeContext to callerContext's ScriptOrModule.
+   (:calleeContext ScriptOrModule <- (:callerContext -> ScriptOrModule))
+   ;;; 11. If callerContext is not already suspended, suspend callerContext.
+   ;;; 12. Push calleeContext onto the execution context stack; calleeContext is now the running execution context.
+   (exec-ctx-stack-push :calleeContext)
+   ;;; 13. Perform ! GeneratorStart(generator, closure).
+   (_dontCare = (! (call GeneratorStart :generator :closure)))
+   ;;; 14. Remove calleeContext from the execution context stack and restore callerContext as the running execution context.
+   (exec-ctx-stack-pop)
+   ;;; 15. Return generator.
+   (return :generator)))
+
+(section
+  (:27.6.3.8 AsyncGeneratorYield (value))
+  (;;; 1. Let genContext be the running execution context.
+   ;;; 2. Assert: genContext is the execution context of a generator.
+   ;;; 3. Let generator be the value of the Generator component of genContext.
+   ;;; 4. Assert: GetGeneratorKind() is async.
+   ;;; 5. Set value to ? Await(value).
+   ;;; 6. Let completion be NormalCompletion(value).
+   ;;; 7. Assert: The execution context stack has at least two elements.
+   ;;; 8. Let previousContext be the second to top element of the execution context stack.
+   ;;; 9. Let previousRealm be previousContext's Realm.
+   ;;; 10. Perform ! AsyncGeneratorCompleteStep(generator, completion, false, previousRealm).
+   ;;; 11. Let queue be generator.[[AsyncGeneratorQueue]].
+   ;;; 12. If queue is not empty, then
+   ;;; a. NOTE: Execution continues without suspending the generator.
+   ;;; b. Let toYield be the first element of queue.
+   ;;; c. Let resumptionValue be toYield.[[Completion]].
+   ;;; d. Return AsyncGeneratorUnwrapYieldResumption(resumptionValue).
+   ;;; 13. Else,
+   ;;; a. Set generator.[[AsyncGeneratorState]] to suspendedYield.
+   ;;; b. Remove genContext from the execution context stack and restore the execution context that is at the top of the execution context stack as the running execution context.
+   ;;; c. Set the code evaluation state of genContext such that when evaluation is resumed with a Completion resumptionValue the following steps will be performed:
+   ;;; i. Return AsyncGeneratorUnwrapYieldResumption(resumptionValue).
+   ;;; ii. NOTE: When the above step returns, it returns to the evaluation of the YieldExpression production that originally called this abstract operation.
+   ;;; d. Return undefined.
+   ;;; e. NOTE: This returns to the evaluation of the operation that had most previously resumed evaluation of genContext.
+   (todo)
+   (return unreachable)))

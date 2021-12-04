@@ -104,6 +104,12 @@ pub struct Expression {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SlotOrExpr {
+    Slot(Slot),
+    Expr(Box<Expression>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExpressionData {
     /// If enabled, there is a piece of "threaded state" which will
     /// automatically thread itself through every single function declaration
@@ -141,7 +147,7 @@ pub enum ExpressionData {
     },
     RecordHasSlot {
         record: Box<Expression>,
-        slot: Slot,
+        slot: SlotOrExpr,
     },
     ListNew,
     ListGet {
@@ -342,6 +348,13 @@ pub trait Visitor {
         }
     }
 
+    fn visit_slot_or_expr(&mut self, slot_or_expr: &mut SlotOrExpr) {
+        match slot_or_expr {
+            SlotOrExpr::Slot(slot) => self.visit_slot(slot),
+            SlotOrExpr::Expr(expr) => self.visit_expr(expr),
+        }
+    }
+
     fn visit_exprs(&mut self, exprs: &mut [Expression]) {
         for expr in exprs {
             self.visit_expr(expr);
@@ -388,7 +401,7 @@ pub trait Visitor {
             }
             ExpressionData::RecordHasSlot { record, slot } => {
                 self.visit_expr(record);
-                self.visit_slot(slot);
+                self.visit_slot_or_expr(slot);
             }
             ExpressionData::ListGet { list, property } => {
                 self.visit_expr(list);

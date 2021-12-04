@@ -1,0 +1,62 @@
+---
+f(x):
+    x["a"] = 1;
+---
+f(x):
+    ret "a" in x;
+---
+f(x):
+    ret f({ a: x });
+---
+f(x):
+    x.i = x.i + 1;
+    x[x.i] = "a";
+
+x = { i: 0 }
+loop {
+    f(x)
+}
+---
+f(x):
+    if [[a]] in x {
+        delete x.1;
+        x.b = 1;
+    } elif [[b]] in x {
+        delete x.b;
+        x.c = 1;
+    } elif [[c]] in x {
+        delete x.c;
+        x.a = 1;
+    }
+    ret f(x);
+---
+x.y = y;
+y.x = x;
+---
+f(x):
+    x.a.b = 1
+---
+f():
+    ret {}
+g():
+    x = f();
+    y = f();
+    x.a = 1;
+    y.b = 2;
+    ret (x, y);
+---
+function ski(p, s = [0]){
+    const token = p[s[0]]
+    s[0] += 1
+    if(token == '0'){
+        return ski(p,s)(ski(p,s));
+    } else if(token == '1'){
+        return x => y => x;
+    } else if(token == '2'){
+        return x => y => z => x(z)(y(z));
+    }
+}
+console.log(ski("000200200211010020020121002110020020021101002002012100200201210020020121002002012100211010020020121002110020102002111")(x => x + 1)(0))
+---
+https://gist.github.com/SimonMeskens/aadd57b4adc952b2e878016d0b81598b
+---

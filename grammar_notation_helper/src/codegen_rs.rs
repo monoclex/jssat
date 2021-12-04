@@ -1,4 +1,4 @@
-use std::array::IntoIter;
+use std::{array::IntoIter, collections::HashSet};
 
 use crate::ast::*;
 use codegen::*;
@@ -211,7 +211,7 @@ fn symbols_to_ascii(symbols: &str) -> String {
     s
 }
 
-fn all_names(productions: &Productions) -> impl Iterator<Item = &str> {
+fn all_names(productions: &Productions) -> HashSet<&str> {
     let builtin_names = [
         "LineTerminator",
         "IdentifierName",
@@ -231,6 +231,7 @@ fn all_names(productions: &Productions) -> impl Iterator<Item = &str> {
     IntoIter::new(builtin_names)
         .chain(production_names)
         .chain(one_of_names)
+        .collect()
 }
 
 fn generate_combinatory_enum(productions: &Productions, formatter: &mut Formatter) {

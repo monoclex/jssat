@@ -13,6 +13,8 @@ pub enum RecordKey<C: Tag> {
     Prop(RegisterId<C>),
     #[display(fmt = "[[{}]]", _0)]
     Atom(Atom),
+    #[display(fmt = "[[%{}]]", _0)]
+    DynAtom(RegisterId<C>),
 }
 
 impl<C: Tag> RecordKey<C> {
@@ -21,6 +23,7 @@ impl<C: Tag> RecordKey<C> {
         match self {
             RecordKey::Prop(r) => RecordKey::Prop(retagger.retag_old(r)),
             RecordKey::Atom(s) => RecordKey::Atom(s),
+            RecordKey::DynAtom(a) => RecordKey::DynAtom(retagger.retag_old(a)),
         }
     }
 }
@@ -71,16 +74,22 @@ impl<C: Tag> ISAInstruction<C> for RecordHasKey<C> {
 
     fn used_registers(&self) -> TinyVec<[RegisterId<C>; 3]> {
         let mut used_registers = tiny_vec![self.record];
-        if let RecordKey::Prop(register) = self.key {
-            used_registers.push(register);
+        match self.key {
+            RecordKey::Prop(register) | RecordKey::DynAtom(register) => {
+                used_registers.push(register)
+            }
+            _ => {}
         }
         used_registers
     }
 
     fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
         let mut used_registers = vec![&mut self.record];
-        if let RecordKey::Prop(register) = &mut self.key {
-            used_registers.push(register);
+        match &mut self.key {
+            RecordKey::Prop(register) | RecordKey::DynAtom(register) => {
+                used_registers.push(register)
+            }
+            _ => {}
         }
         used_registers
     }
@@ -119,16 +128,22 @@ impl<C: Tag> ISAInstruction<C> for RecordGet<C> {
 
     fn used_registers(&self) -> TinyVec<[RegisterId<C>; 3]> {
         let mut used_registers = tiny_vec![self.record];
-        if let RecordKey::Prop(register) = self.key {
-            used_registers.push(register);
+        match self.key {
+            RecordKey::Prop(register) | RecordKey::DynAtom(register) => {
+                used_registers.push(register)
+            }
+            _ => {}
         }
         used_registers
     }
 
     fn used_registers_mut(&mut self) -> Vec<&mut RegisterId<C>> {
         let mut used_registers = vec![&mut self.record];
-        if let RecordKey::Prop(register) = &mut self.key {
-            used_registers.push(register);
+        match &mut self.key {
+            RecordKey::Prop(register) | RecordKey::DynAtom(register) => {
+                used_registers.push(register)
+            }
+            _ => {}
         }
         used_registers
     }
@@ -170,8 +185,11 @@ impl<C: Tag> ISAInstruction<C> for RecordSet<C> {
         if let Some(register) = self.value {
             used_registers.push(register);
         }
-        if let RecordKey::Prop(register) = self.key {
-            used_registers.push(register);
+        match self.key {
+            RecordKey::Prop(register) | RecordKey::DynAtom(register) => {
+                used_registers.push(register)
+            }
+            _ => {}
         }
         used_registers
     }
@@ -181,8 +199,11 @@ impl<C: Tag> ISAInstruction<C> for RecordSet<C> {
         if let Some(register) = &mut self.value {
             used_registers.push(register);
         }
-        if let RecordKey::Prop(register) = &mut self.key {
-            used_registers.push(register);
+        match &mut self.key {
+            RecordKey::Prop(register) | RecordKey::DynAtom(register) => {
+                used_registers.push(register)
+            }
+            _ => {}
         }
         used_registers
     }
