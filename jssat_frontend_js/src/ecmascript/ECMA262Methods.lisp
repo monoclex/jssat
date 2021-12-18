@@ -56,7 +56,8 @@
       (elif :cond1 :then1
             (elif :cond2 :then2 :else))))
 
-(def (exec-ctx-stack-pop) (list-del exec-ctx-stack (list-end exec-ctx-stack)))
+(def (exec-ctx-stack-pop) (list-popstmt exec-ctx-stack))
+(def (exec-ctx-stack-pop-item :x) (_ = (list-pop-item exec-ctx-stack :x)))
 (def exec-ctx-stack (get-global -> JSSATExecutionContextStack))
 (def (exec-ctx-stack-push :x) (list-push exec-ctx-stack :x))
 (def exec-ctx-stack-size (list-len exec-ctx-stack))
@@ -79,11 +80,27 @@
   (list-push :list :x)
   (list-set :list (list-len :list) :x))
 
+(def (list-popstmt :list) (list-del :list (list-end :list)))
+
+(def
+  (list-pop-item :list :x)
+  (expr-block
+   ; we use a scratch list because we don't have enough control flow primitives to do it in one loop
+   ((jssat_pop_scratch = list-new)
+    (for :list
+         ((pop_item = for-item)
+          (if (:x == :pop_item)
+              ((list-push :jssat_pop_scratch :jssat_i)))))
+    (for :jssat_pop_scratch
+         ((pop_idx = for-item-rev)
+          (list-del :list :pop_idx)))
+    (undefined))))
+
 (def
   (list-pop :list)
   (expr-block
    ((it = (list-get :list (list-end :list)))
-    (list-del :list (list-end :list))
+    (list-popstmt :list)
     (:it))))
 
 ; TODO: UNIT TEST LISTS!
@@ -127,8 +144,9 @@
 (def
   (list-concat :a :b)
   (expr-block
-   ((for :b ((list-push :a for-item)))
-    (:a))))
+   ((jssat_list_concat = (list-clone :a))
+    (for :b ((list-push :jssat_list_concat for-item)))
+    (:jssat_list_concat))))
 
 ; i'm too lazy to change let exprs to expr blocks atm
 (def (expr-block :x) (let
@@ -1049,9 +1067,9 @@
    (done = (? (call IteratorComplete :result)))
    ;;; 3. If done is true, return false.
    (if (:done)
-       ((return false)))
+       ((return (NormalCompletion false))))
    ;;; 4. Return result.
-   (return :result)))
+   (return (NormalCompletion :result))))
 
 (section
   (:7.4.9 CreateIterResultObject (value, done))
@@ -1251,10 +1269,10 @@
        ((FormalParameterList = :parseNode -> JSSATParseNodeSlot1)
         (FormalParameter = :parseNode -> JSSATParseNodeSlot2)
         ;;; 1. Perform ? IteratorBindingInitialization for FormalParameterList using iteratorRecord and environment as the arguments.
-        (result = (? (call IteratorBindingInitialization :FormalParameterList :iteratorRecord :environment)))
+        (_dontCare = (? (call IteratorBindingInitialization :FormalParameterList :iteratorRecord :environment)))
         ;;; 2. Return the result of performing IteratorBindingInitialization for FormalParameter using iteratorRecord and
         ;;;    environment as the arguments.
-        (return :result)))
+        (return (call IteratorBindingInitialization :FormalParameter :iteratorRecord :environment))))
    ; SingleNameBinding : BindingIdentifier Initializeropt (opt not included)
    (if (is-pn SingleNameBinding 0)
        (;;; 1. Let bindingId be StringValue of BindingIdentifier.
@@ -1866,7 +1884,6 @@
    (newContext = record-new)
    ; TODO: have a subroutine to make new execution context properly
    (:newContext LexicalEnvironment <- record-new)
-   (:newContext LexicalEnvironmentIsCreatedNewlly <- "yeah it is bro")
    ;;; 3. Set the Function of newContext to null.
    (:newContext Function <- null)
    ;;; 4. Set the Realm of newContext to realm.
@@ -2284,7 +2301,6 @@
    (localEnv = (call NewFunctionEnvironment :F :newTarget))
    ;;; 8. Set the LexicalEnvironment of calleeContext to localEnv.
    (:calleeContext LexicalEnvironment <- :localEnv)
-   (:calleeContext LexicalEnvironmentIsCreatedNewlly <- "1localEnv")
    ;;; 9. Set the VariableEnvironment of calleeContext to localEnv.
    (:calleeContext VariableEnvironment <- :localEnv)
    ;;; 10. Set the PrivateEnvironment of calleeContext to F.[[PrivateEnvironment]].
@@ -2612,7 +2628,6 @@
              (assert ((:calleeContext -> VariableEnvironment) == :calleeEnv) "The VariableEnvironment of calleeContext is calleeEnv.")
              ;;; e. Set the LexicalEnvironment of calleeContext to env.
              (:calleeContext LexicalEnvironment <- :env)
-             (:calleeContext LexicalEnvironmentIsCreatedNewlly <- "2 env")
              (:env))))
    ;;; 21. For each String paramName of parameterNames, do
    (for :parameterNames
@@ -2654,15 +2669,72 @@
                           ;;; 23. Else,
                           (;;; a. Let parameterBindings be parameterNames.
                            (:parameterNames))))
-   ;  ;;; 24. Let iteratorRecord be CreateListIteratorRecord(argumentsList).
-   (iteratorRecord = (call CreateListIteratorRecord :argumentsList))
-   ;;; 25. If hasDuplicates is true, then
-   (if (is-true :hasDuplicates)
-       (;;; a. Perform ? IteratorBindingInitialization for formals with iteratorRecord and undefined as arguments.
-        (_dontCare = (? (call IteratorBindingInitialization :formals :iteratorRecord undefined))))
-       ;;; 26. Else,
-       (;;; a. Perform ? IteratorBindingInitialization for formals with iteratorRecord and env as arguments.
-        (_dontCare = (? (call IteratorBindingInitialization :formals :iteratorRecord :env)))))
+
+   ;;;;;;;;
+   ; NOTE ;
+   ;;;;;;;;
+   ; This part of ECMAScript calls for iterators and generators to be used to pass arguments.
+   ; However, as JSSAT will not be supporting complicated control flow, we cannot do that.
+   ; Thus, we do not adhere to the latest ECMAScript specification in this regard.
+   ;
+   ; Instead, we opt to pass parameters to a function in an older ECMAScript manner - the way
+   ; outlined in ECMAScript 5.1: https://262.ecma-international.org/5.1/#sec-10.5
+   ;
+   ; The old code, for reference:
+   ;; -- no worky --
+   ;; ;  ;;; 24. Let iteratorRecord be CreateListIteratorRecord(argumentsList).
+   ;; (iteratorRecord = (call CreateListIteratorRecord :argumentsList))
+   ;; ;;; 25. If hasDuplicates is true, then
+   ;; (if (is-true :hasDuplicates)
+   ;;     (;;; a. Perform ? IteratorBindingInitialization for formals with iteratorRecord and undefined as arguments.
+   ;;      (_dontCare = (? (call IteratorBindingInitialization :formals :iteratorRecord undefined))))
+   ;;     ;;; 26. Else,
+   ;;     (;;; a. Perform ? IteratorBindingInitialization for formals with iteratorRecord and env as arguments.
+   ;;      (_dontCare = (? (call IteratorBindingInitialization :formals :iteratorRecord :env)))))
+   ;
+   ; The 5.1 specification code:
+   ;;; Let func be the function whose [[Call]] internal method initiated execution of code. Let names be the value of
+   ;;; func’s [[FormalParameters]] internal property.
+
+   ;;; Let argCount be the number of elements in args.
+   (argCount = (list-len :argumentsList))
+   ;;; Let n be the number 0.
+   ;;; For each String argName in names, in list order do
+   (for :parameterNames
+        ((argName = for-item)
+         ;;; Let n be the current value of n plus 1.
+         (n = (:jssat_i + 1))
+         ;;; If n is greater than argCount, let v be undefined otherwise let v be the value of the n’th element of args.
+         (v =
+            (if (:n > :argCount)
+                ((undefined))
+                ((list-get :argumentsList :jssat_i))))
+         ; The steps below don't work, so I'm stealing the code from <https://tc39.es/ecma262/#sec-runtime-semantics-iteratorbindinginitialization>
+         ; under `SingleNameBinding : BindingIdentifier Initializeropt`
+         ;
+         ; old code:
+         ; ;;; Let argAlreadyDeclared be the result of calling env’s HasBinding concrete method passing argName as the argument.
+         ; (argAlreadyDeclared = (:env .. HasBinding :argName))
+         ; ;;; If argAlreadyDeclared is false, call env’s CreateMutableBinding concrete method passing argName as the argument.
+         ; (if (is-false :argAlreadyDeclared)
+         ;     ((:env .. CreateMutableBinding :argName false)
+         ;      (:env .. InitializeBinding :argName :v))
+         ;     (;;; Call env’s SetMutableBinding concrete method passing argName, v, and strict as the arguments.
+         ;      (:env .. SetMutableBinding :argName :v :strict)))
+         ;
+
+         ;;; 1. Let bindingId be StringValue of BindingIdentifier.
+         (bindingId = :argName)
+         ;;; 2. Let lhs be ? ResolveBinding(bindingId, environment).
+         (environment = (if (is-true :hasDuplicates) ((undefined)) ((:env))))
+         (lhs = (? (call ResolveBinding :bindingId :environment)))
+
+         ;;; 6. If environment is undefined, return ? PutValue(lhs, v).
+         (if (is-undef :environment)
+             ((_dontCare = (? (call PutValue :lhs :v))))
+             ;;; 7. Return InitializeReferencedBinding(lhs, v).
+             ((call InitializeReferencedBinding :lhs :v)))))
+
    ;;; 27. If hasParameterExpressions is false, then
    (varEnv =
            (if (is-false :hasParameterExpressions)
@@ -2723,7 +2795,6 @@
                (:varEnv)))
    ;;; 32. Set the LexicalEnvironment of calleeContext to lexEnv.
    (:calleeContext LexicalEnvironment <- :lexEnv)
-   (:calleeContext LexicalEnvironmentIsCreatedNewlly <- "3 lexenv")
    ;;; 33. Let lexDeclarations be the LexicallyScopedDeclarations of code.
    (lexDeclarations = (call LexicallyScopedDeclarations :code))
    ;;; 34. For each element d of lexDeclarations, do
@@ -2959,7 +3030,7 @@
    ; CallExpression : CallExpression Arguments
    (if (is-pn CallExpression 3)
        (;;; 1. Let ref be the result of evaluating CallExpression.
-        (ref = (call Evaluation_CallExpression (:parseNode -> JSSATParseNodeSlot1)))
+        (ref = (? (call Evaluation_CallExpression (:parseNode -> JSSATParseNodeSlot1))))
         ;;; 2. Let func be ? GetValue(ref).
         (func = (? (call GetValue :ref)))
         ;;; 3. Let thisCall be this CallExpression.
@@ -3366,7 +3437,6 @@
    (:scriptContext VariableEnvironment <- :globalEnv)
    ;;; 7. Set the LexicalEnvironment of scriptContext to globalEnv.
    (:scriptContext LexicalEnvironment <- :globalEnv)
-   (:scriptContext LexicalEnvironmentIsCreatedNewlly <- "globalenv")
    ;;; 8. Suspend the currently running execution context.
    ;;; 9. Push scriptContext onto the execution context stack; scriptContext is now the running execution context.
    (exec-ctx-stack-push :scriptContext)
@@ -3541,6 +3611,7 @@
    (:closure Body <- (get-fn-ptr GeneratorStart_OnResume))
    (:closure generatorBody <- :generatorBody)
    (:closure generator <- :generator)
+   (:closure genContext <- :genContext)
    (:genContext CodeEvaluationState <- :closure)
    ;;; 5. Set generator.[[GeneratorContext]] to genContext.
    (:generator GeneratorContext <- :genContext)
@@ -3555,6 +3626,7 @@
   (:27.5.3.1 GeneratorStart_OnResume (self, _continuation_))
   ((generatorBody = :self -> generatorBody)
    (generator = :self -> generator)
+   (genContext = :self -> genContext)
    ;;; a. If generatorBody is a Parse Node, then
    (result =
            (if (is-a-parse-node :generatorBody)
@@ -3567,7 +3639,7 @@
    ;;; c. Assert: If we return here, the generator either threw an exception or performed either an implicit or explicit return.
    ;;; d. Remove genContext from the execution context stack and restore the execution context that is at the top of the
    ;;;    execution context stack as the running execution context.
-   (exec-ctx-stack-pop)
+   (exec-ctx-stack-pop-item :genContext)
    ;;; e. Set generator.[[GeneratorState]] to completed.
    (:generator GeneratorState <- (ecmatext completed))
    ;;; f. Once a generator enters the completed state it never leaves it and its associated execution context is never
@@ -3663,7 +3735,7 @@
    (:generator GeneratorState <- (ecmatext suspendedYield))
    ;;; 6. Remove genContext from the execution context stack and restore the execution context that is at the top of
    ;;;    the execution context stack as the running execution context.
-   (exec-ctx-stack-pop)
+   (exec-ctx-stack-pop-item :genContext)
    ;;; 7. Set the code evaluation state of genContext such that when evaluation is resumed with a Completion
    ;;;    resumptionValue the following steps will be performed:
    (codeEvalClosure = record-new)

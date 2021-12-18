@@ -68,11 +68,13 @@ interface AppContainerProps {
 
 const AppContainer = (props: AppContainerProps) => {
   const [value, setValue] = createSignal(0);
+  Object.defineProperty(globalThis, "moment", {
+    get: value,
+    set: setValue,
+  });
 
   const [moment, setMoment] = createSignal<Moment | undefined>(undefined);
   createEffect(async () => setMoment(await fetchMoment(value())));
-
-  createEffect(() => console.log("moment", moment()));
 
   return (
     <>
@@ -416,7 +418,7 @@ const ShowMomentValue = (props: ShowMomentValueProps) => {
       elem = <>num {props.value.num}</>;
       break;
     case "bool":
-      elem = <>bool {props.value.bool}</>;
+      elem = <>bool {JSON.stringify(props.value.bool)}</>;
       break;
     case "bytes":
       elem = <>bytes {props.value.bytes}</>;
