@@ -1,10 +1,15 @@
-use std::{cell::RefCell, ops::Deref};
+use std::{
+    cell::RefCell,
+    collections::{hash_map::DefaultHasher, VecDeque},
+    hash::Hash,
+    ops::Deref,
+};
 
 use bumpalo::Bump;
 use ouroboros::self_referencing;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
-use super::{CtxBox, Record, RecordHandle, Type};
+use super::{CtxBox, Record, RecordHandle, Type, Union, UnionHandle};
 use crate::{
     id::{Counter, RegisterId, Tag, UniqueRecordId},
     types::BytsHandle,
@@ -117,7 +122,7 @@ use crate::{
 /// [`std::pin::Pin`] and [`Box`] is used to use the _address of the record_ as
 /// the hash. This prevents cyclicity problems when deeply hashing a record (as
 /// it is possible for them to be cyclic).
-pub struct TypeCtx<T: Tag = crate::id::LiftedCtx>(TypeCtxImpl<T>);
+pub struct TypeCtx<T: Tag = crate::id::LiftedCtx, K = RegisterId<T>>(TypeCtxImpl<T, K>);
 
 /// # Safety
 ///
@@ -125,13 +130,16 @@ pub struct TypeCtx<T: Tag = crate::id::LiftedCtx>(TypeCtxImpl<T>);
 /// reproduced with the following code example below:
 ///
 /// ```no_run
+/// # use std::cell::RefCell;
+/// # use std::sync::Mutex;
+/// #
 /// struct Problematic<'ctx> {
-///     problem: &'ctx std::cell::RefCell<Problematic<'ctx>>,
+///     problem: &'ctx RefCell<Problematic<'ctx>>,
 /// }
 ///
 /// fn problem<'ctx>() {
 ///     // no worky
-///     is_send::<std::sync::Mutex<Problematic<'ctx>>>()
+///     is_send::<Mutex<Problematic<'ctx>>>()
 /// }
 ///
 /// fn is_send<T: Send>() {}
@@ -143,17 +151,7 @@ pub struct TypeCtx<T: Tag = crate::id::LiftedCtx>(TypeCtxImpl<T>);
 /// implement [`Send`].
 unsafe impl<T: Tag> Send for TypeCtx<T> {}
 
-fn x() {
-    let id = |x| x;
-
-    consume(&id);
-}
-
-fn consume(it: &dyn FnOnce(String) -> String) {
-    //
-}
-
-impl<T: Tag> TypeCtx<T> {
+impl<T: Tag, K> TypeCtx<T, K> {
     /// Constructs a new, blank [`TypeCtx`].
     ///
     /// # Examples
@@ -164,9 +162,9 @@ impl<T: Tag> TypeCtx<T> {
     /// ```
     pub fn new() -> Self {
         let ctx_impl = TypeCtxImplBuilder {
-            unique_allocation_id_counter: Default::default(),
             arena: Default::default(),
-            registers_builder: |_| Default::default(),
+            lookup_builder: |_| Default::default(),
+            handle_types_builder: |_| Default::default(),
         }
         .build();
 
@@ -174,22 +172,25 @@ impl<T: Tag> TypeCtx<T> {
     }
 }
 
-impl<T: Tag> Default for TypeCtx<T> {
+impl<T: Tag, K> Default for TypeCtx<T, K> {
     fn default() -> Self {
         Self::new()
     }
 }
 
 #[self_referencing]
-pub struct TypeCtxImpl<T: Tag> {
-    unique_allocation_id_counter: Counter<UniqueRecordId<T>>,
+pub struct TypeCtxImpl<T: Tag, K> {
     arena: Bump,
     #[borrows(arena)]
     #[not_covariant]
-    registers: FxHashMap<RegisterId<T>, Type<'this, T>>,
+    lookup: FxHashMap<K, Type<'this, T>>,
+    #[borrows(arena)]
+    #[not_covariant]
+    /// Records only the types that require the use of handles
+    handle_types: Vec<Type<'this, T>>,
 }
 
-impl<T: Tag> TypeCtx<T> {
+impl<T: Tag, K> TypeCtx<T, K> {
     /// Immutably borrows the data inside of the [`TypeCtx`] for the duration of
     /// the [`run`] closure.
     ///
@@ -214,12 +215,12 @@ impl<T: Tag> TypeCtx<T> {
     ///
     /// assert_eq!(has_default_register, false);
     /// ```
-    pub fn borrow<R>(&self, run: impl FnOnce(TypeCtxImmut<T>) -> R) -> R {
+    pub fn borrow<R>(&self, run: impl FnOnce(TypeCtxImmut<T, K>) -> R) -> R {
         self.0.with(|it| {
             run(TypeCtxImmut {
-                registers: it.registers,
+                lookup: it.lookup,
+                handle_types: it.handle_types,
                 arena: it.arena,
-                unique_allocation_id_counter: it.unique_allocation_id_counter,
             })
         })
     }
@@ -249,12 +250,12 @@ impl<T: Tag> TypeCtx<T> {
     ///
     /// assert!(inserted_any);
     /// ```
-    pub fn borrow_mut<R>(&mut self, run: impl FnOnce(TypeCtxMut<T>) -> R) -> R {
+    pub fn borrow_mut<R>(&mut self, run: impl FnOnce(TypeCtxMut<T, K>) -> R) -> R {
         self.0.with_mut(|it| {
             run(TypeCtxMut {
-                registers: it.registers,
+                lookup: it.lookup,
+                handle_types: it.handle_types,
                 arena: it.arena,
-                unique_allocation_id_counter: it.unique_allocation_id_counter,
             })
         })
     }
@@ -263,22 +264,22 @@ impl<T: Tag> TypeCtx<T> {
 // SAFETY: the layout of this must be the same as [`TypeCtxMut`]
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct TypeCtxImmut<'borrow, 'arena, T: Tag> {
-    registers: &'borrow FxHashMap<RegisterId<T>, Type<'arena, T>>,
+pub struct TypeCtxImmut<'borrow, 'arena, T: Tag, K> {
+    lookup: &'borrow FxHashMap<K, Type<'arena, T>>,
+    handle_types: &'borrow Vec<Type<'arena, T>>,
     arena: &'arena Bump,
-    unique_allocation_id_counter: &'borrow Counter<UniqueRecordId<T>>,
 }
 
 // SAFETY: the layout of this must be the same as [`TypeCtxImmut`]
 #[repr(C)]
-pub struct TypeCtxMut<'borrow, 'arena, T: Tag> {
-    registers: &'borrow mut FxHashMap<RegisterId<T>, Type<'arena, T>>,
+pub struct TypeCtxMut<'borrow, 'arena, T: Tag, K> {
+    lookup: &'borrow mut FxHashMap<K, Type<'arena, T>>,
+    handle_types: &'borrow mut Vec<Type<'arena, T>>,
     arena: &'arena Bump,
-    unique_allocation_id_counter: &'borrow Counter<UniqueRecordId<T>>,
 }
 
-impl<'borrow, 'arena, T: Tag> Deref for TypeCtxMut<'borrow, 'arena, T> {
-    type Target = TypeCtxImmut<'borrow, 'arena, T>;
+impl<'borrow, 'arena, T: Tag, K> Deref for TypeCtxMut<'borrow, 'arena, T, K> {
+    type Target = TypeCtxImmut<'borrow, 'arena, T, K>;
 
     fn deref(&self) -> &Self::Target {
         // SAFETY:
@@ -292,7 +293,10 @@ impl<'borrow, 'arena, T: Tag> Deref for TypeCtxMut<'borrow, 'arena, T> {
     }
 }
 
-impl<'borrow, 'arena, T: Tag> TypeCtxMut<'borrow, 'arena, T> {
+impl<'borrow, 'arena, T: Tag, K> TypeCtxMut<'borrow, 'arena, T, K>
+where
+    K: Eq + Hash,
+{
     /// Sets the type of a register to the type specified.
     ///
     /// # Examples
@@ -306,13 +310,175 @@ impl<'borrow, 'arena, T: Tag> TypeCtxMut<'borrow, 'arena, T> {
     /// type_ctx.insert(register, |_| Type::Bytes); // not ok, must retain SSA form
     /// ```
     #[track_caller]
-    pub fn insert(&mut self, key: RegisterId<T>, value: Type<'arena, T>) {
-        let no_value_present = matches!(self.registers.insert(key, value), None);
+    pub fn insert(&mut self, key: K, value: Type<'arena, T>) {
+        match value {
+            Type::Union(union) => {}
+            _ => {}
+        }
+
+        let no_value_present = matches!(self.lookup.insert(key, value), None);
         assert!(no_value_present, "should not overwrite register");
+    }
+
+    /// Gets the type of a register.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use crate::id::NoContext;
+    /// let mut ctx = TypeCtx::<NoContext>::new();
+    /// let register = RegisterId::new();
+    ///
+    /// ctx.insert(register, Type::Any);
+    /// assert!(type_ctx.get_mut(&register, |v| v.unwrap().is_same_kind(&Type::<NoContext>::Any)));
+    /// ```
+    pub fn get_mut(&mut self, key: &K) -> Option<&mut Type<'arena, T>> {
+        self.lookup.get_mut(key)
+    }
+
+    /// Given a [`Type`] contained within another [`TypeCtx`], this method will
+    /// duplicate that type into the current arena, so that it is usable as a
+    /// [`Type`] within the current arena.
+    ///
+    /// To duplicate types, this uses the [`TypeDuplication`] struct to clone a
+    /// single type. If cloning multiple types, it is more efficient to reuse
+    /// the [`TypeDuplication`] struct by creating it yourself.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut ctx1 = TypeCtx::new();
+    ///
+    /// let register = RegisterId::new();
+    /// let typ1 = ctx1.make_type_bytes([1, 2, 3]);
+    /// ctx1.insert(register, typ);
+    ///
+    /// let mut ctx2 = TypeCtx::new();
+    ///
+    /// ctx1.borrow_mut(|ctx1| {
+    ///     ctx2.borrow_mut(|ctx2| {
+    ///         let typ2 = ctx2.duplicate_type(ctx1.get(&register));
+    ///         ctx2.insert(register, typ2);
+    ///     });
+    /// });
+    /// ```
+    pub fn duplicate_type<'distant_arena>(
+        &mut self,
+        other: Type<'distant_arena, T>,
+    ) -> Type<'arena, T> {
+        TypeDuplication::new(self).duplicate_type(other)
     }
 }
 
-impl<'borrow, 'arena, T: Tag> TypeCtxImmut<'borrow, 'arena, T> {
+/// A struct that duplicates types from one [`TypeCtx`] to another. This records
+/// which types have already been duplicated into the other arena, and prevents
+/// duplicate work from being done. This anti-reduplication feature is necessary
+/// to ensure that cyclic records can be duplicated, and also yields performance
+/// benefits when cloning multiple types.
+pub struct TypeDuplication<'borrow, 'arena, 'distant_arena, 'type_ctx, T: Tag, K> {
+    type_ctx: &'type_ctx mut TypeCtxMut<'borrow, 'arena, T, K>,
+    /// Using the [`Eq`] trait of [`Type`]s, this checks for referential level
+    /// equality between types before deciding to clone them. This is cheap and
+    /// effective.
+    duplications: FxHashMap<Type<'distant_arena, T>, Type<'arena, T>>,
+}
+
+impl<'b, 'a, 'd, 't, T: Tag, K: Hash + Eq> TypeDuplication<'b, 'a, 'd, 't, T, K> {
+    /// Creates a new instance of a [`TypeDuplication`] struct.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut ctx = TypeCtx::new();
+    ///
+    /// ctx.borrow_mut(|ctx| {
+    ///     let dup = TypeDuplication::new(ctx);
+    /// });
+    /// ```
+    pub fn new(type_ctx: &'t mut TypeCtxMut<'b, 'a, T, K>) -> Self {
+        Self {
+            type_ctx,
+            duplications: Default::default(),
+        }
+    }
+
+    /// Duplicates a type from one [`TypeCtx`] to another, and doesn't
+    /// re-duplicate types that have already been duplicated within the lifetime
+    /// of this [`TypeDuplication`].
+    pub fn duplicate_type(&mut self, typ: Type<'d, T>) -> Type<'a, T> {
+        macro_rules! cache {
+            ($x:expr) => {
+                if let Some(result) = self.duplications.get(&$x) {
+                    return *result;
+                }
+            };
+        }
+
+        match typ {
+            // simple types
+            Type::Any => Type::Any,
+            Type::Nothing => Type::Nothing,
+            Type::Bytes => Type::Bytes,
+            Type::Number => Type::Number,
+            Type::Boolean => Type::Boolean,
+            Type::Atom(x) => Type::Atom(x),
+            Type::Int(x) => Type::Int(x),
+            Type::Float(x) => Type::Float(x),
+            Type::Bool(x) => Type::Bool(x),
+            Type::FnPtr(x) => Type::FnPtr(x),
+            Type::Byts(handle) => {
+                cache!(typ);
+
+                let dest = self.type_ctx.make_type_byts(&handle);
+                self.duplications.insert(typ, dest);
+                dest
+            }
+            Type::Record(handle) => {
+                cache!(typ);
+
+                let src_record = handle.borrow();
+
+                // create the type and insert it early
+                // this makes the recursive case fetch the type
+                let record_typ =
+                    (self.type_ctx).make_type_record(Record::new(src_record.unique_id()));
+                self.duplications.insert(typ, record_typ);
+
+                // duplicate the kvps of the record
+                let mut dest_record = record_typ.unwrap_record().borrow_mut();
+                for (key, value) in src_record.iter() {
+                    let dest_key = self.duplicate_type(*key);
+                    let dest_value = self.duplicate_type(*value);
+
+                    dest_record.insert(dest_key, dest_value);
+                }
+
+                record_typ
+            }
+            Type::Union(handle) => {
+                cache!(typ);
+
+                let src_union = handle.borrow();
+
+                // create the type and insert it early
+                // this makes the recursive case fetch the type
+                let union_typ = (self.type_ctx).make_type_union(Union::new(src_union.unique_id()));
+                self.duplications.insert(typ, union_typ);
+
+                // duplicate the elements of the union
+                let mut dest_union = union_typ.unwrap_union().borrow_mut();
+                dest_union.extend(src_union.iter().map(|t| self.duplicate_type(*t)));
+
+                union_typ
+            }
+        }
+    }
+}
+
+impl<'borrow, 'arena, T: Tag, K> TypeCtxImmut<'borrow, 'arena, T, K>
+where
+    K: Eq + Hash,
+{
     /// Gets the type of a register.
     ///
     /// # Examples
@@ -325,14 +491,16 @@ impl<'borrow, 'arena, T: Tag> TypeCtxImmut<'borrow, 'arena, T> {
     /// ctx.insert(register, Type::Any);
     /// assert!(type_ctx.get(&register, |v| v.unwrap().is_same_kind(&Type::<NoContext>::Any)));
     /// ```
-    pub fn get(&self, key: &RegisterId<T>) -> Option<&Type<'arena, T>> {
-        self.registers.get(key)
+    pub fn get(&self, key: &K) -> Option<&Type<'arena, T>> {
+        self.lookup.get(key)
     }
+}
 
-    /// Constructs a [`Record`] in this [`TypeCtx`]
-    pub fn make_record(&self) -> Record<'arena, T> {
-        Record::new(self.unique_allocation_id_counter.next())
-    }
+impl<'borrow, 'arena, T: Tag, K> TypeCtxImmut<'borrow, 'arena, T, K> {
+    // the reason our methods implement `T -> Type` rather than a `T -> Handle<T>`
+    // is because the caller *already owns* a T. if they wanna modify it, they
+    // can do so while they still own it. they only time they'd want a handle to
+    // it is when you wanna stuff it into a type.
 
     /// Constructs an instance of [`Type::Byts`] for this [`TypeCtx`]
     ///
@@ -376,6 +544,29 @@ impl<'borrow, 'arena, T: Tag> TypeCtxImmut<'borrow, 'arena, T> {
     /// ```
     pub fn make_type_record(&self, record: Record<'arena, T>) -> Type<'arena, T> {
         Type::Record(RecordHandle(CtxBox::new(self.arena, RefCell::new(record))))
+    }
+
+    /// Constructs an instance of [`Type::Union`] for this [`TypeCtx`]
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use crate::id::NoContext;
+    /// let mut ctx = TypeCtx::<NoContext>::new();
+    ///
+    /// let is_union = ctx.borrow(|ctx| {
+    ///     let union: Type<_> = ctx.make_type_union(Union::new());
+    ///     matches!(byts, Type::Union(_))
+    /// });
+    ///
+    /// assert!(is_union)
+    /// ```
+    pub fn make_type_union(&self, union: Union<'arena, T>) -> Type<'arena, T> {
+        Type::Union(UnionHandle(CtxBox::new(self.arena, RefCell::new(union))))
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&K, &Type<'arena, T>)> {
+        self.lookup.iter()
     }
 }
 

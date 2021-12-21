@@ -27,10 +27,14 @@ mod type_relation;
 pub use type_relation::TypeRelation;
 
 mod rec_ctx;
+pub use rec_ctx::Record;
+
+mod union;
+pub use union::Union;
 
 mod assoc_eq;
 mod type_ctx;
-pub use type_ctx::TypeCtx;
+pub use type_ctx::{TypeCtx, TypeDuplication};
 
 /// The JSSAT [`Type`] used to represent the type of a value.
 ///
@@ -46,7 +50,14 @@ pub use type_ctx::TypeCtx;
 ///
 /// Determining if a [`Type`] is a subtype or supertype is doable via the
 /// [`Type::is_substitutable_by`] method.
-#[derive(Clone, Copy, Debug, EnumKind, Hash)]
+///
+/// [`Type`]s implement the [`PartialEq`] and [`Eq`] trait for equality.
+/// However, this only performs a shallow equality comparison. Two types may
+/// have the same values, but if they are not exactly the same type within the
+/// same [`TypeCtx`], this equality comparison will fail. Use the
+// TODO: make `Type::deep_eq`
+/// [`Type::deep_eq`] method to check for deep equality.
+#[derive(Clone, Copy, Debug, EnumKind, Hash, PartialEq, Eq)]
 #[enum_kind(TypeKind)]
 pub enum Type<'ctx, T: Tag> {
     /// [`Type::Any`] represents any possible value in JSSAT, as a catch-all.
@@ -154,9 +165,36 @@ pub enum Type<'ctx, T: Tag> {
     /// example, the TypeScript type `"asdf" | 1` would be cleanly represented
     /// with a union. Unions are used as a single type to join two completely
     /// different types.
-    Union(UnionId<T>),
+    Union(UnionHandle<'ctx, T>),
 }
 
+impl<'ctx, T: Tag> Type<'ctx, T> {
+    pub fn try_into_record(self) -> Option<RecordHandle<'ctx, T>> {
+        match self {
+            Type::Record(handle) => Some(handle),
+            _ => None,
+        }
+    }
+
+    pub fn unwrap_record(&self) -> RecordHandle<'ctx, T> {
+        self.try_into_record().unwrap()
+    }
+
+    pub fn try_into_union(self) -> Option<UnionHandle<'ctx, T>> {
+        match self {
+            Type::Union(handle) => Some(handle),
+            _ => None,
+        }
+    }
+
+    pub fn unwrap_union(&self) -> UnionHandle<'ctx, T> {
+        self.try_into_union().unwrap()
+    }
+}
+
+/// The handle to some bytes. Conceptually, this type can be thought of as a
+/// `BytsHandle(&mut [u8])`, but the [`CtxBox`] is used to achieve interior
+/// mutability.
 #[repr(transparent)]
 #[derive(Clone, Copy, Hash, Deref, DerefMut, PartialEq, Eq)]
 pub struct BytsHandle<'ctx>(#[deref] CtxBox<'ctx, [u8]>);
@@ -188,6 +226,20 @@ impl<'ctx, T: Tag> Debug for RecordHandle<'ctx, T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let id = self.borrow().unique_id();
         f.debug_struct("Record").field("id", &id).finish()
+    }
+}
+
+/// The handle to a union. Conceptually, this type can be thought of as a
+/// `UnionHandle(&mut Union)`, but the [`CtxBox`] is used to achieve interior
+/// mutability.
+#[repr(transparent)]
+#[derive(Clone, Copy, Hash, Deref, DerefMut, PartialEq, Eq)]
+pub struct UnionHandle<'ctx, T: Tag>(#[deref] CtxBox<'ctx, RefCell<Union<'ctx, T>>>);
+
+impl<'ctx, T: Tag> Debug for UnionHandle<'ctx, T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let id = self.borrow().unique_id();
+        f.debug_struct("Union").field("id", &id).finish()
     }
 }
 
@@ -262,5 +314,3 @@ impl<'ctx, T: ?Sized> PartialEq for CtxBox<'ctx, T> {
         std::ptr::eq(ptr, ptr2)
     }
 }
-
-pub use rec_ctx::Record;

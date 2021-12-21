@@ -8,10 +8,10 @@ use rustc_hash::FxHashSet;
 
 use crate::id::{RecordId, Tag, UnionId};
 
-use super::{CtxBox, Record, RecordHandle, Type, TypeCtx};
+use super::{CtxBox, Record, RecordHandle, Type, TypeCtx, UnionHandle};
 
-impl<'ctx, T: Tag> PartialEq for Type<'ctx, T> {
-    fn eq(&self, other: &Self) -> bool {
+impl<'ctx, T: Tag> Type<'ctx, T> {
+    fn deep_eq(&self, other: &Self) -> bool {
         let mut resolver = EqualityResolver::new();
 
         if resolver.are_not_equal(self, other) {
@@ -22,17 +22,17 @@ impl<'ctx, T: Tag> PartialEq for Type<'ctx, T> {
             while let Some((a, b)) = resolver.record_constraints.next() {
                 let a = a.borrow();
                 let b = b.borrow();
-                let a_pairs = a.key_value_pairs();
-                let b_pairs = b.key_value_pairs();
 
-                for (k, v) in a_pairs.iter() {
-                    if let Some(matching_fact) = b_pairs.iter().find(|(k2, v2)| k == k2) {
-                        let (_, matching_v) = *matching_fact;
+                for (k, v) in a.iter() {
+                    todo!()
+                    // if let Some(matching_fact) = b.iter().find(|(k2, v2)| k
+                    // == k2) {     let (_, matching_v) =
+                    // *matching_fact;
 
-                        if resolver.are_not_equal(*v, matching_v) {
-                            return false;
-                        }
-                    }
+                    //     if resolver.are_not_equal(*v, matching_v) {
+                    //         return false;
+                    //     }
+                    // }
                 }
             }
 
@@ -70,7 +70,7 @@ impl From<bool> for MaybeEqual {
 /// types.
 struct EqualityResolver<'ctx, T: Tag> {
     record_constraints: Constraints<RecordHandle<'ctx, T>>,
-    union_constraints: Constraints<UnionId<T>>,
+    union_constraints: Constraints<UnionHandle<'ctx, T>>,
 }
 
 impl<'ctx, T: Tag> EqualityResolver<'ctx, T> {
@@ -237,7 +237,7 @@ impl<T: Copy + Hash + Eq> Constraints<T> {
 #[cfg(test)]
 mod tests {
     use crate::id::{Counter, NoContext};
-    use crate::types::{Type, TypeCtx};
+    use crate::types::{Record, Type, TypeCtx};
 
     /// Compares if two simple records are equivalent:
     ///
@@ -249,14 +249,15 @@ mod tests {
     pub fn simple_eq() {
         let mut branch_hit = false;
         let gen = Counter::new();
+        let unique_id = Counter::new();
         let mut ctx = TypeCtx::<NoContext>::new();
 
         let reg1 = gen.next();
         let reg2 = gen.next();
 
         ctx.borrow_mut(|mut ctx| {
-            let rec1 = ctx.make_record();
-            let rec2 = ctx.make_record();
+            let rec1 = ctx.make_type_record(Record::new(unique_id.next()));
+            let rec2 = ctx.make_type_record(Record::new(unique_id.next()));
             // TODO: add `a : Int` as a fact
 
             // TODO: how to insert record

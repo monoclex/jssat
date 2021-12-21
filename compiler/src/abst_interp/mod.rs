@@ -3,6 +3,7 @@
 use std::fmt::Debug;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use jssat_ir::id::{LiftedCtx, Tag, UnionId, UniqueRecordId};
 // use petgraph::graph::DiGraph;
 use thiserror::Error;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
@@ -11,7 +12,67 @@ use tokio::sync::oneshot::{channel, Sender};
 use tokio::task::JoinHandle;
 
 use crate::lifted::{Function, FunctionId, LiftedProgram, RegisterId};
-use crate::types::TypeCtx;
+use crate::types::{Type, TypeCtx, TypeDuplication};
+
+// --- child worker ---
+struct ChildWorker<'program> {
+    code: &'program LiftedProgram,
+}
+
+struct Results {
+    type_info: Vec<TypeCtx>,
+    return_type: TypeCtx<LiftedCtx, ()>,
+}
+
+impl<'p> ChildWorker<'p> {
+    async fn work<'ctx>(&self, function_id: FunctionId, type_ctx: TypeCtx) -> Results {
+        todo!()
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum TotalKey<T: Tag> {
+    Record(UniqueRecordId<T>),
+    Union(UnionId<T>),
+}
+
+type TotalTypeCtx<T = LiftedCtx> = TypeCtx<T, TotalKey<T>>;
+
+struct TotalType {
+    ctx: TotalTypeCtx,
+}
+
+fn construct_total(results: &[Results]) -> TotalType {
+    let mut total = TotalTypeCtx::new();
+    total.borrow_mut(|mut total| {
+        for result in results {
+            for ctx in &result.type_info {
+                ctx.borrow(|ctx| {
+                    let mut dup = TypeDuplication::new(&mut total);
+                    let mut records = Vec::new();
+
+                    for (k, v) in ctx.iter() {
+                        let total_v = dup.duplicate_type(*v);
+
+                        if let Type::Record(handle) = total_v {
+                            let unique_id = handle.borrow().unique_id();
+                            records.push((total_v, unique_id));
+                        }
+                    }
+
+                    for (rec_typ, unique_id) in records {
+                        let record = total.get(&TotalKey::Record(unique_id)).unwrap();
+                        let mut union = record.unwrap_union().borrow_mut();
+                        union.push(rec_typ);
+                    }
+                });
+            }
+        }
+    });
+
+    TotalType { ctx: total }
+}
+//
 
 #[derive(Clone, Default)]
 struct CallGraph {
