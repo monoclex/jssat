@@ -1,0 +1,468 @@
+\documentclass[twocolumn]{article}
+
+\usepackage{listings}
+\usepackage{color}
+\usepackage{amsmath}
+\usepackage{array}
+\usepackage{fancyhdr}
+\usepackage{titling}
+\usepackage[hidelinks]{hyperref}
+\usepackage{natbib}
+
+\setlength{\parindent}{0pt}
+
+% code
+\lstdefinelanguage{jssatir}{
+  keywords={fn, return, jump, if, else},
+  keywordstyle=\color{blue}\bfseries
+}
+
+\lstset{
+  language=jssatir,
+  % backgroundcolor=\color{lightgray},
+  basicstyle=\footnotesize\ttfamily,
+  numberstyle=\footnotesize
+}
+
+% code macro
+\newcommand{\code}{\lstinline[mathescape=true,escapeinside={(*@}{@*)}]}
+
+% \newenvironment{code3}{\begin{lstlisting}}{\end{lstlisting}}
+
+% \newenvironment{code2}%
+% [1][]{%
+%   \begin{lstlisting}[caption=#1,mathescape=true,escapeinside={(*@}{@*)}]%
+% }%
+% {\end{lstlisting}}%
+
+% https://tex.stackexchange.com/a/112212
+\makeatletter
+\DeclareRobustCommand{\rvdots}{%
+  \vbox{
+    \baselineskip4\p@\lineskiplimit\z@
+    \kern-\p@
+    \hbox{ }
+    \hbox{.}\hbox{.}\hbox{.}
+  }}
+\makeatother
+
+\title{JSSAT IR Specification}
+\author{\textsc{SirJosh}}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+  JSSAT IR is used to represent dynamic programming languages, such as JavaScript,
+  Lua, or Lisp. By introducing a formal specification for JSSAT IR, it makes reasoning
+  about the validity of JSSAT IR transformations easier, verifiable, and ensures
+  that there is a correct interpretation of JSSAT IR.
+\end{abstract}
+
+\section{Values}
+
+In JSSAT IR, registers hold values. The different possibilities for what a value
+may be are enumerated in this section. In addition, the memory model of values are
+described.
+
+\subsection{Memory Model}
+
+There are two kinds of values: primal, and referential. The characteristics of the
+two kinds of values are compared below:
+
+\begin{center}
+  \begin{tabular}{ |c|c|c| }
+    \hline
+               & Primal    & Referential      \\
+    \hline
+    Comparison & by value  & by heap position \\
+    \hline
+    Mutability & immutable & mutable          \\
+    \hline
+    Size       & fixed     & grows            \\
+    \hline
+  \end{tabular}
+\end{center}
+
+\subsubsection{The Heap}
+
+Whenever a referential value gets created, the contents (represented by $v_n$) of
+the value are placed at the end of the heap (in this paper, this execution model
+of JSSAT is single threaded).
+
+\begin{center}
+  \begin{tabular}{ |c|c|c|c| }
+    \hline
+    $v_0$ & $v_1$ & $v_2$ & \dots \\
+    \hline
+  \end{tabular}
+\end{center}
+
+When a referential value is placed within the heap, the position it's in (the $n$ of $v_n$)
+is used for equality comparison.
+
+\subsection{Referential Values}
+
+\subsubsection{Records}
+
+A record is a mapping of values to values, \(\{ V_k \mapsto V_v \}\). Specifc operations
+that may be performed on records are listed in the linear instruction section. Notably,
+any value may be used as a key of a record.
+
+\subsubsection{Lists}
+
+A list is a list of values, \([ v_0,\, v_1,\, \dots,\, v_n ]\). The functionality
+of lists can be replicated using records, but a seperate data structure is used
+to model lists, as using a list makes code generation more efficient (this is
+because lists will generate list-like behavior found in other languages).
+
+\subsubsection{Tuples}
+
+A tuple is a heterogeneous fixed-size list of values, \((v_0,\, v_1,\, \dots,\, v_n)\).
+The functionality of tuples can be replicated using records, but a seperate data
+structure is used to model tuples, as using a tuples makes code generation more
+efficient (this is because tuples will generate struct-like behavior found in other
+languages).
+
+\subsection{Primal Values}
+
+\subsubsection{Atoms}
+
+Atoms are unique values, which are unable to be equal to any other value other than
+themselves. This makes them useful for representing unique record keys, among other
+things. In this paper, atoms are represented as \textbf{bold text}.
+
+\subsubsection{Numbers}
+
+In dynamic programming language, there is often (JavaScript, Lua) one number type
+which is treated as a floating point number and, when possible, treated as an integer
+for efficiency. JSSAT exposes a variety of number types and has optimization passes
+to convert number types into more efficient number types (such as \code{f64} $\to$ \code{i32})
+when provable.
+
+\begin{center}
+  \begin{tabular}{ |c|c|c|c|c|c| }
+    \hline
+    bits:            & 8                & 16                & 32                & 64                & \(\infty\)           \\
+    \hline
+    floating point   &                  & \text{\code{f16}} & \text{\code{f32}} & \text{\code{f64}} &                      \\
+    \hline
+    signed integer   & \text{\code{i8}} & \text{\code{i16}} & \text{\code{i32}} & \text{\code{i64}} &                      \\
+    \hline
+    unsigned integer & \text{\code{u8}} & \text{\code{u16}} & \text{\code{u32}} & \text{\code{u64}} &                      \\
+    \hline
+    big integer      &                  &                   &                   &                   & \text{\code{bigint}} \\
+    \hline
+  \end{tabular}
+\end{center}
+
+\subsubsection{Function Pointers}
+
+A function pointer is a value which contains a reference to a function. These can
+be used to build up polymorphic objects with dynamic dispatch. There are instructions
+to call the functions that values point to, which will be detailed later.
+
+\subsubsection{Strings}
+
+A string is a contiguous buffer of bytes (encoding unspecified), currently only
+treated as a primal type because JavaScript strings are treated like value types.
+Will probably fix this later.
+
+\subsubsection{Booleans}
+
+A boolean is \code{true} or \code{false}, used when determining conditions.
+
+\section{Program Model}
+
+A JSSAT function is in SSA form, uses registers to hold values, and can only perform
+divergent control flow as a terminating instruction.
+
+\begin{lstlisting}[caption=An addition function, mathescape=true,escapeinside={(*@}{@*)}]
+fn $add$($r_1$, $r_2$)
+    $r_3$ $\leftarrow$ $r_1 + r_2$
+    return $r_3$
+\end{lstlisting}
+
+In the most general form, a function can have any number of arguments, any number
+of linear instructions, and a single terminating instruction at the end.
+
+\begin{lstlisting}[mathescape=true,escapeinside={(*@}{@*)}]
+fn $f$($r_1$, $\dots$, $r_n$)
+    $\rvdots$ linear instructions
+    terminating instruction
+\end{lstlisting}
+
+As JSSAT functions are in SSA form, once a value is assigned to a register, it cannot
+be modified.
+
+\begin{lstlisting}[caption=An invalid function,mathescape=true,escapeinside={(*@}{@*)}]
+fn $increment$($r_1$)
+    $r_1$ $\leftarrow$ $r_1 + 1$ $\textit{invalid, violates SSA form}$
+    return $r_1$
+\end{lstlisting}
+
+A JSSAT function can have any number of linear instructions. A linear instruction
+is one that does not diverge control flow, meaning that for a given linear instruction
+\({instructions}_{{index}}\), the next instruction to execute must be \({instructions}_{{index}+1}\).
+
+\begin{lstlisting}[caption=Linear instructions,mathescape=true,escapeinside={(*@}{@*)}]
+fn $f$($r_1$)
+    $r_2$ $\leftarrow$ $r_1 + 1$  $\textit{// addition is linear}$
+    $r_3$ $\leftarrow$ $f$($r_2$) $\textit{// function calls are linear}$
+    return $r_3$
+\end{lstlisting}
+
+\subsection{Execution Model}
+
+A JSSAT IR program begins at a function.
+
+We first bind the parameter registers to the values given to the function:
+
+\begin{center}
+  Registers \\
+  \begin{tabular}{ |c|c|c| }
+    \hline
+    $r_1$ & $r_2$ & \dots \\
+    \hline
+    2     & 3     & \dots \\
+    \hline
+  \end{tabular}
+\end{center}
+
+\begin{lstlisting}[mathescape=true,escapeinside={(*@}{@*)}]
+fn $add$($r_1$, $r_2$) $\textit{// <-- we are here}$
+    $r_3$ $\leftarrow$ $r_1 + r_2$
+    if $r_3$   $\rightarrow$ return $r_3$
+    else  $\rightarrow$ return $r_3$
+\end{lstlisting}
+
+Then, we execute every instruction, binding the results of executing instructions
+to registers if necessary.
+
+\begin{center}
+  Registers \\
+  \begin{tabular}{ |c|c|c|c| }
+    \hline
+    $r_1$ & $r_2$ & $r_3$ & \dots \\
+    \hline
+    2     & 3     & 5     & \dots \\
+    \hline
+  \end{tabular}
+\end{center}
+
+\begin{lstlisting}[mathescape=true,escapeinside={(*@}{@*)}]
+fn $add$($r_1$, $r_2$)
+    $r_3$ $\leftarrow$ $r_1 + r_2$ $\textit{// <-- we are here}$
+    if $r_3$   $\rightarrow$ return $r_3$
+    else  $\rightarrow$ return $r_3$
+\end{lstlisting}
+
+If an instruction is invalid to execute, the execution of the program immediately fails.
+
+\begin{lstlisting}[mathescape=true,escapeinside={(*@}{@*)}]
+fn $add$($r_1$, $r_2$)
+    $r_3$ $\leftarrow$ $r_1 + r_2$
+    $\textit{// v-- this is invalid, so we stop}$
+    if $r_3$   $\rightarrow$ return $r_3$
+    else  $\rightarrow$ return $r_3$
+\end{lstlisting}
+
+\subsection{Terminating Instructions}
+
+A terminating instruction is one that diverges control flow. There are three terminating
+instructions: \code{return}, \code{jump}, and \code{if}.
+
+\subsubsection{Return}
+
+\begin{lstlisting}[caption=Return example,mathescape=true,escapeinside={(*@}{@*)}]
+fn $one$()
+    $r_1$ $\leftarrow$ 1
+    $r_2$ $\leftarrow$ $identity$($r_1$)
+    return $r_2$
+
+fn $identity$($r_1$)
+    return $r_1$
+\end{lstlisting}
+
+When a function in JSSAT is called via \code{$f$($x$)}, it
+will continue to execute until a \code{return} terminating instruction occurs.
+Then, if the return terminating instruction is coupled with a register (i.e. \code{return $r_1$}),
+the value inside of the register coupled with the return terminating instruction
+will be used as the value of the called function.
+
+\subsubsection{Jump}
+
+The \code{jump} terminating function will continue execution at the function specified,
+passing the values in registers specified within the instruction as parameters to the functions
+
+\begin{lstlisting}[mathescape=true,escapeinside={(*@}{@*)}]
+fn $main$()
+    $r_1$ $\leftarrow$ 1
+    $r_2$ $\leftarrow$ $f$($r_1$)
+    return $r_2$
+
+fn $f$($r_1$)
+    $r_2$ $\leftarrow$ $r_1 + 1$
+    jump $g$($r_2$)
+
+fn $g$($r_1$)
+    return $r_1$
+\end{lstlisting}
+
+It is invalid to \code{jump} to a function without the same number of registers.
+
+\begin{lstlisting}[caption=An invalid jump,mathescape=true,escapeinside={(*@}{@*)}]
+fn $f$()
+    jump $g$()
+
+fn $g$($r_1$)
+    return $r_1$
+\end{lstlisting}
+
+Conceptually, a \code{jump} can be thought of as a call and return. In the following
+example, $f_1$ and $f_2$ are conceptually similar and result in the same end goal:
+
+\begin{lstlisting}[mathescape=true,escapeinside={(*@}{@*)}]
+fn $f_1$()
+    jump $one$()
+
+fn $f_2$()
+    $r_1$ $\leftarrow$ $one$()
+    return $r_1$
+
+fn $one$()
+    $r_1$ $\leftarrow$ 1
+    return $r_1$
+\end{lstlisting}
+
+\subsubsection{If}
+
+The \code{if} terminating instruction will conditionally jump to one of two branches,
+determined by whether or not a register is \code{true} or \code{false}.
+
+\begin{lstlisting}[mathescape=true,escapeinside={(*@}{@*)}]
+fn $f$($r_1$)
+    if $r_1$   $\rightarrow$ jump $a$()
+    else  $\rightarrow$ jump $b$()
+\end{lstlisting}
+
+\subsection{Linear Instructions}
+
+This section outlines the variety of instructions that JSSAT IR has. We find ourselves
+in a peculiar position when designing instructions. When executing JSSAT IR, the
+more instructions there are, the slower interpretation and abstract interpretation
+will be as there is more work and more information to retain during execution. Thus,
+it would be beneficial for execution speed to prioritize a small amount of instructions
+with overloaded meaning. However, we want to avoid overloading instructions with
+excess meaning otherwise it will be harder for users to get the exact semantics
+of their program correct (for example, meaning concatenation of strings but accidentally
+adding integers instead).
+
+\subsubsection{Record Instructions}
+
+\paragraph{\code{record.new}} Produces a new record on the heap
+
+\begin{enumerate}
+  \item $r_r$ register the record is assigned to
+  \item $h$ position in the heap the record bound to $r_r$ is at
+\end{enumerate}
+
+\begin{lstlisting}[mathescape=true,escapeinside={(*@}{@*)}]
+$r_r$ $\leftarrow$ record.new
+\end{lstlisting}
+
+\begin{center}
+  Heap \\
+  \begin{tabular}{ |c|c| }
+    \hline
+    \dots & $h$    \\
+    \hline
+    \dots & $\{\}$ \\
+    \hline
+  \end{tabular}
+\end{center}
+
+\paragraph{\code{record.set}} Creates an association from value to value within a record
+
+\begin{enumerate}
+  \item $r_r$ register the record is bound to
+  \item $h$ position in the heap the record bound to $r_r$ is at
+  \item $r_k$ register the value to be used as a key is bound to
+  \item $r_v$ register the value to be used as a value is bound to
+  \item $V_k$ value of the key, bound to $r_k$
+  \item $V_v$ value of the value, bound to $r_v$
+\end{enumerate}
+
+\begin{lstlisting}[mathescape=true,escapeinside={(*@}{@*)}]
+record.set $r_r$, $r_k \mapsto r_v$
+\end{lstlisting}
+
+\begin{center}
+  Heap \\
+  \begin{tabular}{ |c|c|c| }
+    \hline
+    \dots & $h$                            & \dots \\
+    \hline
+    \dots & $\{ \dots, V_k \mapsto V_v \}$ & \dots \\
+    \hline
+  \end{tabular}
+\end{center}
+
+\paragraph{\code{record.get}} Gets the value at a given key of a record
+
+\begin{enumerate}
+  \item $r_r$ register the record is bound to
+  \item $h$ position in the heap the record bound to $r_r$ is at
+  \item $r_k$ register the value to be used as a key is bound to
+  \item $V_k$ value of the key, bound to $r_k$
+  \item $V_v$ value of the value
+  \item $r_y$ register the result is bound to
+\end{enumerate}
+
+\begin{lstlisting}[mathescape=true,escapeinside={(*@}{@*)}]
+$r_y$ $\leftarrow$ record.get $r_r$[$r_k$]
+\end{lstlisting}
+
+In the success case, $V_v$ is bound to $r_y$:
+
+\begin{center}
+  Heap$_{success}$ \\
+  \begin{tabular}{ |c|c|c| }
+    \hline
+    \dots & $h$                            & \dots \\
+    \hline
+    \dots & $\{ \dots, V_k \mapsto V_v \}$ & \dots \\
+    \hline
+  \end{tabular}
+\end{center}
+
+In the failure case, the instruction is invalid to execute.
+
+\begin{center}
+  Heap$_{failure}$ \\
+  \begin{tabular}{ |c|c|c| }
+    \hline
+    \dots & $h$           & \dots \\
+    \hline
+    \dots & $\{ \dots \}$ & \dots \\
+    \hline
+  \end{tabular}
+\end{center}
+
+\section{Divergence from Implementation}
+
+This specification diverges from the real implementation of JSSAT IR in the JSSAT
+compiler. The things not implemented are as follows:
+
+\begin{enumerate}
+  \item Tuples
+  \item Plethora of number types
+  \item Optimization passes for automatic number coercion
+\end{enumerate}
+
+\bibliographystyle{plain}
+\bibliography{proofpapers.bib}
+
+\end{document}
