@@ -1,9 +1,12 @@
 //! The abstract interpretation module in JSSAT.
 
 use std::fmt::Debug;
+use std::ops::{Index, IndexMut};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 use jssat_ir::id::{LiftedCtx, Tag, UnionId, UniqueRecordId};
+use rustc_hash::FxHashMap;
 // use petgraph::graph::DiGraph;
 use thiserror::Error;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
@@ -13,6 +16,165 @@ use tokio::task::JoinHandle;
 
 use crate::lifted::{Function, FunctionId, LiftedProgram, RegisterId};
 use crate::types::{Type, TypeCtx, TypeDuplication};
+
+struct AbsIntEngine<'program> {
+    program: &'program LiftedProgram,
+    recursion_detector: RecursionDetector,
+    function_cache: FunctionCache,
+}
+
+struct AbsIntEngineRaw<'engine> {
+    recursion_detector: &'engine mut RecursionDetector,
+    function_cache: &'engine mut FunctionCache,
+}
+
+impl<'p> AbsIntEngine<'p> {
+    pub fn new(program: &'p LiftedProgram) -> Self {
+        Self {
+            program,
+            recursion_detector: Default::default(),
+            function_cache: Default::default(),
+        }
+    }
+
+    pub fn call(&mut self, function: FunctionId, args: TypeCtx) -> EvalResult {
+        // 1. check previous execution results
+        let idx = self.function_cache.state(function, args);
+        let (args, state) = &mut self.function_cache[idx];
+
+        match state {
+            EvaluationState::Completed(result) => return result.clone(),
+            EvaluationState::PartiallyCompleted(result) => return result.clone(),
+            EvaluationState::InProgress => return EvalResult::new_never(),
+            EvaluationState::NeverExecuted => {}
+        };
+
+        // 2. if we're too recursive, generalize our arguments
+        let is_recursion = self.recursion_detector.enter_fn(function);
+        if is_recursion {
+            todo!("generalize arguments, then continue execution")
+        }
+
+        // 3. simulate the function
+        let code = self.program.functions.get(&function).unwrap();
+
+        self.call(function, TypeCtx::new());
+
+        self.recursion_detector.exit_fn(function);
+        todo!()
+    }
+}
+
+// --- FUNCTION INVOCATION CACHE ---
+
+#[derive(Default)]
+struct FunctionCache {
+    invocations: FxHashMap<FunctionId, Vec<(TypeCtx, EvaluationState)>>,
+}
+
+#[derive(Clone, Copy)]
+struct InvocationIndex(FunctionId, usize);
+
+#[derive(Clone)]
+struct EvalResult(Arc<()>);
+
+impl EvalResult {
+    pub fn new_never() -> Self {
+        todo!()
+    }
+
+    // if this was created with `new_never`, `is_partial` returns true. otherwise it
+    // returns false
+    pub fn is_partial(&self) -> bool {
+        todo!()
+    }
+
+    pub fn return_type(&self) -> TypeCtx<crate::id::LiftedCtx, ()> {
+        todo!()
+    }
+}
+
+enum EvaluationState {
+    NeverExecuted,
+    InProgress,
+    PartiallyCompleted(EvalResult),
+    Completed(EvalResult),
+}
+
+impl FunctionCache {
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    pub fn state(&mut self, function: FunctionId, args: TypeCtx) -> InvocationIndex {
+        let mut fn_invocations = self.invocations.entry(function).or_default();
+
+        let mut index = None;
+
+        args.borrow(|args| {
+            for (idx, (other_key, _)) in fn_invocations.iter_mut().enumerate() {
+                if other_key.borrow(|other_key| other_key == args) {
+                    index = Some(idx);
+                    break;
+                }
+            }
+        });
+
+        let index = match index {
+            Some(i) => i,
+            None => {
+                let index = fn_invocations.len();
+                fn_invocations.push((args, EvaluationState::NeverExecuted));
+                index
+            }
+        };
+
+        InvocationIndex(function, index)
+    }
+}
+
+impl Index<InvocationIndex> for FunctionCache {
+    type Output = (TypeCtx, EvaluationState);
+
+    fn index(&self, index: InvocationIndex) -> &Self::Output {
+        &self.invocations[&index.0][index.1]
+    }
+}
+
+impl IndexMut<InvocationIndex> for FunctionCache {
+    fn index_mut(&mut self, index: InvocationIndex) -> &mut Self::Output {
+        &mut self.invocations.get_mut(&index.0).unwrap()[index.1]
+    }
+}
+
+// --- RECURSION DETECTION LOGIC ---
+
+/// The number of times for a function to be called within itself to be
+/// considered recursion. This will need some fine tuning as JSSAT grows and
+/// experiences a wider variety of programs.
+const ARBITRARY_RECURSION_THRESHOLD: usize = 10;
+
+#[derive(Clone, Default)]
+struct RecursionDetector {
+    calls: FxHashMap<FunctionId, usize>,
+}
+
+impl RecursionDetector {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn enter_fn(&mut self, function: FunctionId) -> bool {
+        let value = self.calls.entry(function).or_insert(0);
+        *value += 1;
+        *value >= ARBITRARY_RECURSION_THRESHOLD
+    }
+
+    fn exit_fn(&mut self, function: FunctionId) {
+        let value = self.calls.get_mut(&function).unwrap();
+        *value -= 1;
+    }
+}
 
 // --- child worker ---
 struct ChildWorker<'program> {

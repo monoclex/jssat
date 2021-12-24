@@ -8,7 +8,7 @@ use rustc_hash::FxHashSet;
 
 use crate::id::{RecordId, Tag, UnionId};
 
-use super::{CtxBox, Record, RecordHandle, Type, TypeCtx, UnionHandle};
+use super::{type_ctx::TypeCtxImmut, CtxBox, Record, RecordHandle, Type, TypeCtx, UnionHandle};
 
 impl<'ctx, T: Tag> Type<'ctx, T> {
     fn deep_eq(&self, other: &Self) -> bool {
@@ -16,29 +16,6 @@ impl<'ctx, T: Tag> Type<'ctx, T> {
 
         if resolver.are_not_equal(self, other) {
             return false;
-        }
-
-        while resolver.has_constraints_to_verify() {
-            while let Some((a, b)) = resolver.record_constraints.next() {
-                let a = a.borrow();
-                let b = b.borrow();
-
-                for (k, v) in a.iter() {
-                    todo!()
-                    // if let Some(matching_fact) = b.iter().find(|(k2, v2)| k
-                    // == k2) {     let (_, matching_v) =
-                    // *matching_fact;
-
-                    //     if resolver.are_not_equal(*v, matching_v) {
-                    //         return false;
-                    //     }
-                    // }
-                }
-            }
-
-            while let Some((a, b)) = resolver.union_constraints.next() {
-                todo!()
-            }
         }
 
         true
@@ -68,17 +45,48 @@ impl From<bool> for MaybeEqual {
 
 /// Datastructure that maintains state during equality comparisons between
 /// types.
-struct EqualityResolver<'ctx, T: Tag> {
-    record_constraints: Constraints<RecordHandle<'ctx, T>>,
-    union_constraints: Constraints<UnionHandle<'ctx, T>>,
+pub struct EqualityResolver<'ctx1, 'ctx2, T: Tag> {
+    record_constraints: Constraints<RecordHandle<'ctx1, T>, RecordHandle<'ctx2, T>>,
+    union_constraints: Constraints<UnionHandle<'ctx1, T>, UnionHandle<'ctx2, T>>,
 }
 
-impl<'ctx, T: Tag> EqualityResolver<'ctx, T> {
+impl<'ctx1, 'ctx2, T: Tag> EqualityResolver<'ctx1, 'ctx2, T> {
     pub fn new() -> Self {
         Self {
             record_constraints: Default::default(),
             union_constraints: Default::default(),
         }
+    }
+
+    /// Solves all constraints until there are none less. If any types within
+    /// the constraints are not equal, this will return `true`. If all types are
+    /// not not-equal (meaning that they are either "probably equal" or "are
+    /// equal"), this will return `false`.
+    pub fn solve_constraints(&mut self) -> bool {
+        while self.has_constraints_to_verify() {
+            while let Some((a, b)) = self.record_constraints.next() {
+                let a = a.borrow();
+                let b = b.borrow();
+
+                for (k, v) in a.iter() {
+                    todo!();
+                    // if let Some(matching_fact) = b.iter().find(|(k2, v2)|
+                    // k             // == k2) {     let (_, matching_v) =
+                    // *matching_fact;
+
+                    //     if resolver.are_not_equal(*v, matching_v) {
+                    //         return false;
+                    //     }
+                    // }
+                }
+            }
+
+            while let Some((a, b)) = self.union_constraints.next() {
+                todo!()
+            }
+        }
+
+        false
     }
 
     pub fn has_constraints_to_verify(&self) -> bool {
@@ -89,7 +97,7 @@ impl<'ctx, T: Tag> EqualityResolver<'ctx, T> {
     ///
     /// If all types are not not equal, then it can be said that all types are
     /// equal.
-    pub fn are_not_equal(&mut self, a: &Type<'ctx, T>, b: &Type<'ctx, T>) -> bool {
+    pub fn are_not_equal(&mut self, a: &Type<'ctx1, T>, b: &Type<'ctx2, T>) -> bool {
         use Type::*;
 
         let maybe_equal = match (a, b) {
@@ -133,17 +141,17 @@ impl<'ctx, T: Tag> EqualityResolver<'ctx, T> {
 /// Once all is said and done, if there were no definitely false comparisons, we
 /// can safely assume that all things that were probably equal to one another,
 /// were indeed equal to one another.
-struct Constraints<T> {
+struct Constraints<T1, T2> {
     /// List of elements that are assumed to be equal.
-    equals: FxHashSet<(T, T)>,
+    equals: FxHashSet<(T1, T2)>,
     /// List of elements to check for deep equality.
     ///
     /// The order in which deep equality is checked for doesn't matter, so we
     /// just push and pop from a Vec for maximum performance.
-    check: Vec<(T, T)>,
+    check: Vec<(T1, T2)>,
 }
 
-impl<T> Constraints<T> {
+impl<T1, T2> Constraints<T1, T2> {
     /// Creates a new [`Constraints`].
     ///
     /// # Examples
@@ -163,13 +171,13 @@ impl<T> Constraints<T> {
     }
 }
 
-impl<T> Default for Constraints<T> {
+impl<T1, T2> Default for Constraints<T1, T2> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<T: Copy + Hash + Eq> Constraints<T> {
+impl<T1: Copy + Hash + Eq, T2: Copy + Hash + Eq> Constraints<T1, T2> {
     /// Assumes two entries are equal, and inserts them into the list of
     /// constraints.
     ///
@@ -180,12 +188,12 @@ impl<T: Copy + Hash + Eq> Constraints<T> {
     ///
     /// constraints.assume_equal(1, 1);
     /// ```
-    pub fn assume_equal(&mut self, a: T, b: T) {
+    pub fn assume_equal(&mut self, a: T1, b: T2) {
         // insert in both (a, b) and (b, a) so that comparisons for the reverse of the
         // two pair succeed.
         let did_insert = self.equals.insert((a, b));
-        let did_insert_2 = self.equals.insert((b, a));
-        debug_assert_eq!(did_insert, did_insert_2);
+        // let did_insert_2 = self.equals.insert((b, a));
+        // debug_assert_eq!(did_insert, did_insert_2);
 
         if did_insert {
             self.check.push((a, b));
@@ -202,7 +210,7 @@ impl<T: Copy + Hash + Eq> Constraints<T> {
     /// constraints.assume_equal(1, 1);
     /// assert!(constraints.next(), Some((1, 1)));
     /// ```
-    pub fn next(&mut self) -> Option<(T, T)> {
+    pub fn next(&mut self) -> Option<(T1, T2)> {
         self.check.pop()
     }
 }

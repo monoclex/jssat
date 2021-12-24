@@ -33,6 +33,8 @@ mod union;
 pub use union::Union;
 
 mod assoc_eq;
+pub use assoc_eq::{EqualityResolver, MaybeEqual};
+
 mod type_ctx;
 pub use type_ctx::{TypeCtx, TypeDuplication};
 

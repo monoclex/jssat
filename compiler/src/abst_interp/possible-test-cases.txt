@@ -60,3 +60,9 @@ console.log(ski("000200200211010020020121002110020020021101002002012100200201210
 ---
 https://gist.github.com/SimonMeskens/aadd57b4adc952b2e878016d0b81598b
 ---
+function sink(x) {
+    while (x.x) {
+        x = x.x;
+    }
+}
+---

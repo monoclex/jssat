@@ -9,7 +9,7 @@ use bumpalo::Bump;
 use ouroboros::self_referencing;
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use super::{CtxBox, Record, RecordHandle, Type, Union, UnionHandle};
+use super::{CtxBox, EqualityResolver, Record, RecordHandle, Type, Union, UnionHandle};
 use crate::{
     id::{Counter, RegisterId, Tag, UniqueRecordId},
     types::BytsHandle,
@@ -567,6 +567,67 @@ impl<'borrow, 'arena, T: Tag, K> TypeCtxImmut<'borrow, 'arena, T, K> {
 
     pub fn iter(&self) -> impl Iterator<Item = (&K, &Type<'arena, T>)> {
         self.lookup.iter()
+    }
+}
+
+struct Item<'a> {
+    _x: std::marker::PhantomData<&'a ()>,
+}
+
+fn f<'a: 'c, 'b: 'c, 'c>(
+    a: FxHashMap<usize, Item<'a>>,
+    b: FxHashMap<usize, Item<'b>>,
+) -> Vec<Item<'c>> {
+    let mut merge = Merge { items: Vec::new() };
+
+    for (k, v1) in &a {
+        let v2 = b.get(k).unwrap();
+
+        merge.merge(v1, v2);
+    }
+
+    merge.items
+}
+
+struct Merge<'a> {
+    items: Vec<Item<'a>>,
+}
+
+extern "Rust" {
+    fn random() -> bool;
+}
+
+impl<'a> Merge<'a> {
+    pub fn merge(&mut self, left: &Item<'a>, right: &Item<'a>) {
+        self.items.push(Item {
+            _x: std::marker::PhantomData::default(),
+        })
+    }
+}
+
+impl<'borrow1, 'arena1, 'borrow2, 'arena2, T: Tag, K: Eq + Hash>
+    PartialEq<TypeCtxImmut<'borrow2, 'arena2, T, K>> for TypeCtxImmut<'borrow1, 'arena1, T, K>
+{
+    fn eq(&self, other: &TypeCtxImmut<'borrow2, 'arena2, T, K>) -> bool {
+        if self.lookup.len() != other.lookup.len() {
+            return false;
+        }
+
+        let mut eq = EqualityResolver::new();
+
+        for (k, v_self) in self.lookup {
+            let v_other = match other.lookup.get(k) {
+                Some(v) => v,
+                None => return false,
+            };
+
+            if eq.are_not_equal(v_self, v_other) {
+                return false;
+            }
+        }
+
+        let any_not_equal = eq.solve_constraints();
+        !any_not_equal
     }
 }
 
