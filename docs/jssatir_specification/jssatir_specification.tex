@@ -107,9 +107,9 @@ is used for equality comparison.
 
 \subsubsection{Records}
 
-A record is a mapping of values to values, \(\{ V_k \mapsto V_v \}\). Specifc operations
-that may be performed on records are listed in the linear instruction section. Notably,
-any value may be used as a key of a record.
+A record is a finite set of key-value pairs, \(\{ V_k \mapsto V_v \}\). Specifc
+operations that may be performed on records are listed in the linear instruction
+section. Notably, any value may be used as a key of a record.
 
 \subsubsection{Lists}
 
@@ -339,13 +339,36 @@ fn $one$()
 
 \subsubsection{If}
 
-The \code{if} terminating instruction will conditionally jump to one of two branches,
-determined by whether or not a register is \code{true} or \code{false}.
+The \code{if} terminating instruction will conditionally jump to one of two terminating
+instructions, determined by whether or not a register is \code{true} or \code{false}.
 
 \begin{lstlisting}[mathescape=true,escapeinside={(*@}{@*)}]
 fn $f$($r_1$)
     if $r_1$   $\rightarrow$ jump $a$()
     else  $\rightarrow$ jump $b$()
+\end{lstlisting}
+
+When reasoning about an \code{if}, it may be useful to only consider an \code{if}
+whose terminating instructions are only \code{jump}s. Reasoning about this limited
+variant of the \code{if} is easier, and it is trivial to convert \code{if}s into
+this limited variant. Below we show an example of this, where $f$ executes the same as $f^\prime$:
+
+\begin{lstlisting}[mathescape=true,escapeinside={(*@}{@*)}]
+fn $f$($r_1$, $r_2$)
+    if $r_1$   $\rightarrow$   if $r_2$   $\rightarrow$  jump $id$($r_1$)
+             else  $\rightarrow$  return $r_2$
+    else  $\rightarrow$  jump $id$($r_2$)
+
+fn $f^\prime$($r_1$, $r_2$)
+    if $r_1$   $\rightarrow$ jump $f^\prime_{true}$($r_1$, $r_2$)
+    else  $\rightarrow$ jump $id$($r_2$)
+
+fn $f^\prime_{true}$($r_1$, $r_2$)
+    if $r_2$   $\rightarrow$ jump $id$($r_1$)
+    else  $\rightarrow$ jump $f^\prime_{true \to false}$($r_2$)
+
+fn $f^\prime_{true \to false}$($r_2$)
+    return $r_2$
 \end{lstlisting}
 
 \subsection{Linear Instructions}
@@ -384,7 +407,10 @@ $r_r$ $\leftarrow$ record.new
   \end{tabular}
 \end{center}
 
-\paragraph{\code{record.set}} Creates an association from value to value within a record
+\paragraph{\code{record.set}} Creates an association from a value to another value
+within a record \code{record.set $r_r$[$r_k$] $\leftarrow_R$ $r_v$}
+
+\((R, H[r_r \mapsto O[r_k \mapsto r_v]])\)
 
 \begin{enumerate}
   \item $r_r$ register the record is bound to
