@@ -5,7 +5,9 @@ use std::ops::{Index, IndexMut};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use jssat_ir::id::{LiftedCtx, Tag, UnionId, UniqueRecordId};
+use jssat_ir::collections::StrictZip;
+use jssat_ir::frontend::ir::Instruction;
+use jssat_ir::id::{Counter, LiftedCtx, Tag, UnionId, UniqueRecordId};
 use rustc_hash::FxHashMap;
 // use petgraph::graph::DiGraph;
 use thiserror::Error;
@@ -15,10 +17,11 @@ use tokio::sync::oneshot::{channel, Sender};
 use tokio::task::JoinHandle;
 
 use crate::lifted::{Function, FunctionId, LiftedProgram, RegisterId};
-use crate::types::{Type, TypeCtx, TypeDuplication};
+use crate::types::{Record, Type, TypeCtx, TypeDuplication};
 
-struct AbsIntEngine<'program> {
+pub struct AbsIntEngine<'program> {
     program: &'program LiftedProgram,
+    unique_id_counter: Counter<UniqueRecordId<LiftedCtx>>,
     recursion_detector: RecursionDetector,
     function_cache: FunctionCache,
 }
@@ -32,6 +35,7 @@ impl<'p> AbsIntEngine<'p> {
     pub fn new(program: &'p LiftedProgram) -> Self {
         Self {
             program,
+            unique_id_counter: Default::default(),
             recursion_detector: Default::default(),
             function_cache: Default::default(),
         }
@@ -49,6 +53,8 @@ impl<'p> AbsIntEngine<'p> {
             EvaluationState::NeverExecuted => {}
         };
 
+        *state = EvaluationState::InProgress;
+
         // 2. if we're too recursive, generalize our arguments
         let is_recursion = self.recursion_detector.enter_fn(function);
         if is_recursion {
@@ -56,13 +62,114 @@ impl<'p> AbsIntEngine<'p> {
         }
 
         // 3. simulate the function
+        let mut current_state = TypeCtx::new();
+        duplicate_registers(&mut current_state, args);
+
         let code = self.program.functions.get(&function).unwrap();
+
+        current_state.borrow_mut(|mut state| {
+            for instruction in code.instructions.iter() {
+                use jssat_ir::frontend::ir::InstructionData::*;
+
+                match &instruction.data {
+                    Comment(_) => {}
+                    NewRecord(i) => {
+                        let unique_id = self.unique_id_counter.next();
+                        let record = Record::new(unique_id);
+                        state.insert(i.result, state.make_type_record(record));
+                    }
+                    RecordGet(i) => {
+                        let record = state.get(&i.record).unwrap();
+                        let record = record.unwrap_record();
+
+                        match i.key {
+                            jssat_ir::isa::RecordKey::Prop(_) => todo!(),
+                            jssat_ir::isa::RecordKey::Atom(_) => todo!(),
+                            jssat_ir::isa::RecordKey::DynAtom(_) => todo!(),
+                        };
+
+                        // record.borrow().get(i.key)
+                    }
+                    RecordSet(_) => {}
+                    RecordHasKey(_) => todo!(),
+                    NewList(l) => {
+                        todo!()
+                    }
+                    ListGet(_) => todo!(),
+                    ListSet(_) => todo!(),
+                    ListHasKey(_) => todo!(),
+                    ListLen(_) => todo!(),
+                    GetFnPtr(i) => {
+                        state.insert(i.result, Type::FnPtr(i.item));
+                    }
+                    CallStatic(i) => {
+                        let mut args = TypeCtx::new();
+
+                        let target_fn_regs =
+                            &self.program.functions.get(&i.calling).unwrap().parameters;
+
+                        args.borrow_mut(|mut args| {
+                            let mut dup = TypeDuplication::new(&mut args);
+
+                            let arg_typs = (i.args.iter())
+                                .map(|r| state.get(r).unwrap())
+                                .map(|value| dup.duplicate_type(*value))
+                                .collect::<Vec<_>>();
+
+                            for (register, value) in
+                                target_fn_regs.iter().cloned().strict_zip(arg_typs)
+                            {
+                                args.insert(register, value);
+                            }
+                        });
+
+                        self.call(i.calling, args);
+                    }
+                    CallExtern(_) => todo!(),
+                    CallVirt(_) => todo!(),
+                    MakeAtom(i) => {
+                        state.insert(i.result, Type::Atom(i.item));
+                    }
+                    MakeBytes(i) => {
+                        let bytes = self.program.constants.get(&i.item).unwrap();
+                        state.insert(i.result, state.make_type_byts(&bytes.payload));
+                    }
+                    MakeInteger(i) => {
+                        state.insert(i.result, Type::Int(i.item));
+                    }
+                    MakeBoolean(_) => todo!(),
+                    BinOp(_) => todo!(),
+                    Negate(_) => todo!(),
+                    Generalize(_) => todo!(),
+                    Assert(_) => todo!(),
+                    IsType(_) => todo!(),
+                    GetRuntime(_) => todo!(),
+                    Unreachable(_) => todo!(),
+                }
+            }
+        });
 
         self.call(function, TypeCtx::new());
 
         self.recursion_detector.exit_fn(function);
         todo!()
     }
+}
+
+fn duplicate_registers(current_state: &mut TypeCtx, args: &TypeCtx) {
+    current_state.borrow_mut(|mut current_state| {
+        args.borrow(|args| {
+            let mut dup = TypeDuplication::new(&mut current_state);
+
+            let pairs = (args.iter())
+                .map(|(k, v)| (*k, dup.duplicate_type(*v)))
+                .collect::<Vec<_>>();
+
+            for (k, v) in pairs {
+                current_state.insert(k, v);
+            }
+        });
+    });
 }
 
 // --- FUNCTION INVOCATION CACHE ---
@@ -76,7 +183,7 @@ struct FunctionCache {
 struct InvocationIndex(FunctionId, usize);
 
 #[derive(Clone)]
-struct EvalResult(Arc<()>);
+pub struct EvalResult(Arc<()>);
 
 impl EvalResult {
     pub fn new_never() -> Self {

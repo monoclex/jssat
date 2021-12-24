@@ -17,11 +17,14 @@
 // this is to silence `.map_context()` for the time being
 // #![allow(deprecated)]
 
-use std::{io::Write, process::Command, time::Instant};
+use std::{io::Write, process::Command, sync::Arc, time::Instant};
 
-use crate::frontend::{
-    builder::ProgramBuilder,
-    js::{hosts::JSSATHostEnvironment, JavaScriptFrontend},
+use crate::{
+    frontend::{
+        builder::ProgramBuilder,
+        js::{hosts::JSSATHostEnvironment, JavaScriptFrontend},
+    },
+    types::TypeCtx,
 };
 
 pub mod abst_interp;
@@ -37,6 +40,8 @@ pub use jssat_ir::lifted;
 pub mod my_tests;
 pub mod opt;
 pub use jssat_ir::retag;
+use jssat_ir::{frontend::source_map::SourceMap, isa::AtomDealer, lifted::LiftedProgram};
+use symbolic_execution::SystemRun;
 pub mod symbolic_execution;
 pub mod types;
 
@@ -190,36 +195,14 @@ f(print);
     let program = time(move || lifted::lift(ir));
 
     println!("executing program");
-    // let program = time(|| symbolic_execution::execute(&program));
-    let builder = crate::interpreter::InterpreterBuilder::new(&program);
-    let mut interpreter = builder.build();
-
-    let (interpreter, interpreter_result) = time(|| {
-        let result = interpreter.execute_fn_id(program.entrypoint, vec![]);
-        (interpreter, result)
+    // interpret(&program, dealer, source_map);
+    let program = time(|| {
+        let mut engine = abst_interp::AbsIntEngine::new(&program);
+        engine.call(program.entrypoint, TypeCtx::new())
     });
+}
 
-    println!("executed");
-
-    println!(
-        "executed: {:?}",
-        match interpreter_result {
-            Ok(value) => format!("success: {:?}", value),
-            // Ok(_) => "success".to_string(),
-            Err(err) => format!("error: {}", err),
-            // Err(_) => "error".to_string(),
-        }
-    );
-
-    let listen_url = "127.0.0.1:8000";
-    println!("preparing data for domino");
-    let data = interpreter.moment.into_data_with(dealer, source_map);
-    println!("starting domino on http://{listen_url}");
-    domino::launch(listen_url, &data).unwrap();
-
-    panic!("done");
-    let program = time(|| symbolic_execution::execute(&program));
-
+fn rest(program: SystemRun) {
     println!("typing program");
     let program = time(move || codegen::type_program(program));
 
@@ -252,4 +235,35 @@ where
     println!("took {:?}", end - start);
     println!();
     result
+}
+
+fn interpret(program: &LiftedProgram, dealer: Arc<AtomDealer>, source_map: SourceMap) -> ! {
+    // let program = time(|| symbolic_execution::execute(&program));
+    let builder = crate::interpreter::InterpreterBuilder::new(program);
+    let mut interpreter = builder.build();
+
+    let (interpreter, interpreter_result) = time(|| {
+        let result = interpreter.execute_fn_id(program.entrypoint, vec![]);
+        (interpreter, result)
+    });
+
+    println!("executed");
+
+    println!(
+        "executed: {:?}",
+        match interpreter_result {
+            Ok(value) => format!("success: {:?}", value),
+            // Ok(_) => "success".to_string(),
+            Err(err) => format!("error: {}", err),
+            // Err(_) => "error".to_string(),
+        }
+    );
+
+    let listen_url = "127.0.0.1:8000";
+    println!("preparing data for domino");
+    let data = interpreter.moment.into_data_with(dealer, source_map);
+    println!("starting domino on http://{listen_url}");
+    domino::launch(listen_url, &data).unwrap();
+
+    panic!("done");
 }
