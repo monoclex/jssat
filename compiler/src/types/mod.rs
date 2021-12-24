@@ -26,6 +26,9 @@ use enum_kinds::EnumKind;
 mod type_relation;
 pub use type_relation::TypeRelation;
 
+mod list;
+pub use list::List;
+
 mod rec_ctx;
 pub use rec_ctx::Record;
 
@@ -152,6 +155,16 @@ pub enum Type<'ctx, T: Tag> {
     /// [`TypeCtx`], call the `borrow` method to borrow it immutably, then call
     /// `make_bytes`. See `make_type_byts` on [`type_ctx::TypeCtxImmut`].
     Byts(BytsHandle<'ctx>),
+    /// [`Type::List`] represents a JSSAT list, which is a contiguous sequential
+    /// collection of JSSAT types.
+    ///
+    /// A list can be fully emulated by a [`Type::Record`], but for performance
+    /// reasons, it is more efficient to model lists as lists when possible.
+    ///
+    /// This type is difficult to construct manually. To construct one, use a
+    /// [`TypeCtx`], call the `borrow` method to borrow it immutably, then call
+    /// `make_list`. See `make_type_list` on [`type_ctx::TypeCtxImmut`].
+    List(ListHandle<'ctx, T>),
     /// [`Type::Record`] represents a JSSAT record, which is a key-value mapping
     /// of JSSAT types to JSSAT types.
     ///
@@ -167,10 +180,25 @@ pub enum Type<'ctx, T: Tag> {
     /// example, the TypeScript type `"asdf" | 1` would be cleanly represented
     /// with a union. Unions are used as a single type to join two completely
     /// different types.
+    ///
+    /// This type is difficult to construct manually. To construct one, use a
+    /// [`TypeCtx`], call the `borrow` method to borrow it immutably, then call
+    /// `make_union`. See `make_type_union` on [`type_ctx::TypeCtxImmut`].
     Union(UnionHandle<'ctx, T>),
 }
 
 impl<'ctx, T: Tag> Type<'ctx, T> {
+    pub fn try_into_list(self) -> Option<ListHandle<'ctx, T>> {
+        match self {
+            Type::List(handle) => Some(handle),
+            _ => None,
+        }
+    }
+
+    pub fn unwrap_list(&self) -> ListHandle<'ctx, T> {
+        self.try_into_list().unwrap()
+    }
+
     pub fn try_into_record(self) -> Option<RecordHandle<'ctx, T>> {
         match self {
             Type::Record(handle) => Some(handle),
@@ -217,12 +245,43 @@ impl<'ctx> Debug for BytsHandle<'ctx> {
     }
 }
 
-/// The handle to a record. Conceptually, this type can be thought of as a
-/// `RecordHandle(&mut Record)`, but the [`CtxBox`] is used to achieve interior
-/// mutability.
+type ListHandle<'ctx, T: Tag> = RefCellHandle<'ctx, List<'ctx, T>>;
+type RecordHandle<'ctx, T: Tag> = RefCellHandle<'ctx, Record<'ctx, T>>;
+type UnionHandle<'ctx, T: Tag> = RefCellHandle<'ctx, Union<'ctx, T>>;
+
+/// The handle to some data structure, guarded by a [`RefCell`]. Conceptually,
+/// this type can be thought of as a `Handle(&mut T)`. The [`CtxBox`] and
+/// [`RefCell`] are used to achieve interior mutability and cyclicity.
 #[repr(transparent)]
-#[derive(Clone, Copy, Hash, Deref, DerefMut, PartialEq, Eq)]
-pub struct RecordHandle<'ctx, T: Tag>(#[deref] CtxBox<'ctx, RefCell<Record<'ctx, T>>>);
+#[derive(Deref, DerefMut)]
+pub struct RefCellHandle<'ctx, T: ?Sized>(#[deref] CtxBox<'ctx, RefCell<T>>);
+
+impl<'ctx, T: ?Sized> Copy for RefCellHandle<'ctx, T> {}
+impl<'ctx, T: ?Sized> Clone for RefCellHandle<'ctx, T> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+impl<'ctx, T: ?Sized> Hash for RefCellHandle<'ctx, T> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
+    }
+}
+
+impl<'ctx, T: ?Sized> Eq for RefCellHandle<'ctx, T> {}
+impl<'ctx, T: ?Sized> PartialEq for RefCellHandle<'ctx, T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl<'ctx, T: Tag> Debug for ListHandle<'ctx, T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let id = self.borrow().unique_id();
+        f.debug_struct("List").field("id", &id).finish()
+    }
+}
 
 impl<'ctx, T: Tag> Debug for RecordHandle<'ctx, T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -230,13 +289,6 @@ impl<'ctx, T: Tag> Debug for RecordHandle<'ctx, T> {
         f.debug_struct("Record").field("id", &id).finish()
     }
 }
-
-/// The handle to a union. Conceptually, this type can be thought of as a
-/// `UnionHandle(&mut Union)`, but the [`CtxBox`] is used to achieve interior
-/// mutability.
-#[repr(transparent)]
-#[derive(Clone, Copy, Hash, Deref, DerefMut, PartialEq, Eq)]
-pub struct UnionHandle<'ctx, T: Tag>(#[deref] CtxBox<'ctx, RefCell<Union<'ctx, T>>>);
 
 impl<'ctx, T: Tag> Debug for UnionHandle<'ctx, T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

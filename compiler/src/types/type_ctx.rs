@@ -9,10 +9,12 @@ use bumpalo::Bump;
 use ouroboros::self_referencing;
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use super::{CtxBox, EqualityResolver, Record, RecordHandle, Type, Union, UnionHandle};
+use super::{
+    CtxBox, EqualityResolver, Record, RecordHandle, RefCellHandle, Type, Union, UnionHandle,
+};
 use crate::{
     id::{Counter, RegisterId, Tag, UniqueRecordId},
-    types::BytsHandle,
+    types::{BytsHandle, List},
 };
 
 /// A datastructure used to keep track of registers and records.
@@ -433,6 +435,19 @@ impl<'b, 'a, 'd, 't, T: Tag, K: Hash + Eq> TypeDuplication<'b, 'a, 'd, 't, T, K>
                 self.duplications.insert(typ, dest);
                 dest
             }
+            Type::List(handle) => {
+                cache!(typ);
+
+                let src_list = handle.borrow();
+
+                let list_typ = (self.type_ctx).make_type_list(List::new(src_list.unique_id()));
+                self.duplications.insert(typ, list_typ);
+
+                let mut list = list_typ.unwrap_list().borrow_mut();
+
+                list.extend(src_list.iter().map(|t| self.duplicate_type(*t)));
+                list_typ
+            }
             Type::Record(handle) => {
                 cache!(typ);
 
@@ -446,6 +461,7 @@ impl<'b, 'a, 'd, 't, T: Tag, K: Hash + Eq> TypeDuplication<'b, 'a, 'd, 't, T, K>
 
                 // duplicate the kvps of the record
                 let mut dest_record = record_typ.unwrap_record().borrow_mut();
+
                 for (key, value) in src_record.iter() {
                     let dest_key = self.duplicate_type(*key);
                     let dest_value = self.duplicate_type(*value);
@@ -527,6 +543,25 @@ impl<'borrow, 'arena, T: Tag, K> TypeCtxImmut<'borrow, 'arena, T, K> {
         Type::Byts(BytsHandle(CtxBox::new_unsized(self.arena, payload)))
     }
 
+    /// Constructs an instance of [`Type::Union`] for this [`TypeCtx`]
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use crate::id::NoContext;
+    /// let mut ctx = TypeCtx::<NoContext>::new();
+    ///
+    /// let is_union = ctx.borrow(|ctx| {
+    ///     let list: Type<_> = ctx.make_type_union(List::new());
+    ///     matches!(byts, Type::List(_))
+    /// });
+    ///
+    /// assert!(is_union)
+    /// ```
+    pub fn make_type_list(&self, list: List<'arena, T>) -> Type<'arena, T> {
+        Type::List(RefCellHandle(CtxBox::new(self.arena, RefCell::new(list))))
+    }
+
     /// Constructs an instance of [`Type::Record`] for this [`TypeCtx`]
     ///
     /// # Examples
@@ -543,7 +578,7 @@ impl<'borrow, 'arena, T: Tag, K> TypeCtxImmut<'borrow, 'arena, T, K> {
     /// assert!(is_record)
     /// ```
     pub fn make_type_record(&self, record: Record<'arena, T>) -> Type<'arena, T> {
-        Type::Record(RecordHandle(CtxBox::new(self.arena, RefCell::new(record))))
+        Type::Record(RefCellHandle(CtxBox::new(self.arena, RefCell::new(record))))
     }
 
     /// Constructs an instance of [`Type::Union`] for this [`TypeCtx`]
@@ -562,7 +597,7 @@ impl<'borrow, 'arena, T: Tag, K> TypeCtxImmut<'borrow, 'arena, T, K> {
     /// assert!(is_union)
     /// ```
     pub fn make_type_union(&self, union: Union<'arena, T>) -> Type<'arena, T> {
-        Type::Union(UnionHandle(CtxBox::new(self.arena, RefCell::new(union))))
+        Type::Union(RefCellHandle(CtxBox::new(self.arena, RefCell::new(union))))
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&K, &Type<'arena, T>)> {

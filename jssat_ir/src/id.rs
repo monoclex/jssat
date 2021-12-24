@@ -192,6 +192,7 @@ gen_id!(ShapeId);
 gen_id!(RecordId);
 gen_id!(UniqueRecordId);
 gen_id!(UnionId);
+gen_id!(UniqueListId);
 
 #[derive(Debug)]
 pub struct Counter<I> {
