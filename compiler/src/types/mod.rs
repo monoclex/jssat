@@ -188,6 +188,18 @@ pub enum Type<'ctx, T: Tag> {
 }
 
 impl<'ctx, T: Tag> Type<'ctx, T> {
+    pub fn try_into_fnptr(self) -> Option<FunctionId<LiftedCtx>> {
+        match self {
+            Type::FnPtr(f) => Some(f),
+            _ => None,
+        }
+    }
+
+    #[track_caller]
+    pub fn unwrap_fnptr(&self) -> FunctionId<LiftedCtx> {
+        self.try_into_fnptr().unwrap()
+    }
+
     pub fn try_into_list(self) -> Option<ListHandle<'ctx, T>> {
         match self {
             Type::List(handle) => Some(handle),
@@ -195,6 +207,7 @@ impl<'ctx, T: Tag> Type<'ctx, T> {
         }
     }
 
+    #[track_caller]
     pub fn unwrap_list(&self) -> ListHandle<'ctx, T> {
         self.try_into_list().unwrap()
     }
@@ -206,6 +219,7 @@ impl<'ctx, T: Tag> Type<'ctx, T> {
         }
     }
 
+    #[track_caller]
     pub fn unwrap_record(&self) -> RecordHandle<'ctx, T> {
         self.try_into_record().unwrap()
     }
@@ -217,6 +231,7 @@ impl<'ctx, T: Tag> Type<'ctx, T> {
         }
     }
 
+    #[track_caller]
     pub fn unwrap_union(&self) -> UnionHandle<'ctx, T> {
         self.try_into_union().unwrap()
     }

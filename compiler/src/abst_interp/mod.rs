@@ -18,6 +18,7 @@ pub struct AbsIntEngine<'program> {
     list_id: Counter<UniqueListId<LiftedCtx>>,
     recursion_detector: RecursionDetector,
     function_cache: FunctionCache,
+    space: usize,
 }
 
 impl<'p> AbsIntEngine<'p> {
@@ -28,11 +29,18 @@ impl<'p> AbsIntEngine<'p> {
             list_id: Default::default(),
             recursion_detector: Default::default(),
             function_cache: Default::default(),
+            space: 0,
         }
     }
 
     pub fn call(&mut self, function: FunctionId, args: TypeCtx) -> EvalResult {
-        println!("@ {:?}", function);
+        println!(
+            "{}-> {:?} {:?}",
+            " ".repeat(self.space),
+            function,
+            self.program.functions.get(&function).unwrap().name,
+        );
+        self.space += 1;
         // 1. check previous execution results
         let idx = self.function_cache.state(function, args);
         let (args, state) = &mut self.function_cache[idx];
@@ -71,6 +79,7 @@ impl<'p> AbsIntEngine<'p> {
                     }
                     RecordGet(i) => {
                         let record = state.get(&i.record).unwrap();
+                        println!("non rec is {:?}", record);
                         let record = record.unwrap_record();
 
                         use jssat_ir::isa::RecordKey::*;
@@ -78,9 +87,10 @@ impl<'p> AbsIntEngine<'p> {
                             DynAtom(r) | Prop(r) => *state.get(&r).unwrap(),
                             Atom(a) => Type::Atom(a),
                         };
-                        todo!()
 
-                        // record.borrow().get(i.key)
+                        let record = record.borrow();
+                        let k = record.get(&key).unwrap();
+                        state.insert(i.result, *k);
                     }
                     RecordSet(i) => {
                         let rec = *state.get(&i.record).unwrap();
@@ -120,7 +130,35 @@ impl<'p> AbsIntEngine<'p> {
                         let list = List::new(unique_id);
                         state.insert(i.result, state.make_type_list(list));
                     }
-                    ListGet(_) => todo!(),
+                    ListGet(i) => {
+                        let list = state.get(&i.list).unwrap();
+                        let list = list.unwrap_list().borrow();
+
+                        let elem = match i.key {
+                            jssat_ir::isa::ListKey::Index(reg) => state.get(&reg).unwrap(),
+                        };
+
+                        let typ = match elem {
+                            Type::Number => todo!("change list type to more general"),
+                            Type::Int(i) => {
+                                if *i < 0 {
+                                    panic!("invalid program")
+                                }
+
+                                let i = *i as usize;
+                                if i > list.len() {
+                                    panic!("invalid program")
+                                }
+
+                                list.get(i).unwrap()
+                            }
+                            Type::Union(_) => todo!("need to recursively re-apply the list set operator for every union variant"),
+                            Type::Float(_) => todo!("debating whether or not to implement this"),
+                            _ => panic!("not well formed jssat ir"),
+                        };
+
+                        state.insert(i.result, *typ);
+                    },
                     ListSet(i) => {
                         let list = state.get(&i.list).unwrap();
                         let mut list = list.unwrap_list().borrow_mut();
@@ -165,7 +203,12 @@ impl<'p> AbsIntEngine<'p> {
                         self.call_fn(&mut state, i.result, i.calling, &i.args);
                     }
                     CallExtern(_) => todo!(),
-                    CallVirt(_) => todo!(),
+                    CallVirt(i) => {
+                        let fnptr = state.get(&i.calling).unwrap();
+                        let fnptr = fnptr.unwrap_fnptr();
+
+                        self.call_fn(&mut state, i.result, fnptr, &i.args);
+                    },
                     MakeAtom(i) => {
                         state.insert(i.result, Type::Atom(i.item));
                     }
@@ -186,7 +229,15 @@ impl<'p> AbsIntEngine<'p> {
                         use jssat_ir::isa::BinaryOperator::*;
                         use Type::*;
                         let res_typ = match i.op {
-                            Add => todo!(),
+                            Add => {
+                                match (lhs, rhs) {
+                                    (Int(a), Int(b)) => Int(a + b),
+                                    (Int(_), Number) |
+                                    (Number, Int(_)) |
+                                    (Number, Number) => Number,
+                                    _ => todo!("2op add: {:?}, {:?}", lhs, rhs),
+                                }
+                            },
                             And => {
                                 match (lhs, rhs) {
                                     (Boolean, Boolean) |
@@ -197,7 +248,15 @@ impl<'p> AbsIntEngine<'p> {
                                     _ => panic!("invalid program"),
                                 }
                             },
-                            Or => todo!(),
+                            Or => {
+                                match (lhs, rhs) {
+                                    (Bool(a), Bool(b)) => Bool(a || b),
+                                    (Bool(_), Boolean) |
+                                    (Boolean, Bool(_)) |
+                                    (Boolean, Boolean) => Boolean,
+                                    (a, b) => panic!("2op or: {:?} vs {:?}", a, b),
+                                }
+                            },
                             Equals => {
                                 match (lhs, rhs) {
                                     (Atom(a), Atom(b)) => Bool(a == b),
@@ -206,7 +265,11 @@ impl<'p> AbsIntEngine<'p> {
                                     (Record(a), Record(b)) => {
                                         todo!("uhm")
                                     }
-                                    (a, b) => panic!("idk: {:?} vs {:?}", a, b)
+                                    (Bool(a), Bool(b)) => Bool(a == b),
+                                    (Bool(_), Boolean) |
+                                    (Boolean, Bool(_)) |
+                                    (Boolean, Boolean) => Boolean,
+                                    (a, b) => panic!("2op eq: {:?} vs {:?}", a, b)
                                 }
                             },
                             LessThan => {
@@ -351,6 +414,13 @@ impl<'p> AbsIntEngine<'p> {
 
         // unwind, we are done evaluating 100%
         self.recursion_detector.exit_fn(function);
+        self.space -= 1;
+        println!(
+            "{}<- {:?} {:?}",
+            " ".repeat(self.space),
+            function,
+            self.program.functions.get(&function).unwrap().name,
+        );
 
         // copy the state of all the parameters into the return result too
         current_state.borrow(|state| {

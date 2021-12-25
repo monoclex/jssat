@@ -68,16 +68,34 @@ impl<'ctx1, 'ctx2, T: Tag> EqualityResolver<'ctx1, 'ctx2, T> {
                 let a = a.borrow();
                 let b = b.borrow();
 
-                for (k, v) in a.iter() {
-                    todo!();
-                    // if let Some(matching_fact) = b.iter().find(|(k2, v2)|
-                    // k             // == k2) {     let (_, matching_v) =
-                    // *matching_fact;
+                if a.len() != b.len() {
+                    return false;
+                }
 
-                    //     if resolver.are_not_equal(*v, matching_v) {
-                    //         return false;
-                    //     }
-                    // }
+                for (k, value_a) in a.iter() {
+                    let value_b = match b.get(&match k {
+                        Type::Any => Type::Any,
+                        Type::Nothing => Type::Nothing,
+                        Type::Bytes => Type::Bytes,
+                        Type::Number => Type::Number,
+                        Type::Boolean => Type::Boolean,
+                        Type::Atom(x) => Type::Atom(*x),
+                        Type::Int(x) => Type::Int(*x),
+                        Type::Float(x) => Type::Float(*x),
+                        Type::Bool(x) => Type::Bool(*x),
+                        Type::FnPtr(x) => Type::FnPtr(*x),
+                        Type::Byts(_) => todo!(),
+                        Type::List(_) => todo!(),
+                        Type::Record(_) => todo!(),
+                        Type::Union(_) => todo!(),
+                    }) {
+                        Some(v) => v,
+                        None => return false,
+                    };
+
+                    if self.are_not_equal(value_a, value_b) {
+                        return false;
+                    }
                 }
             }
 
