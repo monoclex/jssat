@@ -59,25 +59,23 @@ export interface SourceLocation {
 }
 
 export interface MomentValues {
-  registers: Record<number, MomentValue>;
-  lists: Record<number, MomentValue[]>;
-  records: Record<number, [MomentRecordKey, MomentValue][]>;
+  registers: Record<string, MomentValue>;
+  lists: Record<string, MomentValue[]>;
+  records: Record<string, [MomentRecordKey, MomentValue][]>;
 }
 
-export type MomentValue
-  = { kind: "atom", atom: string }
-  | { kind: "num", num: number }
-  | { kind: "bool", bool: boolean }
-  | { kind: "bytes", bytes: string  }
-  | { kind: "fnptr", fnptr: number }
-  | { kind: "rec", rec: number }
-  | { kind: "list", list: number }
-  ;
+export type MomentValue =
+  | { kind: "atom"; atom: string }
+  | { kind: "num"; num: number }
+  | { kind: "bool"; bool: boolean }
+  | { kind: "bytes"; bytes: string }
+  | { kind: "fnptr"; fnptr: number }
+  | { kind: "rec"; rec: string }
+  | { kind: "list"; list: string };
 
-export type MomentRecordKey
-  = { kind: "atom", atom: string }
-  | { kind: "num", num: number }
-  | { kind: "bool", bool: boolean }
-  | { kind: "bytes", bytes: string }
-  | { kind: "fnptr", fnptr: number }
-  ;
+export type MomentRecordKey =
+  | { kind: "atom"; atom: string }
+  | { kind: "num"; num: number }
+  | { kind: "bool"; bool: boolean }
+  | { kind: "bytes"; bytes: string }
+  | { kind: "fnptr"; fnptr: number };

@@ -1,18 +1,11 @@
-import { VirtualContainer } from "@minht11/solid-virtual-container";
 import {
-  Component,
   createEffect,
   createResource,
   createSignal,
   ErrorBoundary,
   For,
-  JSX,
-  JSXElement,
-  lazy,
-  Match,
   Show,
   Suspense,
-  Switch,
 } from "solid-js";
 import { render } from "solid-js/web";
 import {
