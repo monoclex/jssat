@@ -174,6 +174,50 @@ impl<T: Tag, K> TypeCtx<T, K> {
     }
 }
 
+impl<T: Tag, K: Hash + Eq> TypeCtx<T, K> {
+    /// Constructs a new [`TypeCtx`] with a single key-value pair.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut type_ctx = TypeCtx::new_initial(RegisterId::default(), Type::Any);
+    /// ```
+    pub fn new_initial<'ctx>(key: K, typ: Type<'ctx, T>) -> Self {
+        let mut ctx = TypeCtx::new();
+
+        ctx.borrow_mut(|mut ctx| {
+            let typ = ctx.duplicate_type(typ);
+            ctx.insert(key, typ);
+        });
+
+        ctx
+    }
+}
+
+impl<T: Tag> TypeCtx<T, ()> {
+    /// Constructs a unit [`TypeCtx`], containing a single type.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut unit_ctx = TypeCtx::new_unit(Type::Any);
+    ///
+    /// unit_ctx.borrow(|ctx| {
+    ///     assert!(matches!(ctx.get(&()).unwrap(), Type::Any));
+    /// });
+    /// ```
+    pub fn new_unit<'ctx>(typ: Type<'ctx, T>) -> Self {
+        let mut unit_ctx = TypeCtx::new();
+
+        unit_ctx.borrow_mut(|mut ctx| {
+            let unit_typ = ctx.duplicate_type(typ);
+            ctx.insert((), unit_typ);
+        });
+
+        unit_ctx
+    }
+}
+
 impl<T: Tag, K> Default for TypeCtx<T, K> {
     fn default() -> Self {
         Self::new()
@@ -263,6 +307,86 @@ impl<T: Tag, K> TypeCtx<T, K> {
     }
 }
 
+impl<T: Tag, K: Hash + Eq> TypeCtx<T, K> {
+    /// Copies items from a different [`TypeCtx`] `other` to the current
+    /// [`TypeCtx`], using `keys` to determine which elements to copy. If you're
+    /// dealing with different keys, try use `copy_from_map` which allows you to
+    /// pass a mapping function.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut ctx = TypeCtx::new();
+    ///
+    /// ctx.borrow_mut(|mut ctx| {
+    ///     ctx.insert(1, Type::Any);
+    ///     ctx.insert(2, Type::Never);
+    /// });
+    ///
+    /// let mut ctx2 = TypeCtx::new();
+    ///
+    /// ctx.borrow(|ctx| {
+    ///     ctx2.copy_from(ctx, [1, 2]);
+    /// });
+    ///
+    /// ctx2.borrow(|ctx2| {
+    ///     assert!(matches!(ctx2.get(1), Some(Type::Any)));
+    ///     assert!(matches!(ctx2.get(2), Some(Type::Never)));
+    /// });
+    /// ```
+    pub fn copy_from(&mut self, other: &TypeCtxImmut<T, K>, keys: impl Iterator<Item = K>) {
+        self.copy_from_map(other, keys, |x| x)
+    }
+
+    /// Copies items from a different [`TypeCtx`] `other` to the current
+    /// [`TypeCtx`], using `keys` to determine which elements to copy, and `map`
+    /// to map the keys from the other context to the current context keys.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut ctx = TypeCtx::new();
+    ///
+    /// ctx.borrow_mut(|mut ctx| {
+    ///     ctx.insert(1, Type::Any);
+    ///     ctx.insert(2, Type::Never);
+    /// });
+    ///
+    /// let mut ctx2 = TypeCtx::new();
+    ///
+    /// ctx.borrow(|ctx| {
+    ///     ctx2.copy_from_map(ctx, [1, 2], |x| x + 2);
+    /// });
+    ///
+    /// ctx2.borrow(|ctx2| {
+    ///     assert!(matches!(ctx2.get(3), Some(Type::Any)));
+    ///     assert!(matches!(ctx2.get(4), Some(Type::Never)));
+    /// });
+    /// ```
+    pub fn copy_from_map<K2: Hash + Eq>(
+        &mut self,
+        other: &TypeCtxImmut<T, K2>,
+        keys: impl Iterator<Item = K2>,
+        mut map: impl FnMut(K2) -> K,
+    ) {
+        self.borrow_mut(|mut ctx| {
+            let mut dup = TypeDuplication::new(&mut ctx);
+
+            let reg_typs = keys
+                .map(|key| {
+                    let typ = other.get(&key).unwrap();
+                    (key, *typ)
+                })
+                .map(|(key, typ)| (key, dup.duplicate_type(typ)))
+                .collect::<Vec<_>>();
+
+            for (key, typ) in reg_typs {
+                ctx.insert(map(key), typ);
+            }
+        });
+    }
+}
+
 // SAFETY: the layout of this must be the same as [`TypeCtxMut`]
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -320,6 +444,31 @@ where
 
         let no_value_present = matches!(self.lookup.insert(key, value), None);
         assert!(no_value_present, "should not overwrite register");
+    }
+
+    /// Explicitly overwrites a register to the type specified.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use crate::id::NoContext;
+    /// let mut type_ctx = TypeCtx::<NoContext>::new();
+    /// let register = RegisterId::new();
+    ///
+    /// type_ctx.insert(register, |_| Type::Any); // ok
+    /// let old_typ = type_ctx.overwrite(register, |_| Type::Bytes); // fine
+    ///
+    /// assert!(matches!(old_typ, Type::Any));
+    /// ```
+    #[track_caller]
+    pub fn overwrite(&mut self, key: K, value: Type<'arena, T>) -> Type<'arena, T> {
+        // TODO(wishful): maybe implement some sort of GC where
+        //   we evict the types that were in the registers before?
+        //   (don't think i should actually do this)
+        match self.lookup.insert(key, value) {
+            Some(old) => old,
+            None => panic!("must overwrite register"),
+        }
     }
 
     /// Gets the type of a register.

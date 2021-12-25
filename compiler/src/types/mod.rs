@@ -39,7 +39,7 @@ mod assoc_eq;
 pub use assoc_eq::{EqualityResolver, MaybeEqual};
 
 mod type_ctx;
-pub use type_ctx::{TypeCtx, TypeDuplication};
+pub use type_ctx::{TypeCtx, TypeCtxImmut, TypeCtxMut, TypeDuplication};
 
 /// The JSSAT [`Type`] used to represent the type of a value.
 ///
