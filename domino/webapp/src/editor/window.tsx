@@ -1,4 +1,4 @@
-import type { JSX } from "solid-js";
+import { JSX, Show } from "solid-js";
 import { For } from "solid-js";
 
 export type WindowPanel = () => JSX.Element;
@@ -18,5 +18,14 @@ export function Window(props: WindowProps) {
         )}
       </For>
     </>
+  );
+}
+
+export function adaptPanel<T>(
+  adaptor: () => T | undefined,
+  Component: (props: T) => JSX.Element
+) {
+  return () => (
+    <Show when={adaptor()}>{(props) => <Component {...props} />}</Show>
   );
 }

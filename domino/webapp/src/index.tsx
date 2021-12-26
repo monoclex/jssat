@@ -8,6 +8,9 @@ import {
   Suspense,
 } from "solid-js";
 import { render } from "solid-js/web";
+import { IRFileAdaptor as adaptIRFile } from "./adaptors/irfile";
+import { JssatIRAdaptor as adaptJssatIR } from "./adaptors/jssatir";
+import { adaptTypeTree } from "./adaptors/typetree";
 import {
   CodeLine,
   fetchMoment,
@@ -21,6 +24,9 @@ import {
   Source,
   SourceLocation,
 } from "./api";
+import { adaptPanel, Window } from "./editor/window";
+import { CodeView } from "./panels/codeview/CodeView";
+import { TreeView } from "./panels/treeview/TreeView";
 import "./styles.less";
 
 const ShowError = (err: Error) => {
@@ -48,13 +54,6 @@ const App = () => {
   );
 };
 
-interface CallstackViewProps {
-  overview: Overview;
-  value: () => number;
-  setValue: (v: number) => void;
-  moment: () => Moment | undefined;
-}
-
 interface AppContainerProps {
   overview: Overview;
 }
@@ -66,83 +65,46 @@ const AppContainer = (props: AppContainerProps) => {
     set: setValue,
   });
 
-  const [moment, setMoment] = createSignal<Moment | undefined>(undefined);
-  createEffect(async () => setMoment(await fetchMoment(value())));
-
-  return (
-    <>
-      <div className="vertical-panel">
-        <CallstackView
-          overview={props.overview}
-          value={value}
-          setValue={setValue}
-          moment={moment}
-        />
-      </div>
-      <div className="vertical-panel">
-        <Show when={moment()?.source}>
-          {(source) => (
-            <SourcePanel sources={props.overview.sources} source={source} />
-          )}
-        </Show>
-      </div>
-      <div className="vertical-panel">
-        <Show when={moment()?.values}>
-          {(values) => <PanelView values={values} />}
-        </Show>
-      </div>
-    </>
-  );
-};
-
-const CallstackView = (props: CallstackViewProps) => {
   document.addEventListener("keydown", (e) => {
     const setValueLim = (value: number) => {
       if (value < 0) return;
       if (value >= props.overview.totalMoments) return;
-      props.setValue(value);
+      setValue(value);
     };
 
     switch (e.key) {
       case "ArrowLeft":
-        const prevMoment = props.moment()?.callstack[0].prevMoment;
-        setValueLim(prevMoment ? prevMoment : props.value() - 1);
+        // const prevMoment = props.moment()?.callstack[0].prevMoment;
+        // setValueLim(prevMoment ? prevMoment : props.value() - 1);
         break;
       case "ArrowRight":
-        const nextMoment = props.moment()?.callstack[0].nextMoment;
-        setValueLim(nextMoment ? nextMoment : props.value() + 1);
+        // const nextMoment = props.moment()?.callstack[0].nextMoment;
+        // setValueLim(nextMoment ? nextMoment : props.value() + 1);
         break;
       case "ArrowUp":
-        setValueLim(props.value() - 1);
+        setValueLim(value() - 1);
         break;
       case "ArrowDown":
-        setValueLim(props.value() + 1);
+        setValueLim(value() + 1);
         break;
     }
   });
 
+  const [moment, setMoment] = createSignal<Moment | undefined>(undefined);
+  createEffect(async () => setMoment(await fetchMoment(value())));
+
+  const panels = [
+    adaptPanel(adaptJssatIR([moment, setValue]), CodeView),
+    adaptPanel(adaptIRFile(props.overview.sources, moment), CodeView),
+    adaptPanel(adaptTypeTree(moment), TreeView),
+  ];
+
+  return <Window panels={panels} />;
+};
+
+const CallstackView = (props: any) => {
   return (
     <>
-      <div className="codeview">
-        <Show when={props.moment()}>
-          {(moment) => <CodeView moment={moment} />}
-        </Show>
-      </div>
-      <div className="frames">
-        <Show when={props.moment()}>
-          {(moment) => (
-            <For each={moment.callstack}>
-              {(frame, idx) => (
-                <CallstackFrame
-                  isCurrent={idx() == 0}
-                  frame={frame}
-                  setMoment={props.setValue}
-                />
-              )}
-            </For>
-          )}
-        </Show>
-      </div>
       <div className="time-slider">
         <Slider
           totalMoments={props.overview.totalMoments}
@@ -151,81 +113,6 @@ const CallstackView = (props: CallstackViewProps) => {
         />
       </div>
     </>
-  );
-};
-
-interface CodeViewProps {
-  moment: Moment;
-}
-
-const inRangeRel = (
-  value: number,
-  fixpoint: number,
-  relativeStart: number,
-  relativeEnd: number
-) => value > fixpoint - relativeStart && value < fixpoint + relativeEnd;
-const CodeView = (props: CodeViewProps) => {
-  const MAX_LINES_AWAY = 30;
-
-  return (
-    <>
-      <div className="codeview-pre">
-        <For
-          each={props.moment.code.lines.filter((_, idx) =>
-            inRangeRel(idx, props.moment.code.highlighted, MAX_LINES_AWAY, 0)
-          )}
-        >
-          {(line) => <DrawCodeLine codeLine={line} />}
-        </For>
-      </div>
-      <div className="highlighted">
-        <DrawCodeLine
-          codeLine={props.moment.code.lines[props.moment.code.highlighted]}
-        />
-      </div>
-      <div className="codeview-post">
-        <For
-          each={props.moment.code.lines.filter((_, idx) =>
-            inRangeRel(idx, props.moment.code.highlighted, 0, MAX_LINES_AWAY)
-          )}
-        >
-          {(line) => <DrawCodeLine codeLine={line} />}
-        </For>
-      </div>
-    </>
-  );
-};
-
-interface CodeLineProps {
-  codeLine: CodeLine;
-}
-
-const DrawCodeLine = (props: CodeLineProps) => {
-  // TODO: add clickables for registers (to view values),
-  //   and clickables for "go to snapshot moment"
-  return props.codeLine ? (
-    <span>{props.codeLine.display}</span>
-  ) : (
-    <span>wtf???</span>
-  );
-};
-
-interface CallstackFrameProps {
-  frame: Frame;
-  isCurrent: boolean;
-  setMoment: (value: number) => void;
-}
-
-const CallstackFrame = (props: CallstackFrameProps) => {
-  return (
-    <span
-      className={props.isCurrent ? "frame-focus" : "frame"}
-      onClick={() => {
-        props.setMoment(props.frame.moment);
-      }}
-    >
-      {props.frame.preview}
-    </span>
   );
 };
 
@@ -258,225 +145,5 @@ const Slider = (props: SliderProps) => (
     }}
   />
 );
-
-interface SourcePanelProps {
-  sources: Source[];
-  source: MomentSource;
-}
-
-const SourcePanel = (props: SourcePanelProps) => {
-  const source = props.sources[props.source.sourceId].text.split("\n");
-
-  const [currentLocation, setLocation] = createSignal(0);
-
-  return (
-    <>
-      <SourceView
-        source={source}
-        location={() => props.source.locations[currentLocation()]}
-      />
-      <div className="frames">
-        <For each={props.source.locations}>
-          {(location, idx) => (
-            <span
-              className={currentLocation() == idx() ? "frame-focus" : "frame"}
-              onClick={() => setLocation(idx())}
-            >
-              {JSON.stringify(location.start)} to {JSON.stringify(location.end)}
-            </span>
-          )}
-        </For>
-      </div>
-    </>
-  );
-};
-
-interface SourceViewProps {
-  source: string[];
-  location: () => SourceLocation;
-}
-
-const SourceView = (props: SourceViewProps) => {
-  return (
-    <>
-      {() => {
-        const startLine = props.location().start.line;
-        const endLine = props.location().end.line;
-
-        const MAX_LINES_AWAY = 30;
-
-        const pre = [];
-        const focus = [];
-        const post = [];
-
-        const upper = Math.min(endLine + MAX_LINES_AWAY, props.source.length);
-        for (let i = Math.max(0, startLine - MAX_LINES_AWAY); i < upper; i++) {
-          if (i < startLine - 1) pre.push(props.source[i]);
-          else if (i >= endLine) post.push(props.source[i]);
-          else focus.push(props.source[i]);
-        }
-
-        return (
-          <div className="codeview">
-            <div className="codeview-pre">
-              <For each={pre}>{(line) => <span>{line}</span>}</For>
-            </div>
-            <div className="codeview-focus">
-              <For each={focus}>
-                {(line, idx) => {
-                  let pre = "";
-                  let content = line;
-                  let post = "";
-
-                  const atStart = idx() == 0;
-                  if (atStart) {
-                    const col = props.location().start.column;
-                    pre = content.substr(0, col);
-                    content = content.substring(col);
-                  }
-
-                  const atEnd = idx() == focus.length - 1;
-                  if (atEnd) {
-                    const col = props.location().end.column - pre.length;
-                    post = content.substr(col);
-                    content = content.substring(0, col);
-                  }
-
-                  if (pre === "" && post === "") {
-                    const limitEnd = atEnd ? " limitEnd" : "";
-                    return (
-                      <span className={"highlighted" + limitEnd}>
-                        {content}
-                      </span>
-                    );
-                  } else {
-                    const stretchToEnd = atStart && !atEnd;
-                    const stretchName = stretchToEnd ? " line-to-end" : "";
-                    return (
-                      <div className="line-split">
-                        {pre && <span>{pre}</span>}
-                        <span className={"highlighted" + stretchName}>
-                          {content}
-                        </span>
-                        {post && <span>{post}</span>}
-                      </div>
-                    );
-                  }
-                }}
-              </For>
-            </div>
-            <div className="codeview-post">
-              <For each={post}>{(line) => <span>{line}</span>}</For>
-            </div>
-          </div>
-        );
-      }}
-    </>
-  );
-};
-
-interface PanelViewProps {
-  values: MomentValues;
-}
-
-const PanelView = (props: PanelViewProps) => {
-  return (
-    <ul className="type-list">
-      <For each={Object.entries(props.values.registers)}>
-        {([id, value]) => (
-          <li>
-            %{parseInt(id) - 1}
-            {" = "}
-            <ShowMomentValue values={props.values} value={value} />
-          </li>
-        )}
-      </For>
-    </ul>
-  );
-};
-
-interface ShowMomentValueProps {
-  values: MomentValues;
-  value: MomentValue;
-}
-
-const ShowMomentValue = (props: ShowMomentValueProps) => {
-  let elem;
-
-  switch (props.value.kind) {
-    case "atom":
-      elem = <>atom {props.value.atom}</>;
-      break;
-    case "num":
-      elem = <>num {props.value.num}</>;
-      break;
-    case "bool":
-      elem = <>bool {JSON.stringify(props.value.bool)}</>;
-      break;
-    case "bytes":
-      elem = <>bytes {props.value.bytes}</>;
-      break;
-    case "fnptr":
-      elem = <>fnptr {props.value.fnptr}</>;
-      break;
-    case "list":
-      const list = props.values.lists[props.value.list];
-      elem = (
-        <>
-          list (len {list.length})
-          <ul className="type-list">
-            <For each={list}>
-              {(value) => (
-                <li>
-                  <LazyShowMomentValue values={props.values} value={value} />
-                </li>
-              )}
-            </For>
-          </ul>
-        </>
-      );
-      break;
-    case "rec":
-      const record = props.values.records[props.value.rec];
-      elem = (
-        <>
-          record (entries {record.length})
-          <ul className="type-list">
-            <For each={record}>
-              {([k, v]) => (
-                <li>
-                  <LazyShowMomentValue values={props.values} value={k} />
-                  {" ↦ "}
-                  <LazyShowMomentValue values={props.values} value={v} />
-                </li>
-              )}
-            </For>
-          </ul>
-        </>
-      );
-      break;
-  }
-
-  return elem;
-};
-
-const LazyShowMomentValue = (props: ShowMomentValueProps) => {
-  if (props.value.kind === "rec" || props.value.kind === "list") {
-    const [show, setShow] = createSignal(false);
-
-    return (
-      <span onClick={() => setShow(true)}>
-        <Show
-          when={show()}
-          fallback={<span className="clickable">...expand...</span>}
-        >
-          {() => <ShowMomentValue values={props.values} value={props.value} />}
-        </Show>
-      </span>
-    );
-  } else {
-    return <ShowMomentValue values={props.values} value={props.value} />;
-  }
-};
 
 render(App, document.body);

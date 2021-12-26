@@ -50,8 +50,8 @@ impl Data {
         }
     }
 
-    pub fn moment(&self, index: usize) -> Moment {
-        let snapshot = self.snapshots.get(index).unwrap();
+    pub fn moment(&self, index: usize) -> Option<Moment> {
+        let snapshot = self.snapshots.get(index)?;
 
         let mut callstack = vec![];
 
@@ -120,12 +120,12 @@ impl Data {
 
         mvalues.port(&self.dealer, values);
 
-        Moment {
+        Some(Moment {
             callstack,
             code,
             source,
             values: mvalues,
-        }
+        })
     }
 }
 

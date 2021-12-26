@@ -29,7 +29,7 @@ export function SourceView(props: SourceViewProps) {
   for (let i = lineStart; i < lineEnd; i++) {
     const line = source[i];
 
-    if (i < start.line) pre.push(line);
+    if (i < start.line - 1) pre.push(line);
     else if (i >= end.line) post.push(line);
     else focus.push(line);
   }
@@ -56,7 +56,9 @@ interface RenderLinesProps {
 function RenderLines(props: RenderLinesProps) {
   return (
     <div className={props.className}>
-      <For each={props.lines}>{(line) => <span>{line}</span>}</For>
+      <For each={props.lines}>
+        {(line) => (line ? <span>{line}</span> : <span> </span>)}
+      </For>
     </div>
   );
 }
@@ -82,7 +84,7 @@ function RenderHighlightedLines(props: RenderHighlightedLinesProps) {
             content = content.substring(col);
           }
 
-          const atEnd = idx() == focus.length - 1;
+          const atEnd = idx() == props.lines.length - 1;
           if (atEnd) {
             const col = props.end.column - pre.length;
             post = content.substr(col);

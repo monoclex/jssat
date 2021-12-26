@@ -45,7 +45,12 @@ pub fn launch(listen_url: &str, data: &Data) -> Result<(), Box<dyn Error + Send 
             }
             (Method::Get, ["moment", moment]) => {
                 let moment = moment.parse::<usize>()?;
-                request.respond(resp_from_string(json::to_string(&data.moment(moment))))
+
+                if let Some(moment) = data.moment(moment) {
+                    request.respond(resp_from_string(json::to_string(&moment)))
+                } else {
+                    continue;
+                }
             }
             (unknown, route) => {
                 println!("unhandled route {} {:?}", unknown, route);

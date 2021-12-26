@@ -6,13 +6,14 @@ import {
   TreeViewProps,
 } from "../panels/treeview/TreeView";
 
-export function TypeTreeAdaptor(
-  moment: Accessor<Moment>
+export function adaptTypeTree(
+  moment: Accessor<Moment | undefined>
 ): () => TreeViewProps | undefined {
   return () => {
     const now = moment();
-    const values = now.values;
+    if (!now) return undefined;
 
+    const values = now.values;
     return {
       tree: Object.keys(now.values.registers).map((register) =>
         nodeRegister(values, register)
@@ -47,7 +48,7 @@ function DisplayValue(props: DisplayValueProps) {
     case "atom":  return `atom(${value.atom})`;
     case "bool":  return `bool(${value.bool})`;
     case "bytes": return `bytes(${value.bytes})`;
-    case "fnptr": return `fnptr(${value.kind})`;
+    case "fnptr": return `fn(${value.fnptr})`;
     case "num":   return `num(${value.num})`;
     case "list":  return <DisplayList   values={values} id={value.list} />;
     case "rec":   return <DisplayRecord values={values} id={value.rec}  />;

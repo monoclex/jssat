@@ -411,16 +411,24 @@ impl<'p> Interpreter<'p> {
         };
 
         for (idx, inst) in function.instructions.iter().enumerate() {
-            let mut pre = ValueSnapshotArena::new();
+            // only take a pre snapshot if it's a non-trivial instruction that
+            // could mutate args, like call
+            use jssat_ir::frontend::ir::InstructionData;
+            if matches!(
+                inst.data,
+                InstructionData::CallVirt(_) | InstructionData::CallStatic(_)
+            ) {
+                let mut pre = ValueSnapshotArena::new();
 
-            for r in inst.used_registers() {
-                pre.snapshot(r, inst_exec.registers.get(&r).unwrap());
+                for r in inst.used_registers() {
+                    pre.snapshot(r, inst_exec.registers.get(&r).unwrap());
+                }
+
+                inst_exec
+                    .interpreter
+                    .moment
+                    .snapshot(idx, inst.source_map_idx, pre);
             }
-
-            inst_exec
-                .interpreter
-                .moment
-                .snapshot(idx, inst.source_map_idx, pre);
 
             let result = inst_exec.exec(inst);
 
