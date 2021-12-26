@@ -14,7 +14,7 @@ body {
 .codeview {
   .column-grid();
   .look-like-code();
-  flex-grow: 1;
+  .grow();
   overflow-y: auto;
 }
 
@@ -36,7 +36,7 @@ body {
   display: flex;
 
   .line-to-end {
-    flex-grow: 1;
+    .grow();
   }
 }
 
@@ -93,6 +93,10 @@ body {
   padding: 0;
   padding-left: 1em;
   list-style-type: none;
+}
+
+.grow {
+  flex-grow: 1;
 }
 
 .look-like-code() {

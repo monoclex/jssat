@@ -1,10 +1,6 @@
 import { Accessor } from "solid-js";
 import { Moment, MomentRecordKey, MomentValue, MomentValues } from "../api";
-import {
-  DisplayTreeNode,
-  TreeNode,
-  TreeViewProps,
-} from "../panels/treeview/TreeView";
+import { DisplayTreeNode, TreeNode, TreeViewProps } from "../panels/TreeView";
 
 export function adaptTypeTree(
   moment: Accessor<Moment | undefined>

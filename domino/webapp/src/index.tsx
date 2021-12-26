@@ -1,9 +1,11 @@
 import {
+  Accessor,
   createEffect,
   createResource,
   createSignal,
   ErrorBoundary,
   For,
+  Setter,
   Show,
   Suspense,
 } from "solid-js";
@@ -26,7 +28,8 @@ import {
 } from "./api";
 import { adaptPanel, Window } from "./editor/window";
 import { CodeView } from "./panels/codeview/CodeView";
-import { TreeView } from "./panels/treeview/TreeView";
+import { adaptSplitView } from "./panels/SplitView";
+import { TreeView } from "./panels/TreeView";
 import "./styles.less";
 
 const ShowError = (err: Error) => {
@@ -96,13 +99,25 @@ const AppContainer = (props: AppContainerProps) => {
   const panels = [
     adaptPanel(adaptJssatIR([moment, setValue]), CodeView),
     adaptPanel(adaptIRFile(props.overview.sources, moment), CodeView),
-    adaptPanel(adaptTypeTree(moment), TreeView),
+    adaptSplitView(adaptPanel(adaptTypeTree(moment), TreeView), () => (
+      <CallstackView
+        overview={props.overview}
+        value={value}
+        setValue={setValue}
+      />
+    )),
   ];
 
   return <Window panels={panels} />;
 };
 
-const CallstackView = (props: any) => {
+interface CallstackViewProps {
+  overview: Overview;
+  value: Accessor<number>;
+  setValue: Setter<number>;
+}
+
+const CallstackView = (props: CallstackViewProps) => {
   return (
     <>
       <div className="time-slider">
