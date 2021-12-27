@@ -68,6 +68,9 @@ const AppContainer = (props: AppContainerProps) => {
     set: setValue,
   });
 
+  const [moment, setMoment] = createSignal<Moment | undefined>(undefined);
+  createEffect(async () => setMoment(await fetchMoment(value())));
+
   document.addEventListener("keydown", (e) => {
     const setValueLim = (value: number) => {
       if (value < 0) return;
@@ -77,12 +80,12 @@ const AppContainer = (props: AppContainerProps) => {
 
     switch (e.key) {
       case "ArrowLeft":
-        // const prevMoment = props.moment()?.callstack[0].prevMoment;
-        // setValueLim(prevMoment ? prevMoment : props.value() - 1);
+        const prevMoment = moment()?.callstack[0].prevMoment;
+        setValueLim(prevMoment ? prevMoment : value() - 1);
         break;
       case "ArrowRight":
-        // const nextMoment = props.moment()?.callstack[0].nextMoment;
-        // setValueLim(nextMoment ? nextMoment : props.value() + 1);
+        const nextMoment = moment()?.callstack[0].nextMoment;
+        setValueLim(nextMoment ? nextMoment : value() + 1);
         break;
       case "ArrowUp":
         setValueLim(value() - 1);
@@ -92,9 +95,6 @@ const AppContainer = (props: AppContainerProps) => {
         break;
     }
   });
-
-  const [moment, setMoment] = createSignal<Moment | undefined>(undefined);
-  createEffect(async () => setMoment(await fetchMoment(value())));
 
   const panels = [
     adaptPanel(adaptJssatIR([moment, setValue]), CodeView),

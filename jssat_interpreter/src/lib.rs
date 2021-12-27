@@ -12,7 +12,6 @@
 mod build;
 pub use build::*;
 use jssat_ir::UnwrapNone;
-use petgraph::graph::DiGraph;
 
 #[cfg(test)]
 mod tests;
@@ -277,21 +276,12 @@ pub fn ensure_arg_count(expected: usize, got: usize) -> InstResult<()> {
 use jssat_ir::value_snapshot::*;
 
 trait ValueSnapshotArenaExt {
-    fn new() -> Self;
     fn snapshot(&mut self, register: RegisterId, value: &Value);
     fn map_value(&mut self, value: &Value) -> SnapshotValue;
     fn map_key(&mut self, key: &RecordKey) -> SnapshotRecordKey;
 }
 
 impl ValueSnapshotArenaExt for ValueSnapshotArena {
-    fn new() -> Self {
-        Self {
-            registers: Default::default(),
-            records: Default::default(),
-            lists: Default::default(),
-        }
-    }
-
     fn snapshot(&mut self, register: RegisterId, value: &Value) {
         let value = self.map_value(value);
         self.registers.insert(register, value);

@@ -43,3 +43,9 @@ pub struct ValueSnapshotArena {
     pub records: FxHashMap<usize, SnapshotRecord>,
     pub lists: FxHashMap<usize, SnapshotList>,
 }
+
+impl ValueSnapshotArena {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}

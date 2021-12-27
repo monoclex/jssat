@@ -1,50 +1,131 @@
 //! The abstract interpretation module in JSSAT.
 
-use std::borrow::Cow;
 use std::ops::{Index, IndexMut};
 use std::sync::Arc;
 
+use domino::moment::MomentApi;
 use jssat_ir::collections::StrictZip;
 use jssat_ir::id::{Counter, LiftedCtx, RegisterId, Tag, UnionId, UniqueListId, UniqueRecordId};
 use jssat_ir::isa::BlockJump;
+use jssat_ir::value_snapshot::ValueSnapshotArena;
 use rustc_hash::FxHashMap;
 
 use crate::lifted::{FunctionId, LiftedProgram};
 use crate::types::{List, Record, Type, TypeCtx, TypeCtxMut, TypeDuplication};
 
-pub struct AbsIntEngine<'program> {
+/// Collects statistics during abstract interpretation.
+pub trait AbsIntCollector<T: Tag> {
+    fn set_inst_position(&mut self, index: usize);
+    fn set_inst_position_end(&mut self);
+
+    fn record_change(&mut self, register: RegisterId<T>, typ: Type<T>);
+    fn commit_changes(&mut self);
+
+    fn fn_start(&mut self, function: FunctionId, kind: EvaluationStateKind);
+    fn fn_end(&mut self);
+}
+
+/// Collector that implements [`AbsIntCollector`] but does not collect any
+/// information. This is useful when wanting to run the abstract interpreter at
+/// maximum speed, as it does not have to do any processing when collecting
+/// information.
+pub struct NilCollector;
+
+impl<T: Tag> AbsIntCollector<T> for NilCollector {
+    fn set_inst_position(&mut self, _index: usize) {}
+    fn set_inst_position_end(&mut self) {}
+
+    fn record_change(&mut self, _register: RegisterId<T>, _typ: Type<T>) {}
+    fn commit_changes(&mut self) {}
+
+    fn fn_start(&mut self, _function: FunctionId, _kind: EvaluationStateKind) {}
+    fn fn_end(&mut self) {}
+}
+
+pub struct MomentCollector<T: Tag> {
+    moment: MomentApi,
+    pos: usize,
+    ty_ctx: TypeCtx<T>,
+}
+
+impl<T: Tag> MomentCollector<T> {
+    pub fn new(code: &LiftedProgram) -> Self {
+        Self {
+            pos: 0,
+            moment: MomentApi::new(code),
+            ty_ctx: TypeCtx::new(),
+        }
+    }
+}
+
+impl<T: Tag> AbsIntCollector<T> for MomentCollector<T> {
+    fn set_inst_position(&mut self, index: usize) {
+        self.pos = index;
+    }
+
+    fn set_inst_position_end(&mut self) {
+        self.pos += 1; // lol this is such a hack
+    }
+
+    fn record_change(&mut self, register: RegisterId<T>, typ: Type<'_, T>) {
+        self.ty_ctx.borrow_mut(|mut ctx| {
+            let typ = ctx.duplicate_type(typ);
+            ctx.insert(register, typ);
+        });
+    }
+
+    fn commit_changes(&mut self) {
+        let mut value_arena = ValueSnapshotArena::new();
+
+        self.ty_ctx.borrow(|ctx| {
+            for (k, v) in ctx.iter() {
+                //
+            }
+        })
+    }
+
+    fn fn_start(&mut self, function: FunctionId, kind: EvaluationStateKind) {
+        self.moment.enter(function);
+    }
+
+    fn fn_end(&mut self) {
+        self.moment.exit();
+    }
+}
+
+pub struct AbsIntEngine<'program, C> {
     program: &'program LiftedProgram,
     record_id: Counter<UniqueRecordId<LiftedCtx>>,
     list_id: Counter<UniqueListId<LiftedCtx>>,
     recursion_detector: RecursionDetector,
     function_cache: FunctionCache,
-    space: usize,
+    pub collector: C,
 }
 
-impl<'p> AbsIntEngine<'p> {
+impl<'p> AbsIntEngine<'p, NilCollector> {
     pub fn new(program: &'p LiftedProgram) -> Self {
+        Self::new_with_collector(program, NilCollector)
+    }
+}
+
+impl<'p, C: AbsIntCollector<LiftedCtx>> AbsIntEngine<'p, C> {
+    pub fn new_with_collector(program: &'p LiftedProgram, collector: C) -> Self {
         Self {
             program,
             record_id: Default::default(),
             list_id: Default::default(),
             recursion_detector: Default::default(),
             function_cache: Default::default(),
-            space: 0,
+            collector,
         }
     }
 
     pub fn call(&mut self, function: FunctionId, args: TypeCtx) -> EvalResult {
-        println!(
-            "{}-> {:?} {:?}",
-            " ".repeat(self.space),
-            function,
-            self.program.functions.get(&function).unwrap().name,
-        );
-        self.space += 1;
         // 1. check previous execution results
         let idx = self.function_cache.state(function, args);
         let (args, state) = &mut self.function_cache[idx];
 
+        self.collector.fn_start(function, EvaluationStateKind::from(&*state));
         match state {
             EvaluationState::Completed(result) => return result.clone(),
             EvaluationState::PartiallyCompleted(result) => return result.clone(),
@@ -67,19 +148,31 @@ impl<'p> AbsIntEngine<'p> {
         let code = self.program.functions.get(&function).unwrap();
 
         current_state.borrow_mut(|mut state| {
-            for instruction in code.instructions.iter() {
+            for (idx, instruction) in code.instructions.iter().enumerate() {
+                self.collector.set_inst_position(idx);
+
                 use jssat_ir::frontend::ir::InstructionData::*;
+
+                macro_rules! insert {
+                    ($state:expr, $key:expr, $value:expr) => {
+                        {
+                            let key = $key;
+                            let value = $value;
+                            $state.insert(key, value);
+                            self.collector.record_change(key, value);
+                        }
+                    }
+                }
 
                 match &instruction.data {
                     Comment(_) => {}
                     NewRecord(i) => {
                         let unique_id = self.record_id.next();
                         let record = Record::new(unique_id);
-                        state.insert(i.result, state.make_type_record(record));
+                        insert!(state, i.result, state.make_type_record(record));
                     }
                     RecordGet(i) => {
                         let record = state.get(&i.record).unwrap();
-                        println!("non rec is {:?}", record);
                         let record = record.unwrap_record();
 
                         use jssat_ir::isa::RecordKey::*;
@@ -90,11 +183,11 @@ impl<'p> AbsIntEngine<'p> {
 
                         let record = record.borrow();
                         let k = record.get(&key).unwrap();
-                        state.insert(i.result, *k);
+                        insert!(state, i.result, *k);
                     }
                     RecordSet(i) => {
-                        let rec = *state.get(&i.record).unwrap();
-                        let mut rec = rec.unwrap_record().borrow_mut();
+                        let rec_typ = *state.get(&i.record).unwrap();
+                        let mut rec = rec_typ.unwrap_record().borrow_mut();
 
                         use jssat_ir::isa::RecordKey::*;
                         let key = match i.key {
@@ -111,6 +204,9 @@ impl<'p> AbsIntEngine<'p> {
                                 rec.remove(&key);
                             }
                         };
+
+                        drop(rec);
+                        self.collector.record_change(i.record, rec_typ);
                     }
                     RecordHasKey(i) => {
                         let rec = *state.get(&i.record).unwrap();
@@ -123,12 +219,12 @@ impl<'p> AbsIntEngine<'p> {
                         };
 
                         let has_key = rec.contains_key(&key);
-                        state.insert(i.result, Type::Bool(has_key));
+                        insert!(state, i.result, Type::Bool(has_key));
                     },
                     NewList(i) => {
                         let unique_id = self.list_id.next();
                         let list = List::new(unique_id);
-                        state.insert(i.result, state.make_type_list(list));
+                        insert!(state, i.result, state.make_type_list(list));
                     }
                     ListGet(i) => {
                         let list = state.get(&i.list).unwrap();
@@ -157,11 +253,11 @@ impl<'p> AbsIntEngine<'p> {
                             _ => panic!("not well formed jssat ir"),
                         };
 
-                        state.insert(i.result, *typ);
+                        insert!(state, i.result, *typ);
                     },
                     ListSet(i) => {
-                        let list = state.get(&i.list).unwrap();
-                        let mut list = list.unwrap_list().borrow_mut();
+                        let list_typ = *state.get(&i.list).unwrap();
+                        let mut list = list_typ.unwrap_list().borrow_mut();
 
                         let elem = match i.key {
                             jssat_ir::isa::ListKey::Index(reg) => state.get(&reg).unwrap(),
@@ -189,15 +285,18 @@ impl<'p> AbsIntEngine<'p> {
                             Type::Float(_) => todo!("debating whether or not to implement this"),
                             _ => panic!("not well formed jssat ir"),
                         };
+                        
+                        drop(list);
+                        self.collector.record_change(i.list, list_typ);
                     }
                     ListHasKey(_) => todo!(),
                     ListLen(i) => {
                         let list = state.get(&i.list).unwrap();
                         let list = list.unwrap_list().borrow();
-                        state.insert(i.result, Type::Int(list.len() as i64));
+                        insert!(state, i.result, Type::Int(list.len() as i64));
                     }
                     GetFnPtr(i) => {
-                        state.insert(i.result, Type::FnPtr(i.item));
+                        insert!(state, i.result, Type::FnPtr(i.item));
                     }
                     CallStatic(i) => {
                         self.call_fn(&mut state, i.result, i.calling, &i.args);
@@ -210,17 +309,17 @@ impl<'p> AbsIntEngine<'p> {
                         self.call_fn(&mut state, i.result, fnptr, &i.args);
                     },
                     MakeAtom(i) => {
-                        state.insert(i.result, Type::Atom(i.item));
+                        insert!(state, i.result, Type::Atom(i.item));
                     }
                     MakeBytes(i) => {
                         let bytes = self.program.constants.get(&i.item).unwrap();
-                        state.insert(i.result, state.make_type_byts(&bytes.payload));
+                        insert!(state, i.result, state.make_type_byts(&bytes.payload));
                     }
                     MakeInteger(i) => {
-                        state.insert(i.result, Type::Int(i.item));
+                        insert!(state, i.result, Type::Int(i.item));
                     }
                     MakeBoolean(i) => {
-                        state.insert(i.result, Type::Bool(i.item));
+                        insert!(state, i.result, Type::Bool(i.item));
                     },
                     BinOp(i) => {
                         let lhs = *state.get(&i.lhs).unwrap();
@@ -283,7 +382,7 @@ impl<'p> AbsIntEngine<'p> {
                             },
                         };
 
-                        state.insert(i.result, res_typ);
+                        insert!(state, i.result, res_typ);
                     },
                     Negate(i) => {
                         let operand = *state.get(&i.operand).unwrap();
@@ -297,7 +396,7 @@ impl<'p> AbsIntEngine<'p> {
                             _ => panic!("invalid program"),
                         };
 
-                        state.insert(i.result, res_typ);
+                        insert!(state, i.result, res_typ);
                     },
                     Generalize(_) => todo!(),
                     Assert(i) => {
@@ -368,11 +467,13 @@ impl<'p> AbsIntEngine<'p> {
                             Some(x) => Type::Bool(x),
                         };
 
-                        state.insert(i.result, matches);
+                        insert!(state, i.result, matches);
                     },
                     GetRuntime(_) => todo!(),
                     Unreachable(_) => todo!(),
-                }
+                };
+
+                self.collector.commit_changes();
             }
         });
 
@@ -380,6 +481,7 @@ impl<'p> AbsIntEngine<'p> {
         use jssat_ir::lifted::EndInstruction::*;
 
         // initialize the type context with the return value in `None`
+        self.collector.set_inst_position_end();
         let mut ret_ctx = current_state.borrow_mut(|mut state| match &code.end {
             Jump(i) => {
                 let result = self.do_blk_jmp(&mut state, &i.0);
@@ -414,13 +516,6 @@ impl<'p> AbsIntEngine<'p> {
 
         // unwind, we are done evaluating 100%
         self.recursion_detector.exit_fn(function);
-        self.space -= 1;
-        println!(
-            "{}<- {:?} {:?}",
-            " ".repeat(self.space),
-            function,
-            self.program.functions.get(&function).unwrap().name,
-        );
 
         // copy the state of all the parameters into the return result too
         current_state.borrow(|state| {
@@ -472,6 +567,11 @@ impl<'p> AbsIntEngine<'p> {
         args.copy_from_map(state, src_regs, map_reg);
 
         // 2. call function
+        for reg in calling_args {
+            self.collector.record_change(*reg, *state.get(reg).unwrap());
+        }
+        self.collector.commit_changes();
+
         let result = self.call(function, args);
 
         let result = match result {
@@ -506,13 +606,19 @@ impl<'p> AbsIntEngine<'p> {
 
         for (reg, typ) in new_typs {
             state.overwrite(reg, typ);
+            self.collector.record_change(reg, typ);
         }
 
         match (reg_result, ret_typ) {
-            (Some(reg), Some(typ)) => state.insert(reg, typ),
+            (Some(reg), Some(typ)) => {
+                state.insert(reg, typ);
+                self.collector.record_change(reg, typ);
+            },
             (Some(_), None) => panic!("invalid program"),
             (None, _) => {}
         };
+
+        self.collector.commit_changes();
 
         result
     }
@@ -574,7 +680,9 @@ impl EvalResult {
     }
 }
 
-enum EvaluationState {
+#[derive(enum_kinds::EnumKind)]
+#[enum_kind(EvaluationStateKind)]
+pub enum EvaluationState {
     NeverExecuted,
     InProgress,
     PartiallyCompleted(EvalResult),

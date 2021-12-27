@@ -197,7 +197,10 @@ f(print);
     println!("executing program");
     // interpret(&program, dealer, source_map);
     let program = time(|| {
-        let mut engine = abst_interp::AbsIntEngine::new(&program);
+        let mut engine = abst_interp::AbsIntEngine::new_with_collector(
+            &program,
+            abst_interp::MomentCollector::new(&program),
+        );
         engine.call(program.entrypoint, TypeCtx::new())
     });
 }
