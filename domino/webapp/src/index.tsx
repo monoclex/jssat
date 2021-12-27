@@ -30,16 +30,8 @@ import { adaptPanel, Window } from "./editor/window";
 import { CodeView } from "./panels/codeview/CodeView";
 import { adaptSplitView } from "./panels/SplitView";
 import { TreeView } from "./panels/TreeView";
+import { ShowError } from "./components/ShowError";
 import "./styles.less";
-
-const ShowError = (err: Error) => {
-  return (
-    <>
-      <h1>eror!</h1>
-      <p>uh oh: {err.toString()}</p>
-    </>
-  );
-};
 
 const ShowLoading = (message: string) => () => <h1>{message}</h1>;
 

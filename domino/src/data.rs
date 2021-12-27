@@ -2,6 +2,7 @@ use std::{rc::Rc, sync::Arc};
 
 use jssat_ir::{
     frontend::source_map::{SourceMapIdx, SourceMapImpl},
+    id::IdCompat,
     isa::AtomDealer,
     lifted::FunctionId,
     value_snapshot::{SnapshotValue, ValueSnapshotArena},
@@ -133,7 +134,7 @@ impl MomentValues {
     fn port(&mut self, dealer: &Arc<AtomDealer>, arena: &ValueSnapshotArena) {
         for (register, value) in arena.registers.iter() {
             let value = self.port_value(dealer, value);
-            self.registers.insert(register.get_the_value(), value);
+            self.registers.insert(register.value(), value);
         }
 
         for (id, record) in arena.records.iter() {
@@ -176,7 +177,7 @@ impl MomentValues {
             }
             SnapshotValue::Number(x) => MomentValue::new_num(*x),
             SnapshotValue::Boolean(x) => MomentValue::new_bool(*x),
-            SnapshotValue::FnPtr(x) => MomentValue::new_fnptr(x.get_the_value()),
+            SnapshotValue::FnPtr(x) => MomentValue::new_fnptr(x.value()),
             SnapshotValue::Record(x) => MomentValue::new_rec(*x),
             SnapshotValue::List(x) => MomentValue::new_list(*x),
             SnapshotValue::Runtime => MomentValue::new_runtime(),

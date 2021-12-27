@@ -20,13 +20,13 @@ pub enum SnapshotValue {
     Runtime,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SnapshotRecord(pub FxHashMap<SnapshotValue, SnapshotValue>);
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SnapshotList(pub Vec<SnapshotValue>);
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 pub struct ValueSnapshotArena {
     /// register id |-> index in value map
     pub registers: FxHashMap<RegisterId, SnapshotValue>,

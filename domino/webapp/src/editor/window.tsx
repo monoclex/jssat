@@ -1,5 +1,6 @@
-import { JSX, Show } from "solid-js";
+import { ErrorBoundary, JSX, Show } from "solid-js";
 import { For } from "solid-js";
+import { ShowError } from "../components/ShowError";
 
 export type WindowPanel = () => JSX.Element;
 
@@ -13,7 +14,9 @@ export function Window(props: WindowProps) {
       <For each={props.panels}>
         {(Panel) => (
           <div className="vertical-panel">
-            <Panel />
+            <ErrorBoundary fallback={ShowError}>
+              <Panel />
+            </ErrorBoundary>
           </div>
         )}
       </For>

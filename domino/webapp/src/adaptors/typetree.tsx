@@ -63,7 +63,9 @@ function DisplayList(props: DisplayListProps) {
   return (
     <span>
       {name}
-      <DisplayTreeNode treeNode={nodeList(props.values, list)} />
+      {list.length !== 0 && (
+        <DisplayTreeNode treeNode={nodeList(props.values, list)} />
+      )}
     </span>
   );
 }
@@ -86,12 +88,14 @@ interface DisplayRecordProps {
 
 function DisplayRecord(props: DisplayRecordProps) {
   const record = props.values.records[props.id];
-  const name = `rec(id = ${props.id}, len = ${record.length})`;
+  const name = `rec(len = ${record.length}, id = ${props.id})`;
 
   return (
     <span>
       {name}
-      <DisplayTreeNode treeNode={nodeRecord(props.values, record)} />
+      {record.length !== 0 && (
+        <DisplayTreeNode treeNode={nodeRecord(props.values, record)} />
+      )}
     </span>
   );
 }
