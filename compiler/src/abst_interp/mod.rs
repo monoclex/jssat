@@ -7,11 +7,11 @@ use domino::moment::MomentApi;
 use jssat_ir::collections::StrictZip;
 use jssat_ir::id::{Counter, LiftedCtx, RegisterId, Tag, UnionId, UniqueListId, UniqueRecordId};
 use jssat_ir::isa::BlockJump;
-use jssat_ir::value_snapshot::ValueSnapshotArena;
-use rustc_hash::FxHashMap;
+use jssat_ir::value_snapshot::{ValueSnapshotArena, SnapshotValue, SnapshotList};
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::lifted::{FunctionId, LiftedProgram};
-use crate::types::{List, Record, Type, TypeCtx, TypeCtxMut, TypeDuplication};
+use crate::types::{List, Record, Type, TypeCtx, TypeCtxMut, TypeDuplication, TypeCtxImmut};
 
 /// Collects statistics during abstract interpretation.
 pub trait AbsIntCollector<T: Tag> {
@@ -42,23 +42,29 @@ impl<T: Tag> AbsIntCollector<T> for NilCollector {
     fn fn_end(&mut self) {}
 }
 
-pub struct MomentCollector<T: Tag> {
-    moment: MomentApi,
+pub struct MomentCollector<'code, T: Tag> {
+    code: &'code LiftedProgram,
+    pub moment: MomentApi,
     pos: usize,
     ty_ctx: TypeCtx<T>,
+    function: Option<FunctionId>,
+    seen: FxHashSet<RegisterId<LiftedCtx>>
 }
 
-impl<T: Tag> MomentCollector<T> {
-    pub fn new(code: &LiftedProgram) -> Self {
+impl<'code, T: Tag> MomentCollector<'code, T> {
+    pub fn new(code: &'code LiftedProgram) -> Self {
         Self {
+            code,
             pos: 0,
             moment: MomentApi::new(code),
             ty_ctx: TypeCtx::new(),
+            function: None,
+            seen: FxHashSet::default(),
         }
     }
 }
 
-impl<T: Tag> AbsIntCollector<T> for MomentCollector<T> {
+impl<'code> AbsIntCollector<LiftedCtx> for MomentCollector<'code, LiftedCtx> {
     fn set_inst_position(&mut self, index: usize) {
         self.pos = index;
     }
@@ -67,7 +73,11 @@ impl<T: Tag> AbsIntCollector<T> for MomentCollector<T> {
         self.pos += 1; // lol this is such a hack
     }
 
-    fn record_change(&mut self, register: RegisterId<T>, typ: Type<'_, T>) {
+    fn record_change(&mut self, register: RegisterId<LiftedCtx>, typ: Type<'_, LiftedCtx>) {
+        if !self.seen.insert(register) {
+            return;
+        }
+
         self.ty_ctx.borrow_mut(|mut ctx| {
             let typ = ctx.duplicate_type(typ);
             ctx.insert(register, typ);
@@ -75,21 +85,130 @@ impl<T: Tag> AbsIntCollector<T> for MomentCollector<T> {
     }
 
     fn commit_changes(&mut self) {
-        let mut value_arena = ValueSnapshotArena::new();
+        let arena = self.ty_ctx.borrow(|ctx| {
+            let mut visitor = SnapshotVisitor::new();
 
-        self.ty_ctx.borrow(|ctx| {
             for (k, v) in ctx.iter() {
-                //
+                visitor.primary = Some(*k);
+                visitor.visit(*v);
             }
-        })
+
+            let arena = visitor.arena;
+
+            if arena.registers.is_empty() {
+                // eprintln!("warning: not comitting empty arena (TODO: fix this?)");
+                return None;
+            }
+
+            Some(arena)
+        });
+
+        if let Some(arena) = arena {
+            let source_map_idx = try {
+                let fn_id = self.function?;
+                let function = self.code.functions.get(&fn_id)?;
+                let inst = function.instructions.get(self.pos)?;
+                inst.source_map_idx?
+            };
+
+            self.moment.snapshot(self.pos, source_map_idx, arena);
+            self.ty_ctx = TypeCtx::new();
+            self.seen = FxHashSet::default();
+        }
     }
 
     fn fn_start(&mut self, function: FunctionId, kind: EvaluationStateKind) {
         self.moment.enter(function);
+        self.function = Some(function);
     }
 
     fn fn_end(&mut self) {
         self.moment.exit();
+    }
+}
+
+struct SnapshotVisitor<T, P> {
+    arena: ValueSnapshotArena,
+    seen: FxHashMap<T, SnapshotValue>,
+    primary: Option<P>,
+    rec_id: usize,
+    list_id: usize,
+}
+
+impl<T, P> SnapshotVisitor<T, P> {
+    pub fn new() -> Self {
+        Self {
+            arena: Default::default(),
+            seen: Default::default(),
+            primary: None,
+            rec_id: 0,
+            list_id: 0,
+        }
+    }
+}
+
+impl<'ctx, T: Tag> SnapshotVisitor<Type<'ctx, T>, RegisterId<LiftedCtx>> {
+    fn visit(&mut self, typ: Type<'ctx, T>) -> SnapshotValue {
+        let snapshot_value = match typ {
+            Type::Any => todo!(),
+            Type::Nothing => todo!(),
+            Type::Bytes => todo!(),
+            Type::Number => todo!(),
+            Type::Boolean => todo!(),
+            Type::Atom(x) => SnapshotValue::Atom(x),
+            Type::Int(x) => SnapshotValue::Number(x),
+            Type::Float(x) => todo!(),
+            Type::Bool(x) => SnapshotValue::Boolean(x),
+            Type::FnPtr(x) => SnapshotValue::FnPtr(x),
+            Type::Byts(x) => SnapshotValue::Bytes(x.to_vec()),
+            Type::List(x) => {
+                if let Some(seen) = self.seen.get(&typ) {
+                    return seen.clone();
+                }
+
+                let id = self.list_id;
+                self.list_id += 1;
+        
+                if let Some(reg) = self.primary {
+                    self.arena.registers.insert(reg, SnapshotValue::List(id));
+                    self.primary = None;
+                }
+
+                let snapshot_types = x.borrow().iter()
+                    .map(|typ| self.visit(*typ))
+                    .collect::<Vec<_>>();
+
+                self.arena.lists.insert(id, SnapshotList(snapshot_types));
+                SnapshotValue::List(id)
+            }
+            Type::Record(x) => {
+                if let Some(seen) = self.seen.get(&typ) {
+                    return seen.clone();
+                }
+
+                let id = self.rec_id;
+                self.rec_id += 1;
+        
+                if let Some(reg) = self.primary {
+                    self.arena.registers.insert(reg, SnapshotValue::Record(id));
+                    self.primary = None;
+                }
+    
+
+                let record = x.borrow().iter()
+                    .map(|(key_typ, value_typ)| (self.visit(*key_typ), self.visit(*value_typ)))
+                    .collect::<FxHashMap<_, _>>();
+
+                self.arena.records.insert(id, jssat_ir::value_snapshot::SnapshotRecord(record));
+                SnapshotValue::Record(id)
+            }
+            Type::Union(x) => {
+                todo!()
+            }
+        };
+
+        self.seen.insert(typ, snapshot_value.clone());
+        snapshot_value
     }
 }
 
@@ -108,6 +227,26 @@ impl<'p> AbsIntEngine<'p, NilCollector> {
     }
 }
 
+trait TypeCtxImmutExt<'ctx, T: Tag> {
+    fn rget(&self, reg: RegisterId<T>) -> Result<Type<'ctx, T>, AbsIntError>;
+}
+
+impl<'borrow, 'ctx, T: Tag> TypeCtxImmutExt<'ctx, T> for TypeCtxImmut<'borrow, 'ctx, T, RegisterId<T>> {
+    fn rget(&self, reg: RegisterId<T>) -> Result<Type<'ctx, T>, AbsIntError> {
+        self.get(&reg).ok_or(AbsIntError::NotInSSA)
+    }
+}
+
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum AbsIntError {
+    #[error("Rejected program: not in SSA form")]
+    NotInSSA,
+    #[error("Invalid program: type error")]
+    TypeError
+}
+
 impl<'p, C: AbsIntCollector<LiftedCtx>> AbsIntEngine<'p, C> {
     pub fn new_with_collector(program: &'p LiftedProgram, collector: C) -> Self {
         Self {
@@ -120,16 +259,16 @@ impl<'p, C: AbsIntCollector<LiftedCtx>> AbsIntEngine<'p, C> {
         }
     }
 
-    pub fn call(&mut self, function: FunctionId, args: TypeCtx) -> EvalResult {
+    pub fn call(&mut self, function: FunctionId, args: TypeCtx) -> Result<EvalResult, AbsIntError> {
         // 1. check previous execution results
         let idx = self.function_cache.state(function, args);
         let (args, state) = &mut self.function_cache[idx];
 
         self.collector.fn_start(function, EvaluationStateKind::from(&*state));
         match state {
-            EvaluationState::Completed(result) => return result.clone(),
-            EvaluationState::PartiallyCompleted(result) => return result.clone(),
-            EvaluationState::InProgress => return EvalResult::new_never(),
+            EvaluationState::Completed(result) => return Ok(result.clone()),
+            EvaluationState::PartiallyCompleted(result) => return Ok(result.clone()),
+            EvaluationState::InProgress => return Ok(EvalResult::new_never()),
             EvaluationState::NeverExecuted => {}
         };
 
@@ -147,7 +286,8 @@ impl<'p, C: AbsIntCollector<LiftedCtx>> AbsIntEngine<'p, C> {
 
         let code = self.program.functions.get(&function).unwrap();
 
-        current_state.borrow_mut(|mut state| {
+        let closure_result: Result<(), AbsIntError> = current_state.borrow_mut(|mut state| {
+            try {
             for (idx, instruction) in code.instructions.iter().enumerate() {
                 self.collector.set_inst_position(idx);
 
@@ -172,12 +312,12 @@ impl<'p, C: AbsIntCollector<LiftedCtx>> AbsIntEngine<'p, C> {
                         insert!(state, i.result, state.make_type_record(record));
                     }
                     RecordGet(i) => {
-                        let record = state.get(&i.record).unwrap();
-                        let record = record.unwrap_record();
+                        let record = state.rget(i.record)?;
+                        let record = record.try_into_record().ok_or(AbsIntError::TypeError)?;
 
                         use jssat_ir::isa::RecordKey::*;
                         let key = match i.key {
-                            DynAtom(r) | Prop(r) => *state.get(&r).unwrap(),
+                            DynAtom(r) | Prop(r) => state.rget(r)?,
                             Atom(a) => Type::Atom(a),
                         };
 
@@ -186,18 +326,18 @@ impl<'p, C: AbsIntCollector<LiftedCtx>> AbsIntEngine<'p, C> {
                         insert!(state, i.result, *k);
                     }
                     RecordSet(i) => {
-                        let rec_typ = *state.get(&i.record).unwrap();
-                        let mut rec = rec_typ.unwrap_record().borrow_mut();
+                        let rec_typ = state.rget(i.record)?;
+                        let mut rec = rec_typ.try_into_record().ok_or(AbsIntError::TypeError)?.borrow_mut();
 
                         use jssat_ir::isa::RecordKey::*;
                         let key = match i.key {
-                            DynAtom(r) | Prop(r) => *state.get(&r).unwrap(),
+                            DynAtom(r) | Prop(r) => state.rget(r)?,
                             Atom(a) => Type::Atom(a),
                         };
 
                         match i.value {
                             Some(v) => {
-                                let value = *state.get(&v).unwrap();
+                                let value = state.rget(v)?;
                                 rec.insert(key, value);
                             }
                             None => {
@@ -209,12 +349,12 @@ impl<'p, C: AbsIntCollector<LiftedCtx>> AbsIntEngine<'p, C> {
                         self.collector.record_change(i.record, rec_typ);
                     }
                     RecordHasKey(i) => {
-                        let rec = *state.get(&i.record).unwrap();
-                        let rec = rec.unwrap_record().borrow();
+                        let rec = state.rget(i.record)?;
+                        let rec = rec.try_into_record().ok_or(AbsIntError::TypeError)?.borrow();
 
                         use jssat_ir::isa::RecordKey::*;
                         let key = match i.key {
-                            DynAtom(r) | Prop(r) => *state.get(&r).unwrap(),
+                            DynAtom(r) | Prop(r) => state.rget(r)?,
                             Atom(a) => Type::Atom(a),
                         };
 
@@ -237,11 +377,11 @@ impl<'p, C: AbsIntCollector<LiftedCtx>> AbsIntEngine<'p, C> {
                         let typ = match elem {
                             Type::Number => todo!("change list type to more general"),
                             Type::Int(i) => {
-                                if *i < 0 {
+                                if i < 0 {
                                     panic!("invalid program")
                                 }
 
-                                let i = *i as usize;
+                                let i = i as usize;
                                 if i > list.len() {
                                     panic!("invalid program")
                                 }
@@ -256,7 +396,7 @@ impl<'p, C: AbsIntCollector<LiftedCtx>> AbsIntEngine<'p, C> {
                         insert!(state, i.result, *typ);
                     },
                     ListSet(i) => {
-                        let list_typ = *state.get(&i.list).unwrap();
+                        let list_typ = state.rget(i.list)?;
                         let mut list = list_typ.unwrap_list().borrow_mut();
 
                         let elem = match i.key {
@@ -266,19 +406,19 @@ impl<'p, C: AbsIntCollector<LiftedCtx>> AbsIntEngine<'p, C> {
                         match elem {
                             Type::Number => todo!("change list type to more general"),
                             Type::Int(i) => {
-                                if *i < 0 {
+                                if i < 0 {
                                     panic!("invalid program")
                                 }
 
-                                let i = *i as usize;
+                                let i = i as usize;
                                 if i > list.len() {
                                     panic!("invalid program")
                                 }
 
                                 if i == list.len() {
-                                    list.push(*elem);
+                                    list.push(elem);
                                 } else {
-                                    list[i] = *elem;
+                                    list[i] = elem;
                                 }
                             }
                             Type::Union(_) => todo!("need to recursively re-apply the list set operator for every union variant"),
@@ -322,8 +462,8 @@ impl<'p, C: AbsIntCollector<LiftedCtx>> AbsIntEngine<'p, C> {
                         insert!(state, i.result, Type::Bool(i.item));
                     },
                     BinOp(i) => {
-                        let lhs = *state.get(&i.lhs).unwrap();
-                        let rhs = *state.get(&i.rhs).unwrap();
+                        let lhs = state.rget(i.lhs)?;
+                        let rhs = state.rget(i.rhs)?;
 
                         use jssat_ir::isa::BinaryOperator::*;
                         use Type::*;
@@ -385,7 +525,7 @@ impl<'p, C: AbsIntCollector<LiftedCtx>> AbsIntEngine<'p, C> {
                         insert!(state, i.result, res_typ);
                     },
                     Negate(i) => {
-                        let operand = *state.get(&i.operand).unwrap();
+                        let operand = state.rget(i.operand)?;
 
                         use Type::*;
                         let res_typ = match operand {
@@ -418,7 +558,7 @@ impl<'p, C: AbsIntCollector<LiftedCtx>> AbsIntEngine<'p, C> {
                         use jssat_ir::isa::CompareType::*;
                         let v = match i.kind {
                             Register(r) => {
-                                let typ =  *state.get(&r).unwrap();
+                                let typ =  state.rget(r)?;
                                 match typ {
                                     // TODO: handle BigNumber and Runtime
                                     Type::Any => todo!(),
@@ -440,7 +580,7 @@ impl<'p, C: AbsIntCollector<LiftedCtx>> AbsIntEngine<'p, C> {
                             Kind(v) => v,
                         };
 
-                        let reg_typ = *state.get(&i.value).unwrap();
+                        let reg_typ = state.rget(i.value)?;
                         let is_eq = match (reg_typ, v) {
                             (Type::Nothing, _) => panic!("huh"),
                             (Type::Number, ValueType::BigNumber) => todo!("idk"),
@@ -475,44 +615,52 @@ impl<'p, C: AbsIntCollector<LiftedCtx>> AbsIntEngine<'p, C> {
 
                 self.collector.commit_changes();
             }
+            }
         });
+        closure_result?;
 
         // 4. completion: unwind, store results
         use jssat_ir::lifted::EndInstruction::*;
 
         // initialize the type context with the return value in `None`
         self.collector.set_inst_position_end();
-        let mut ret_ctx = current_state.borrow_mut(|mut state| match &code.end {
-            Jump(i) => {
-                let result = self.do_blk_jmp(&mut state, &i.0);
-                result
-            }
-            JumpIf(i) => {
-                let cond = *state.get(&i.condition).unwrap();
-
-                use Type::*;
-                match cond {
-                    Boolean => todo!(),
-                    Bool(branch) => {
-                        let branch = match branch {
-                            true => &i.if_so,
-                            false => &i.other,
-                        };
-
-                        let result = self.do_blk_jmp(&mut state, branch);
+        let ret_ctx: Result<TypeCtx<LiftedCtx, Option<RegisterId<LiftedCtx>>>, AbsIntError> = current_state.borrow_mut(|mut state| {
+            try {
+                match &code.end {
+                    Jump(i) => {
+                        let result = self.do_blk_jmp(&mut state, &i.0)?;
                         result
                     }
-                    _ => panic!("invalid program"),
+                    JumpIf(i) => {
+                        let cond = state.rget(i.condition)?;
+
+                    use Type::*;
+                        match cond {
+                            Boolean => todo!(),
+                            Bool(branch) => {
+                                let branch = match branch {
+                                    true => &i.if_so,
+                                    false => &i.other,
+                                };
+
+                                let result = self.do_blk_jmp(&mut state, branch)?;
+                                result
+                            }
+                            _ => panic!("invalid program"),
+                        }
+                    }
+                    Return(i) => match i.0 {
+                        Some(ret_reg) => {
+                            let typ = state.rget(ret_reg)?;
+                            TypeCtx::new_initial(None, typ)
+                        }
+                        None => TypeCtx::new(),
+                    },
                 }
             }
-            Return(i) => match i.0 {
-                Some(ret_reg) => {
-                    let typ = state.get(&ret_reg).unwrap();
-                    TypeCtx::new_initial(None, *typ)
-                }
-                None => TypeCtx::new(),
-            },
         });
+
+        let mut ret_ctx: TypeCtx<LiftedCtx, Option<RegisterId<LiftedCtx>>> = ret_ctx?;
 
         // unwind, we are done evaluating 100%
         self.recursion_detector.exit_fn(function);
@@ -526,24 +674,24 @@ impl<'p, C: AbsIntCollector<LiftedCtx>> AbsIntEngine<'p, C> {
 
         let (_, state) = &mut self.function_cache[idx];
         *state = EvaluationState::Completed(result.clone());
-        result
+        Ok(result)
     }
 
     fn do_blk_jmp(
         &mut self,
         state: &mut TypeCtxMut<LiftedCtx, RegisterId<LiftedCtx>>,
         jmp: &BlockJump<FunctionId, LiftedCtx>,
-    ) -> TypeCtx<LiftedCtx, Option<RegisterId<LiftedCtx>>> {
+    ) -> Result<TypeCtx<LiftedCtx, Option<RegisterId<LiftedCtx>>>, AbsIntError> {
         // TODO: when taking two block jumps in parallel, we'll want better control
         //   over the values copied back into registers, as we'll need to make unions
-        let result = self.call_fn(state, None, jmp.0, &jmp.1);
+        let result = self.call_fn(state, None, jmp.0, &jmp.1)?;
 
         let ret_typ = result.ctx.borrow(|ctx| match ctx.get(&None) {
-            Some(t) => TypeCtx::new_initial(None, *t),
+            Some(t) => TypeCtx::new_initial(None, t),
             _ => TypeCtx::new(),
         });
 
-        ret_typ
+        Ok(ret_typ)
     }
 
     fn call_fn(
@@ -552,7 +700,7 @@ impl<'p, C: AbsIntCollector<LiftedCtx>> AbsIntEngine<'p, C> {
         reg_result: Option<RegisterId<LiftedCtx>>,
         function: FunctionId,
         calling_args: &[RegisterId<LiftedCtx>],
-    ) -> Arc<EvalResultInner> {
+    ) -> Result<Arc<EvalResultInner>, AbsIntError> {
         // 1. prepare for calling function
         let mut args = TypeCtx::new();
 
@@ -568,11 +716,11 @@ impl<'p, C: AbsIntCollector<LiftedCtx>> AbsIntEngine<'p, C> {
 
         // 2. call function
         for reg in calling_args {
-            self.collector.record_change(*reg, *state.get(reg).unwrap());
+            self.collector.record_change(*reg, state.rget(*reg)?);
         }
         self.collector.commit_changes();
 
-        let result = self.call(function, args);
+        let result = self.call(function, args)?;
 
         let result = match result {
             EvalResult::Never => {
@@ -589,7 +737,7 @@ impl<'p, C: AbsIntCollector<LiftedCtx>> AbsIntEngine<'p, C> {
         let (ret_typ, new_typs) = result.ctx.borrow(|result| {
             let mut dup = TypeDuplication::new(state);
 
-            let ret_typ = result.get(&None).map(|t| dup.duplicate_type(*t));
+            let ret_typ = result.get(&None).map(|t| dup.duplicate_type(t));
 
             let new_typs = result
                 .iter()
@@ -620,7 +768,7 @@ impl<'p, C: AbsIntCollector<LiftedCtx>> AbsIntEngine<'p, C> {
 
         self.collector.commit_changes();
 
-        result
+        Ok(result)
     }
 }
 

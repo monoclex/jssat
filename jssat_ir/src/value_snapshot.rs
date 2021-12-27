@@ -7,7 +7,7 @@ use crate::{
     lifted::{FunctionId, RegisterId},
 };
 
-#[derive(Clone, Debug)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum SnapshotValue {
     Atom(Atom),
     // TODO: intern value of bytes
@@ -20,18 +20,8 @@ pub enum SnapshotValue {
     Runtime,
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub enum SnapshotRecordKey {
-    Atom(Atom),
-    // TODO: intern
-    Bytes(Vec<u8>),
-    Number(i64),
-    Boolean(bool),
-    FnPtr(FunctionId),
-}
-
 #[derive(Clone)]
-pub struct SnapshotRecord(pub FxHashMap<SnapshotRecordKey, SnapshotValue>);
+pub struct SnapshotRecord(pub FxHashMap<SnapshotValue, SnapshotValue>);
 
 #[derive(Clone)]
 pub struct SnapshotList(pub Vec<SnapshotValue>);

@@ -98,7 +98,7 @@ pub struct SourceLocation {
 pub struct MomentValues {
     pub registers: FxHashMap<usize, MomentValue>,
     pub lists: FxHashMap<usize, Vec<MomentValue>>,
-    pub records: FxHashMap<usize, Vec<(MomentRecordKey, MomentValue)>>,
+    pub records: FxHashMap<usize, Vec<(MomentValue, MomentValue)>>,
 }
 
 // enums don't exist in miniserde
@@ -216,74 +216,6 @@ impl MomentValue {
             fnptr: None,
             rec: None,
             list: None,
-        }
-    }
-}
-
-// miniserde doesnt support enums
-#[derive(Serialize)]
-pub struct MomentRecordKey {
-    pub kind: &'static str,
-    pub atom: Option<String>,
-    pub num: Option<i64>,
-    pub bool: Option<bool>,
-    pub bytes: Option<String>,
-    pub fnptr: Option<usize>,
-}
-
-impl MomentRecordKey {
-    pub fn new_atom(x: String) -> Self {
-        Self {
-            kind: "atom",
-            atom: Some(x),
-            num: None,
-            bool: None,
-            bytes: None,
-            fnptr: None,
-        }
-    }
-
-    pub fn new_num(x: i64) -> Self {
-        Self {
-            kind: "num",
-            atom: None,
-            num: Some(x),
-            bool: None,
-            bytes: None,
-            fnptr: None,
-        }
-    }
-
-    pub fn new_bool(x: bool) -> Self {
-        Self {
-            kind: "bool",
-            atom: None,
-            num: None,
-            bool: Some(x),
-            bytes: None,
-            fnptr: None,
-        }
-    }
-
-    pub fn new_bytes(x: String) -> Self {
-        Self {
-            kind: "bytes",
-            atom: None,
-            num: None,
-            bool: None,
-            bytes: Some(x),
-            fnptr: None,
-        }
-    }
-
-    pub fn new_fnptr(x: usize) -> Self {
-        Self {
-            kind: "fnptr",
-            atom: None,
-            num: None,
-            bool: None,
-            bytes: None,
-            fnptr: Some(x),
         }
     }
 }

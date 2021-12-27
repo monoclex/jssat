@@ -4,7 +4,7 @@ use jssat_ir::{
     frontend::source_map::{SourceMapIdx, SourceMapImpl},
     isa::AtomDealer,
     lifted::FunctionId,
-    value_snapshot::{SnapshotRecordKey, SnapshotValue, ValueSnapshotArena},
+    value_snapshot::{SnapshotValue, ValueSnapshotArena},
     UnwrapNone,
 };
 use rustc_hash::FxHashMap;
@@ -140,7 +140,7 @@ impl MomentValues {
             let mut rec = vec![];
 
             for (key, value) in record.0.iter() {
-                rec.push((self.port_key(dealer, key), self.port_value(dealer, value)));
+                rec.push((self.port_value(dealer, key), self.port_value(dealer, value)));
             }
 
             self.records.insert(*id, rec);
@@ -154,29 +154,6 @@ impl MomentValues {
             }
 
             self.lists.insert(*id, mlist);
-        }
-    }
-
-    fn port_key(&mut self, dealer: &Arc<AtomDealer>, key: &SnapshotRecordKey) -> MomentRecordKey {
-        match key {
-            SnapshotRecordKey::Atom(x) => {
-                let name = dealer
-                    .try_resolve_name(*x)
-                    .map(|s| s.to_owned())
-                    .unwrap_or_else(|| format!("?{}?", x.0));
-
-                MomentRecordKey::new_atom(name)
-            }
-            SnapshotRecordKey::Bytes(x) => {
-                let s = (String::from_utf8(x.clone()).ok())
-                    .or_else(|| from_utf16(x))
-                    .unwrap_or_else(|| String::from_utf8_lossy(x).to_string());
-
-                MomentRecordKey::new_bytes(s)
-            }
-            SnapshotRecordKey::Number(x) => MomentRecordKey::new_num(*x),
-            SnapshotRecordKey::Boolean(x) => MomentRecordKey::new_bool(*x),
-            SnapshotRecordKey::FnPtr(x) => MomentRecordKey::new_fnptr(x.get_the_value()),
         }
     }
 

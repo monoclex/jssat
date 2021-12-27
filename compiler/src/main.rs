@@ -14,6 +14,7 @@
 #![feature(associated_type_bounds)]
 #![feature(nonzero_ops)]
 #![feature(format_args_capture)]
+#![feature(try_blocks)]
 // this is to silence `.map_context()` for the time being
 // #![allow(deprecated)]
 
@@ -196,13 +197,30 @@ f(print);
 
     println!("executing program");
     // interpret(&program, dealer, source_map);
-    let program = time(|| {
+    let (result, collector) = time(|| {
         let mut engine = abst_interp::AbsIntEngine::new_with_collector(
             &program,
             abst_interp::MomentCollector::new(&program),
         );
-        engine.call(program.entrypoint, TypeCtx::new())
+
+        let result = engine.call(program.entrypoint, TypeCtx::new());
+        (result, engine.collector)
     });
+
+    match result {
+        Ok(_result) => {
+            println!("ran successfully!");
+        }
+        Err(err) => {
+            println!("error: {:?}", err);
+
+            let listen_url = "127.0.0.1:8000";
+            println!("preparing data for domino");
+            let data = collector.moment.into_data_with(dealer, source_map);
+            println!("starting domino on http://{listen_url}");
+            domino::launch(listen_url, &data).unwrap();
+        }
+    }
 }
 
 fn rest(program: SystemRun) {

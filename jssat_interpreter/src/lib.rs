@@ -278,7 +278,7 @@ use jssat_ir::value_snapshot::*;
 trait ValueSnapshotArenaExt {
     fn snapshot(&mut self, register: RegisterId, value: &Value);
     fn map_value(&mut self, value: &Value) -> SnapshotValue;
-    fn map_key(&mut self, key: &RecordKey) -> SnapshotRecordKey;
+    fn map_key(&mut self, key: &RecordKey) -> SnapshotValue;
 }
 
 impl ValueSnapshotArenaExt for ValueSnapshotArena {
@@ -334,13 +334,13 @@ impl ValueSnapshotArenaExt for ValueSnapshotArena {
     }
 
     // keep this `mut self` as we may want to intern bytes in the future
-    fn map_key(&mut self, key: &RecordKey) -> SnapshotRecordKey {
+    fn map_key(&mut self, key: &RecordKey) -> SnapshotValue {
         match key {
-            RecordKey::Atom(x) => SnapshotRecordKey::Atom(*x),
-            RecordKey::Bytes(x) => SnapshotRecordKey::Bytes(x.clone()),
-            RecordKey::Number(x) => SnapshotRecordKey::Number(*x),
-            RecordKey::Boolean(x) => SnapshotRecordKey::Boolean(*x),
-            RecordKey::FnPtr(x) => SnapshotRecordKey::FnPtr(*x),
+            RecordKey::Atom(x) => SnapshotValue::Atom(*x),
+            RecordKey::Bytes(x) => SnapshotValue::Bytes(x.clone()),
+            RecordKey::Number(x) => SnapshotValue::Number(*x),
+            RecordKey::Boolean(x) => SnapshotValue::Boolean(*x),
+            RecordKey::FnPtr(x) => SnapshotValue::FnPtr(*x),
         }
     }
 }

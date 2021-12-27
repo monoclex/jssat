@@ -375,7 +375,7 @@ impl<T: Tag, K: Hash + Eq> TypeCtx<T, K> {
             let reg_typs = keys
                 .map(|key| {
                     let typ = other.get(&key).unwrap();
-                    (key, *typ)
+                    (key, typ)
                 })
                 .map(|(key, typ)| (key, dup.duplicate_type(typ)))
                 .collect::<Vec<_>>();
@@ -423,7 +423,9 @@ impl<'borrow, 'arena, T: Tag, K> TypeCtxMut<'borrow, 'arena, T, K>
 where
     K: Eq + Hash,
 {
-    /// Sets the type of a register to the type specified.
+    /// Sets the type of a register to the type specified. This will fail if the
+    /// register already has a type associated with it, which assures that the
+    /// program is kept in SSA form.
     ///
     /// # Examples
     ///
@@ -469,6 +471,19 @@ where
             Some(old) => old,
             None => panic!("must overwrite register"),
         }
+    }
+
+    /// This will either perform [`Self::insert`] or [`Self::overwrite`]
+    /// depending on whether or not a register is already present. It is **not
+    /// recommended** to use this method unless you have a very specific reason.
+    ///
+    /// When using this method, please use a `// Safety:` comment to explain why
+    /// this method must be used, rather than the alternatives [`Self::insert`]
+    /// or [`Self::overwrite`], with an example of two cases when there will not
+    /// be a register present (i.e. reason to use [`Self::overwrite`]) and when
+    /// there will be (i.e. reason to use [`Self::insert`]).
+    pub fn insert_or_overwrite(&mut self, key: K, value: Type<'arena, T>) {
+        self.lookup.insert(key, value);
     }
 
     /// Gets the type of a register.
@@ -656,8 +671,8 @@ where
     /// ctx.insert(register, Type::Any);
     /// assert!(type_ctx.get(&register, |v| v.unwrap().is_same_kind(&Type::<NoContext>::Any)));
     /// ```
-    pub fn get(&self, key: &K) -> Option<&Type<'arena, T>> {
-        self.lookup.get(key)
+    pub fn get(&self, key: &K) -> Option<Type<'arena, T>> {
+        self.lookup.get(key).copied()
     }
 }
 

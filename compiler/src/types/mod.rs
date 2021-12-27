@@ -260,9 +260,9 @@ impl<'ctx> Debug for BytsHandle<'ctx> {
     }
 }
 
-type ListHandle<'ctx, T: Tag> = RefCellHandle<'ctx, List<'ctx, T>>;
-type RecordHandle<'ctx, T: Tag> = RefCellHandle<'ctx, Record<'ctx, T>>;
-type UnionHandle<'ctx, T: Tag> = RefCellHandle<'ctx, Union<'ctx, T>>;
+pub type ListHandle<'ctx, T: Tag> = RefCellHandle<'ctx, List<'ctx, T>>;
+pub type RecordHandle<'ctx, T: Tag> = RefCellHandle<'ctx, Record<'ctx, T>>;
+pub type UnionHandle<'ctx, T: Tag> = RefCellHandle<'ctx, Union<'ctx, T>>;
 
 /// The handle to some data structure, guarded by a [`RefCell`]. Conceptually,
 /// this type can be thought of as a `Handle(&mut T)`. The [`CtxBox`] and

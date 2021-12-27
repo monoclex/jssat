@@ -290,8 +290,8 @@ mod tests {
             // ctx.insert(reg1, Type::Record(rec1));
             // ctx.insert(reg2, Type::Record(rec2));
 
-            let rec1 = *ctx.get(&reg1).unwrap();
-            let rec2 = *ctx.get(&reg2).unwrap();
+            let rec1 = ctx.get(&reg1).unwrap();
+            let rec2 = ctx.get(&reg2).unwrap();
 
             branch_hit = true;
             assert_eq!(rec1, rec2);
