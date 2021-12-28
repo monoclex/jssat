@@ -45,6 +45,7 @@ jssat_ir = { path = "../jssat_ir" }
 jssat_frontend_js = { path = "../jssat_frontend_js" }
 jssat_interpreter = { path = "../jssat_interpreter" }
 domino = { path = "../domino", features = ["moment"] }
+derivative = "2.2.0"
 
 [build-dependencies]
 ir_file = { path = "../ir_file" }

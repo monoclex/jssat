@@ -10,9 +10,17 @@
 #![allow(warnings)]
 
 use core::slice::SlicePattern;
-use std::{cell::RefCell, fmt::Debug, hash::Hash, num::NonZeroU16, pin::Pin};
+use std::{
+    cell::{RefCell, RefMut},
+    fmt::Debug,
+    hash::Hash,
+    num::NonZeroU16,
+    ops::DerefMut,
+    pin::Pin,
+};
 
 use bumpalo::{boxed::Box, Bump};
+use derivative::Derivative;
 use ordered_float::OrderedFloat;
 
 use crate::{
@@ -260,36 +268,9 @@ impl<'ctx> Debug for BytsHandle<'ctx> {
     }
 }
 
-pub type ListHandle<'ctx, T: Tag> = RefCellHandle<'ctx, List<'ctx, T>>;
-pub type RecordHandle<'ctx, T: Tag> = RefCellHandle<'ctx, Record<'ctx, T>>;
-pub type UnionHandle<'ctx, T: Tag> = RefCellHandle<'ctx, Union<'ctx, T>>;
-
-/// The handle to some data structure, guarded by a [`RefCell`]. Conceptually,
-/// this type can be thought of as a `Handle(&mut T)`. The [`CtxBox`] and
-/// [`RefCell`] are used to achieve interior mutability and cyclicity.
-#[repr(transparent)]
-#[derive(Deref, DerefMut)]
-pub struct RefCellHandle<'ctx, T: ?Sized>(#[deref] CtxBox<'ctx, RefCell<T>>);
-
-impl<'ctx, T: ?Sized> Copy for RefCellHandle<'ctx, T> {}
-impl<'ctx, T: ?Sized> Clone for RefCellHandle<'ctx, T> {
-    fn clone(&self) -> Self {
-        Self(self.0.clone())
-    }
-}
-
-impl<'ctx, T: ?Sized> Hash for RefCellHandle<'ctx, T> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.0.hash(state);
-    }
-}
-
-impl<'ctx, T: ?Sized + Eq> Eq for RefCellHandle<'ctx, T> {}
-impl<'ctx, T: ?Sized + PartialEq> PartialEq for RefCellHandle<'ctx, T> {
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
-    }
-}
+pub type ListHandle<'ctx, T: Tag> = DoublyPtrHandle<'ctx, List<'ctx, T>>;
+pub type RecordHandle<'ctx, T: Tag> = DoublyPtrHandle<'ctx, Record<'ctx, T>>;
+pub type UnionHandle<'ctx, T: Tag> = DoublyPtrHandle<'ctx, Union<'ctx, T>>;
 
 impl<'ctx, T: Tag> Debug for ListHandle<'ctx, T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -309,6 +290,101 @@ impl<'ctx, T: Tag> Debug for UnionHandle<'ctx, T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let id = self.borrow().unique_id();
         f.debug_struct("Union").field("id", &id).finish()
+    }
+}
+
+/// The handle to some data structure, guarded by a [`RefCell`]. Conceptually,
+/// this type can be thought of as a `Handle(&mut T)`. The [`CtxBox`] and
+/// [`RefCell`] are used to achieve interior mutability and cyclicity.
+#[repr(transparent)]
+#[derive(Deref, DerefMut, Derivative)]
+#[derivative(
+    Copy(bound = ""),
+    Clone(bound = ""),
+    Hash(bound = ""),
+    PartialEq(bound = "T: PartialEq"),
+    Eq(bound = "T: Eq")
+)]
+pub struct RefCellHandle<'ctx, T: ?Sized>(#[deref] CtxBox<'ctx, RefCell<T>>);
+
+impl<'ctx, T> RefCellHandle<'ctx, T> {
+    pub fn new(arena: &'ctx Bump, value: T) -> Self {
+        RefCellHandle(CtxBox::new(arena, RefCell::new(value)))
+    }
+}
+
+/// A doubly-pointed [`RefCellHandle`]. This is useful for when the
+/// pointer-to-a-`T` needs to be updated in all places it's being used.
+///
+/// This struct acts like a [`RefCell<T>`] directly to the object (the "primary
+/// pointer"), but allows access to the to the pointer that points to the
+/// primary pointer (the "hop pointer").
+///
+/// To get access to the primary pointer, this implements `borrow` and
+/// `borrow_mut` which access the primary pointer's [`RefCell`]
+///
+/// To get access to the hop pointer, call [`DoublePtrHandle::hop_ptr`], which
+/// will call `borrow_mut` on the hop pointer.
+#[repr(transparent)]
+#[derive(Derivative)]
+#[derivative(
+    Copy(bound = ""),
+    Clone(bound = ""),
+    Hash(bound = ""),
+    PartialEq(bound = "T: PartialEq"),
+    Eq(bound = "T: Eq")
+)]
+pub struct DoublyPtrHandle<'ctx, T>(RefCellHandle<'ctx, RefCellHandle<'ctx, T>>);
+
+#[derive(Deref, DerefMut)]
+pub struct DoublyRef<'a: 'b, 'b, A, B> {
+    hop_ref: std::cell::Ref<'a, A>,
+    #[deref]
+    #[deref_mut]
+    primary_ref: std::cell::Ref<'b, B>,
+}
+
+#[derive(Deref, DerefMut)]
+pub struct DoublyRefMut<'a: 'b, 'b, A, B> {
+    hop_ref: std::cell::Ref<'a, A>,
+    #[deref]
+    #[deref_mut]
+    primary_ref: std::cell::RefMut<'b, B>,
+}
+
+impl<'ctx, T> DoublyPtrHandle<'ctx, T> {
+    pub fn new(arena: &'ctx Bump, value: T) -> Self {
+        DoublyPtrHandle(RefCellHandle::new(arena, RefCellHandle::new(arena, value)))
+    }
+
+    pub fn borrow<'a>(&self) -> DoublyRef<'a, 'a, RefCellHandle<'ctx, T>, T> {
+        let hop_ref = self.0.borrow();
+        let primary_ref = hop_ref.borrow();
+        DoublyRef {
+            hop_ref,
+            primary_ref,
+        }
+    }
+
+    pub fn borrow_mut<'a>(&self) -> DoublyRefMut<'a, 'a, RefCellHandle<'ctx, T>, T> {
+        let hop_ref = self.0.borrow();
+        let primary_ref = hop_ref.borrow_mut();
+        DoublyRefMut {
+            hop_ref,
+            primary_ref,
+        }
+    }
+
+    pub fn hop_ptr(&self) -> RefMut<'_, RefCellHandle<'ctx, T>> {
+        self.0.borrow_mut()
+    }
+
+    /// Copies the primary primary from another [`DoublyPtrHandle`] to this one.
+    pub fn copy_primary_ptr<'a, 'b>(&'a self, other: &'b Self) {
+        let mut self_hop = self.0.borrow_mut();
+        let other_hop = *other.0.borrow();
+
+        *self_hop = other_hop;
     }
 }
 
@@ -346,7 +422,13 @@ impl<'ctx, T: Tag> Debug for UnionHandle<'ctx, T> {
 /// usage of the [`Box::pin_in`] API. In addition, the destructors of `T` will
 /// run properly, even though this is not strictly necessary.
 #[repr(transparent)]
-#[derive(Deref, DerefMut)]
+#[derive(Deref, DerefMut, Derivative)]
+#[derivative(
+    Copy(bound = ""),
+    Clone(bound = ""),
+    PartialEq(bound = "T: PartialEq"),
+    Eq(bound = "T: Eq")
+)]
 pub struct CtxBox<'ctx, T: ?Sized>(#[deref] &'ctx Pin<Box<'ctx, T>>);
 
 impl<'ctx, T> CtxBox<'ctx, T> {
@@ -358,13 +440,6 @@ impl<'ctx, T> CtxBox<'ctx, T> {
 impl<'ctx, T: ?Sized + Unpin> CtxBox<'ctx, T> {
     pub fn new_unsized(arena: &'ctx Bump, data: Box<'ctx, T>) -> Self {
         CtxBox(arena.alloc(Pin::new(data)))
-    }
-}
-
-impl<'ctx, T: ?Sized> Copy for CtxBox<'ctx, T> {}
-impl<'ctx, T: ?Sized> Clone for CtxBox<'ctx, T> {
-    fn clone(&self) -> Self {
-        Self(self.0)
     }
 }
 
@@ -382,15 +457,6 @@ impl<'ctx, T: ?Sized> Hash for CtxBox<'ctx, T> {
         // let ptr = self.0.as_ref().get_ref() as *const T;
         // ptr.hash(state)
         0u8.hash(state);
-    }
-}
-
-impl<'ctx, T: ?Sized + Eq> Eq for CtxBox<'ctx, T> {}
-impl<'ctx, T: ?Sized + PartialEq> PartialEq for CtxBox<'ctx, T> {
-    fn eq(&self, other: &Self) -> bool {
-        let a = self.0.as_ref().get_ref();
-        let b = other.0.as_ref().get_ref();
-        a == b
     }
 }
 

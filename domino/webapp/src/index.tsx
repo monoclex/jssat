@@ -4,7 +4,6 @@ import {
   createResource,
   createSignal,
   ErrorBoundary,
-  For,
   Setter,
   Show,
   Suspense,
@@ -13,19 +12,7 @@ import { render } from "solid-js/web";
 import { IRFileAdaptor as adaptIRFile } from "./adaptors/irfile";
 import { JssatIRAdaptor as adaptJssatIR } from "./adaptors/jssatir";
 import { adaptTypeTree } from "./adaptors/typetree";
-import {
-  CodeLine,
-  fetchMoment,
-  fetchOverview,
-  Frame,
-  Moment,
-  MomentSource,
-  MomentValue,
-  MomentValues,
-  Overview,
-  Source,
-  SourceLocation,
-} from "./api";
+import { fetchMoment, fetchOverview, Moment, Overview } from "./api";
 import { adaptPanel, Window } from "./editor/window";
 import { CodeView } from "./panels/codeview/CodeView";
 import { adaptSplitView } from "./panels/SplitView";

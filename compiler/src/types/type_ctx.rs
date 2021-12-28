@@ -723,7 +723,7 @@ impl<'borrow, 'arena, T: Tag, K> TypeCtxImmut<'borrow, 'arena, T, K> {
     /// assert!(is_union)
     /// ```
     pub fn make_type_list(&self, list: List<'arena, T>) -> Type<'arena, T> {
-        Type::List(RefCellHandle(CtxBox::new(self.arena, RefCell::new(list))))
+        Type::List(handle)
     }
 
     /// Constructs an instance of [`Type::Record`] for this [`TypeCtx`]
@@ -742,7 +742,8 @@ impl<'borrow, 'arena, T: Tag, K> TypeCtxImmut<'borrow, 'arena, T, K> {
     /// assert!(is_record)
     /// ```
     pub fn make_type_record(&self, record: Record<'arena, T>) -> Type<'arena, T> {
-        Type::Record(RefCellHandle(CtxBox::new(self.arena, RefCell::new(record))))
+        let handle = DoublyPtrHandle::new(self.arena, record);
+        Type::Record(handle)
     }
 
     /// Constructs an instance of [`Type::Union`] for this [`TypeCtx`]
@@ -761,7 +762,8 @@ impl<'borrow, 'arena, T: Tag, K> TypeCtxImmut<'borrow, 'arena, T, K> {
     /// assert!(is_union)
     /// ```
     pub fn make_type_union(&self, union: Union<'arena, T>) -> Type<'arena, T> {
-        Type::Union(RefCellHandle(CtxBox::new(self.arena, RefCell::new(union))))
+        let handle = DoublyPtrHandle::new(self.arena, union);
+        Type::Union(handle)
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&K, &Type<'arena, T>)> {
