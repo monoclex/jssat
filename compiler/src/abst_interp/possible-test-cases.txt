@@ -66,3 +66,38 @@ function sink(x) {
     }
 }
 ---
+
+unit tests:
+---
+# i was setting the key as the element of the list
+f(x):
+    List(x)[0] <- "value"
+    v <- List(x)[0]
+    assert(v == "value")
+---
+# i had a faulty comparison for record/byte keys
+f(x):
+    Record(x)["key"] <- 0
+    v <- Record(x)["key"]
+    assert(v == 0)
+---
+# checking that calls update records
+f(x):
+    a <- {}
+    Record(a)[0] <- "old value"
+    # no "copy" instruction to copy a register because no point
+    # to simulate a copy instruction, we put `a` in `b`
+    b <- {}
+    Record(b)[0] <- a
+    # perform the call
+    call modify(a)
+    # now `a` should be updated
+    assert(Record(a)[0] == "new value")
+    # the register *a* might've been updated but not the record itself
+    # check that references are updated
+    another_a <- Record(b)[0]
+    assert(Record(another_a)[0] == "new value")
+
+modify(x):
+    Record(x)[0] <- "new value"
+---

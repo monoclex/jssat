@@ -1,5 +1,6 @@
 const path = require("path");
 const HTMLWebpackPlugin = require("html-webpack-plugin");
+const { DefinePlugin } = require("webpack");
 
 const isDev = "WEBPACK_DEV_SERVER" in process.env;
 
@@ -11,7 +12,10 @@ module.exports = {
     path: path.resolve(__dirname, "dist"),
   },
   resolve: { extensions: [".js", ".jsx", ".ts", ".tsx"] },
-  plugins: [new HTMLWebpackPlugin({ title: "Domino the Debugger" })],
+  plugins: [
+    new HTMLWebpackPlugin({ title: "Domino the Debugger" }),
+    new DefinePlugin({ "process.env.NODE_ENV": JSON.stringify(isDev) }),
+  ],
   performance: {
     // this is going to exclusively be used on localhost
     hints: false,

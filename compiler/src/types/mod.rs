@@ -10,7 +10,7 @@
 #![allow(warnings)]
 
 use core::slice::SlicePattern;
-use std::{cell::RefCell, fmt::Debug, hash::Hash, pin::Pin};
+use std::{cell::RefCell, fmt::Debug, hash::Hash, num::NonZeroU16, pin::Pin};
 
 use bumpalo::{boxed::Box, Bump};
 use ordered_float::OrderedFloat;
@@ -284,8 +284,8 @@ impl<'ctx, T: ?Sized> Hash for RefCellHandle<'ctx, T> {
     }
 }
 
-impl<'ctx, T: ?Sized> Eq for RefCellHandle<'ctx, T> {}
-impl<'ctx, T: ?Sized> PartialEq for RefCellHandle<'ctx, T> {
+impl<'ctx, T: ?Sized + Eq> Eq for RefCellHandle<'ctx, T> {}
+impl<'ctx, T: ?Sized + PartialEq> PartialEq for RefCellHandle<'ctx, T> {
     fn eq(&self, other: &Self) -> bool {
         self.0 == other.0
     }
@@ -368,18 +368,163 @@ impl<'ctx, T: ?Sized> Clone for CtxBox<'ctx, T> {
     }
 }
 
+// TODO(bug): this hash implementation is faulty
+//   for example, imagine two `CtxBox`es with "asdf" in them:
+//
+//   +--------------+ +--------------+
+//   |0x0000: "asdf"| |0x00FF: "asdf"|
+//   .. . . .. . . .. .. . . .. . . ..
+//
+//   as both of these `TypeCtx`s have the same content ("asdf") at different
+//   locations in memory, using a pointer for the hash behavior is incorrect.
 impl<'ctx, T: ?Sized> Hash for CtxBox<'ctx, T> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        let ptr = self.0.as_ref().get_ref() as *const T;
-        ptr.hash(state)
+        // let ptr = self.0.as_ref().get_ref() as *const T;
+        // ptr.hash(state)
+        0u8.hash(state);
     }
 }
 
-impl<'ctx, T: ?Sized> Eq for CtxBox<'ctx, T> {}
-impl<'ctx, T: ?Sized> PartialEq for CtxBox<'ctx, T> {
+impl<'ctx, T: ?Sized + Eq> Eq for CtxBox<'ctx, T> {}
+impl<'ctx, T: ?Sized + PartialEq> PartialEq for CtxBox<'ctx, T> {
     fn eq(&self, other: &Self) -> bool {
-        let ptr = self.0.as_ref().get_ref() as *const T;
-        let ptr2 = other.0.as_ref().get_ref() as *const T;
-        std::ptr::eq(ptr, ptr2)
+        let a = self.0.as_ref().get_ref();
+        let b = other.0.as_ref().get_ref();
+        a == b
     }
+}
+
+#[test]
+fn equality_between_bytes() {
+    use jssat_ir::id::RegisterId;
+    let mut a = TypeCtx::<LiftedCtx, RegisterId<LiftedCtx>>::new();
+
+    a.borrow_mut(|mut a| {
+        let a_asdf1 = a.make_type_byts(b"asdf");
+        let a_asdf2 = a.make_type_byts(b"asdf");
+        let a_ghjk = a.make_type_byts(b"ghjk");
+
+        assert_eq!(a_asdf1, a_asdf2);
+        assert_eq!(a_asdf2, a_asdf1);
+
+        assert_ne!(a_asdf1, a_ghjk);
+        assert_ne!(a_asdf2, a_ghjk);
+        assert_ne!(a_ghjk, a_asdf1);
+        assert_ne!(a_ghjk, a_asdf2);
+    })
+}
+
+#[test]
+fn equality_between_bytes_and_atom() {
+    use jssat_ir::id::RegisterId;
+    let mut a = TypeCtx::<LiftedCtx, RegisterId<LiftedCtx>>::new();
+
+    a.borrow_mut(|mut a| {
+        let asdf = a.make_type_byts(b"asdf");
+        let atom = Type::Atom(Atom(NonZeroU16::new(1).unwrap()));
+
+        assert_ne!(asdf, atom);
+        assert_ne!(atom, asdf);
+    })
+}
+
+#[test]
+fn byts_keys_not_overwritten() {
+    use jssat_ir::id::RegisterId;
+    let mut a = TypeCtx::<LiftedCtx, RegisterId<LiftedCtx>>::new();
+
+    a.borrow_mut(|mut a| {
+        let mut rec = Record::new(Default::default());
+        let asdf = a.make_type_byts(b"asdf");
+        rec.insert(asdf, Type::Bool(true));
+
+        let ghjk = a.make_type_byts(b"ghjk");
+        rec.insert(ghjk, Type::Bool(false));
+
+        assert_eq!(Some(Type::Bool(true)), rec.get(&asdf).copied());
+        assert_eq!(Some(Type::Bool(false)), rec.get(&ghjk).copied());
+    })
+}
+
+#[test]
+fn duplicating_record_keeps_keys() {
+    use jssat_ir::id::RegisterId;
+    let mut a = TypeCtx::<LiftedCtx, ()>::new();
+
+    a.borrow_mut(|mut a| {
+        let mut rec = Record::new(Default::default());
+        let asdf = a.make_type_byts(b"asdf");
+        rec.insert(asdf, Type::Bool(true));
+
+        let ghjk = a.make_type_byts(b"ghjk");
+        rec.insert(ghjk, Type::Bool(false));
+
+        a.insert((), a.make_type_record(rec));
+    });
+
+    let mut b = TypeCtx::<LiftedCtx, ()>::new();
+
+    a.borrow(|a| {
+        b.borrow_mut(|mut b| {
+            let typ = b.duplicate_type(a.get(&()).unwrap());
+            let rec = typ.unwrap_record().borrow();
+
+            let asdf = b.make_type_byts(b"asdf");
+            let ghjk = b.make_type_byts(b"ghjk");
+
+            assert_eq!(Some(Type::Bool(true)), rec.get(&asdf).copied());
+            assert_eq!(Some(Type::Bool(false)), rec.get(&ghjk).copied());
+        });
+    });
+}
+
+#[test]
+fn record_info_globally_updated() {
+    use jssat_ir::id::Counter;
+    let mut ctx1 = TypeCtx::<LiftedCtx, u8>::new();
+    let mut unique_id_counter = Counter::new();
+
+    // ctx1 : { 0 |-> Record(id = 1){ Any |-> Nothing } }
+    ctx1.borrow_mut(|mut ctx| {
+        let mut record = Record::new(unique_id_counter.next());
+        record.insert(Type::Any, Type::Nothing);
+        let record = ctx.make_type_record(record);
+
+        ctx.insert(0, record);
+    });
+
+    // copy the record in `ctx1` to `ctx2`
+    let mut ctx2 = TypeCtx::new();
+    ctx1.borrow(|ctx| {
+        ctx2.copy_from(&ctx, std::iter::once(0));
+    });
+
+    // modify the record in `ctx2`
+    ctx2.borrow_mut(|mut ctx| {
+        let record_ty = ctx.get(&0).unwrap();
+        let mut record = record_ty.unwrap_record().borrow_mut();
+
+        record.insert(Type::Any, Type::Number);
+    });
+
+    // copy back the modified record in `ctx1` to a different register in `ctx2`
+    ctx2.borrow(|mut ctx| {
+        ctx1.copy_from_map(&ctx, std::iter::once(0), |k| k + 1);
+    });
+
+    // assert that the record in `ctx1` at register `0` was updated
+    ctx1.borrow_mut(|mut ctx| {
+        let original_rec = ctx.get(&0).unwrap().unwrap_record().borrow();
+        let copied_rec = ctx.get(&1).unwrap().unwrap_record().borrow();
+
+        assert!(
+            matches!(copied_rec.get(&Type::Any), Some(Type::Number)),
+            "newly copied record should match"
+        );
+
+        assert!(
+            matches!(original_rec.get(&Type::Any), Some(Type::Number)),
+            "old record should be updated"
+        );
+    });
 }

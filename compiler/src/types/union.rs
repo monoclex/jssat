@@ -31,3 +31,10 @@ impl<'ctx, T: Tag> Union<'ctx, T> {
     //     self.variants.iter().copied()
     // }
 }
+
+impl<'ctx, T: Tag> Eq for Union<'ctx, T> {}
+impl<'ctx, T: Tag> PartialEq for Union<'ctx, T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.unique_id == other.unique_id && self.variants == other.variants
+    }
+}

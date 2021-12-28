@@ -26,3 +26,10 @@ impl<'ctx, T: Tag> List<'ctx, T> {
         self.unique_id
     }
 }
+
+impl<'ctx, T: Tag> Eq for List<'ctx, T> {}
+impl<'ctx, T: Tag> PartialEq for List<'ctx, T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.unique_id == other.unique_id && self.items == other.items
+    }
+}

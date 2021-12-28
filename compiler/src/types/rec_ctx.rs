@@ -7,7 +7,7 @@ use derive_more::{Deref, DerefMut, Display};
 use rustc_hash::FxHashMap;
 use tinyvec::{Array, ArrayVec, TinyVec};
 
-use super::{Type, TypeCtx};
+use super::{EqualityResolver, Type, TypeCtx};
 use crate::id::{RecordId, Tag, UniqueRecordId};
 
 #[derive(Clone, Default, Deref, DerefMut)]
@@ -28,5 +28,22 @@ impl<'ctx, T: Tag> Record<'ctx, T> {
 
     pub fn unique_id(&self) -> UniqueRecordId<T> {
         self.unique_id
+    }
+}
+
+impl<'ctx, T: Tag> Eq for Record<'ctx, T> {}
+impl<'ctx, T: Tag> PartialEq for Record<'ctx, T> {
+    fn eq(&self, other: &Self) -> bool {
+        let mut eq = EqualityResolver::new();
+
+        if eq.records_not_equal(self, other) {
+            return false;
+        }
+
+        if eq.solve_constraints() {
+            return false;
+        }
+
+        true
     }
 }

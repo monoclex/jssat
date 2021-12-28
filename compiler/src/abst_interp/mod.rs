@@ -101,8 +101,9 @@ impl<'code> AbsIntCollector<LiftedCtx> for MomentCollector<'code, LiftedCtx> {
             let arena = visitor.arena;
 
             if arena.registers.is_empty() {
-                eprintln!("warning: not comitting empty arena (TODO: fix this?)");
-                return Some(arena);
+                // eprintln!("warning: not comitting empty arena (TODO: fix this?)");
+                // return Some(arena);
+                return None;
             }
 
             Some(arena)
@@ -258,7 +259,9 @@ pub enum AbsIntError {
     #[error("Rejected program: not in SSA form")]
     NotInSSA,
     #[error("Invalid program: type error")]
-    TypeError
+    TypeError,
+    #[error("Invalid program: key of record does not exist")]
+    RegKeyDNE,
 }
 
 impl<'p, C: AbsIntCollector<LiftedCtx>> AbsIntEngine<'p, C> {
@@ -344,7 +347,7 @@ impl<'p, C: AbsIntCollector<LiftedCtx>> AbsIntEngine<'p, C> {
                         };
 
                         let record = record.borrow();
-                        let k = record.get(&key).unwrap();
+                        let k = record.get(&key).ok_or(AbsIntError::RegKeyDNE)?;
                         insert!(state, i.result, *k);
                     }
                     RecordSet(i) => {
@@ -425,6 +428,11 @@ impl<'p, C: AbsIntCollector<LiftedCtx>> AbsIntEngine<'p, C> {
                             jssat_ir::isa::ListKey::Index(reg) => state.get(&reg).unwrap(),
                         };
 
+                        let value = match i.value {
+                            Some(r) => Some(state.rget(r)?),
+                            None => None
+                        };
+
                         match elem {
                             Type::Number => todo!("change list type to more general"),
                             Type::Int(i) => {
@@ -437,10 +445,17 @@ impl<'p, C: AbsIntCollector<LiftedCtx>> AbsIntEngine<'p, C> {
                                     panic!("invalid program")
                                 }
 
-                                if i == list.len() {
-                                    list.push(elem);
-                                } else {
-                                    list[i] = elem;
+                                match value {
+                                    Some(value) => {
+                                        if i == list.len() {
+                                            list.push(value);
+                                        } else {
+                                            list[i] = value;
+                                        }
+                                    },
+                                    None => {
+                                        list.splice(i..(i + 1), []);
+                                    }
                                 }
                             }
                             Type::Union(_) => todo!("need to recursively re-apply the list set operator for every union variant"),
@@ -640,11 +655,12 @@ impl<'p, C: AbsIntCollector<LiftedCtx>> AbsIntEngine<'p, C> {
                     let typ = state.rget(register)?;
                     self.collector.record(register, typ);
                 }
-                self.collector.commit_changes();
-
-                if x2331x {
-                    return Err(AbsIntError::NotInSSA);
+                
+                if let Some(result) = instruction.data.assigned_to() {
+                    self.collector.record(result, state.rget(result)?);
                 }
+
+                self.collector.commit_changes();
             }
             }
         });
@@ -747,11 +763,6 @@ impl<'p, C: AbsIntCollector<LiftedCtx>> AbsIntEngine<'p, C> {
         args.copy_from_map(state, src_regs, map_reg);
 
         // 2. call function
-        for reg in calling_args {
-            self.collector.record(*reg, state.rget(*reg)?);
-        }
-        self.collector.commit_changes();
-
         let result = self.call(function, args)?;
 
         let result = match result {
@@ -786,19 +797,15 @@ impl<'p, C: AbsIntCollector<LiftedCtx>> AbsIntEngine<'p, C> {
 
         for (reg, typ) in new_typs {
             state.overwrite(reg, typ);
-            self.collector.record(reg, typ);
         }
 
         match (reg_result, ret_typ) {
             (Some(reg), Some(typ)) => {
                 state.insert(reg, typ);
-                self.collector.record(reg, typ);
             },
             (Some(_), None) => panic!("invalid program"),
             (None, _) => {}
         };
-
-        self.collector.commit_changes();
 
         Ok(result)
     }

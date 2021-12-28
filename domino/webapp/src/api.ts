@@ -1,14 +1,17 @@
 // all values explained in ./domino/src/server_data.rs
 
+const url = (path: string) => {
+  if (Boolean(process.env.NODE_ENV)) {
+    // debug
+    return "http://localhost:8000" + path;
+  } else return path;
+};
+
 export const fetchOverview = () =>
-  fetch("http://localhost:8000/overview").then(
-    (resp) => resp.json() as Promise<Overview>
-  );
+  fetch(url("/overview")).then((resp) => resp.json() as Promise<Overview>);
 
 export const fetchMoment = (idx: number) =>
-  fetch(`http://localhost:8000/moment/${idx}`).then(
-    (resp) => resp.json() as Promise<Moment>
-  );
+  fetch(url(`/moment/${idx}`)).then((resp) => resp.json() as Promise<Moment>);
 
 export interface Overview {
   totalMoments: number;

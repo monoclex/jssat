@@ -11,10 +11,14 @@ use crate::id::{RecordId, Tag, UnionId};
 use super::{type_ctx::TypeCtxImmut, CtxBox, Record, RecordHandle, Type, TypeCtx, UnionHandle};
 
 impl<'ctx, T: Tag> Type<'ctx, T> {
-    fn deep_eq(&self, other: &Self) -> bool {
+    pub fn deep_eq(&self, other: &Self) -> bool {
         let mut resolver = EqualityResolver::new();
 
         if resolver.are_not_equal(self, other) {
+            return false;
+        }
+
+        if resolver.solve_constraints() {
             return false;
         }
 
@@ -48,6 +52,10 @@ impl From<bool> for MaybeEqual {
 pub struct EqualityResolver<'ctx1, 'ctx2, T: Tag> {
     record_constraints: Constraints<RecordHandle<'ctx1, T>, RecordHandle<'ctx2, T>>,
     union_constraints: Constraints<UnionHandle<'ctx1, T>, UnionHandle<'ctx2, T>>,
+    #[cfg(debug_assertions)]
+    solve_constraints_called: bool,
+    #[cfg(debug_assertions)]
+    last_are_not_equal: bool,
 }
 
 impl<'ctx1, 'ctx2, T: Tag> EqualityResolver<'ctx1, 'ctx2, T> {
@@ -55,6 +63,12 @@ impl<'ctx1, 'ctx2, T: Tag> EqualityResolver<'ctx1, 'ctx2, T> {
         Self {
             record_constraints: Default::default(),
             union_constraints: Default::default(),
+            #[cfg(debug_assertions)]
+            solve_constraints_called: false,
+            #[cfg(debug_assertions)]
+            // default state is to complain
+            // this will trigger complaining in drop impl
+            last_are_not_equal: false,
         }
     }
 
@@ -63,39 +77,18 @@ impl<'ctx1, 'ctx2, T: Tag> EqualityResolver<'ctx1, 'ctx2, T> {
     /// not not-equal (meaning that they are either "probably equal" or "are
     /// equal"), this will return `false`.
     pub fn solve_constraints(&mut self) -> bool {
+        #[cfg(debug_assertions)]
+        {
+            self.solve_constraints_called = true;
+        }
+
         while self.has_constraints_to_verify() {
             while let Some((a, b)) = self.record_constraints.next() {
                 let a = a.borrow();
                 let b = b.borrow();
 
-                if a.len() != b.len() {
+                if self.records_not_equal(&a, &b) {
                     return false;
-                }
-
-                for (k, value_a) in a.iter() {
-                    let value_b = match b.get(&match k {
-                        Type::Any => Type::Any,
-                        Type::Nothing => Type::Nothing,
-                        Type::Bytes => Type::Bytes,
-                        Type::Number => Type::Number,
-                        Type::Boolean => Type::Boolean,
-                        Type::Atom(x) => Type::Atom(*x),
-                        Type::Int(x) => Type::Int(*x),
-                        Type::Float(x) => Type::Float(*x),
-                        Type::Bool(x) => Type::Bool(*x),
-                        Type::FnPtr(x) => Type::FnPtr(*x),
-                        Type::Byts(_) => todo!(),
-                        Type::List(_) => todo!(),
-                        Type::Record(_) => todo!(),
-                        Type::Union(_) => todo!(),
-                    }) {
-                        Some(v) => v,
-                        None => return false,
-                    };
-
-                    if self.are_not_equal(value_a, value_b) {
-                        return false;
-                    }
                 }
             }
 
@@ -142,7 +135,131 @@ impl<'ctx1, 'ctx2, T: Tag> EqualityResolver<'ctx1, 'ctx2, T> {
             _ => MaybeEqual::No,
         };
 
-        MaybeEqual::No == maybe_equal
+        let result = MaybeEqual::No == maybe_equal;
+
+        #[cfg(debug_assertions)]
+        {
+            self.last_are_not_equal = result;
+        }
+
+        result
+    }
+
+    /// Compares equality between two records. Returns `true` if the records
+    /// are definitely not equal, otherwise `false` if they might be equal. Use
+    /// the `solve_constraints` method to determine if they are completely
+    /// equal.
+    pub fn records_not_equal(&mut self, a: &Record<'ctx1, T>, b: &Record<'ctx2, T>) -> bool {
+        macro_rules! ret {
+            () => {{
+                #[cfg(debug_assertions)]
+                {
+                    self.last_are_not_equal = true;
+                }
+
+                return true;
+            }};
+        }
+
+        if a.unique_id() != b.unique_id() {
+            ret!();
+        }
+
+        if a.len() != b.len() {
+            ret!();
+        }
+
+        for (k, value_a) in a.iter() {
+            enum EitherKey<'ctx1, 'ctx2, T: Tag> {
+                Naive(Type<'ctx2, T>),
+                Awful(Type<'ctx1, T>),
+            };
+
+            let b_key = match k {
+                Type::Any => EitherKey::Naive(Type::Any),
+                Type::Nothing => EitherKey::Naive(Type::Nothing),
+                Type::Bytes => EitherKey::Naive(Type::Bytes),
+                Type::Number => EitherKey::Naive(Type::Number),
+                Type::Boolean => EitherKey::Naive(Type::Boolean),
+                Type::Atom(x) => EitherKey::Naive(Type::Atom(*x)),
+                Type::Int(x) => EitherKey::Naive(Type::Int(*x)),
+                Type::Float(x) => EitherKey::Naive(Type::Float(*x)),
+                Type::Bool(x) => EitherKey::Naive(Type::Bool(*x)),
+                Type::FnPtr(x) => EitherKey::Naive(Type::FnPtr(*x)),
+                Type::Byts(_) => EitherKey::Awful(*k),
+                Type::List(_) => todo!(),
+                Type::Record(_) => todo!(),
+                Type::Union(_) => todo!(),
+            };
+
+            let value_b = match b_key {
+                EitherKey::Naive(key) => match b.get(&key) {
+                    Some(v) => *v,
+                    None => ret!(),
+                },
+                EitherKey::Awful(typ) => {
+                    // now we have to perform a linear search to find the type
+                    // that matches this type as the key of the other object
+                    //
+                    // i fear that this is unstable
+                    let mut matches = Vec::new();
+                    for (key, value) in b.iter() {
+                        // NOTE: this instantiates a new `EqualityResolver` for each key...
+                        // yeeeah...
+                        let mut eq = EqualityResolver::new();
+
+                        if eq.are_not_equal(&typ, key) {
+                            continue;
+                        }
+
+                        if eq.solve_constraints() {
+                            continue;
+                        }
+
+                        matches.push(*key);
+                        // TODO(future): if this algo is actually sane, `break`
+                        // early
+                    }
+
+                    assert!(
+                        matches.len() <= 1,
+                        "this algorithm is unstable, we cannot do this. oh god"
+                    );
+
+                    match matches.get(0) {
+                        Some(x) => *x,
+                        None => ret!(),
+                    }
+                }
+            };
+
+            if self.are_not_equal(value_a, &value_b) {
+                ret!();
+            }
+        }
+
+        #[cfg(debug_assertions)]
+        {
+            self.last_are_not_equal = false;
+        }
+
+        false
+    }
+}
+
+impl<'c1, 'c2, T: Tag> Drop for EqualityResolver<'c1, 'c2, T> {
+    #[cfg(not(debug_assertions))]
+    fn drop(&mut self) {}
+
+    #[cfg(debug_assertions)]
+    #[track_caller]
+    fn drop(&mut self) {
+        if !self.solve_constraints_called && self.has_constraints_to_verify() {
+            // if this is `false`, that means we should've checked the constraints
+            if !self.last_are_not_equal {
+                panic!("EqualityResolver created without `solve_constriants` being called. possible bug.");
+            }
+        }
     }
 }
 
@@ -263,7 +380,7 @@ impl<T1: Copy + Hash + Eq, T2: Copy + Hash + Eq> Constraints<T1, T2> {
 #[cfg(test)]
 mod tests {
     use crate::id::{Counter, NoContext};
-    use crate::types::{Record, Type, TypeCtx};
+    use crate::types::{EqualityResolver, Record, Type, TypeCtx};
 
     /// Compares if two simple records are equivalent:
     ///
@@ -282,13 +399,19 @@ mod tests {
         let reg2 = gen.next();
 
         ctx.borrow_mut(|mut ctx| {
-            let rec1 = ctx.make_type_record(Record::new(unique_id.next()));
-            let rec2 = ctx.make_type_record(Record::new(unique_id.next()));
-            // TODO: add `a : Int` as a fact
+            let id = unique_id.next();
 
-            // TODO: how to insert record
-            // ctx.insert(reg1, Type::Record(rec1));
-            // ctx.insert(reg2, Type::Record(rec2));
+            let mut rec1 = Record::new(id);
+            rec1.insert(ctx.make_type_byts(b"a"), Type::Number);
+
+            let mut rec2 = Record::new(id);
+            rec2.insert(ctx.make_type_byts(b"a"), Type::Number);
+
+            let rec1 = ctx.make_type_record(rec1);
+            let rec2 = ctx.make_type_record(rec2);
+
+            ctx.insert(reg1, rec1);
+            ctx.insert(reg2, rec2);
 
             let rec1 = ctx.get(&reg1).unwrap();
             let rec2 = ctx.get(&reg2).unwrap();
@@ -298,5 +421,32 @@ mod tests {
         });
 
         assert!(branch_hit);
+    }
+
+    #[test]
+    #[should_panic]
+    pub fn catch_eqquality_resolver_not_calling_solve_constraints() {
+        fn problematic(a: Type<NoContext>, b: Type<NoContext>) -> bool {
+            let mut resolver = EqualityResolver::new();
+
+            if resolver.are_not_equal(&a, &b) {
+                return false;
+            }
+
+            true
+        }
+
+        let mut a = TypeCtx::<NoContext, ()>::new();
+
+        a.borrow_mut(|mut a| {
+            let mut rec = Record::new(Default::default());
+            let rec_typ = a.make_type_record(rec);
+
+            let mut rec = rec_typ.unwrap_record().borrow_mut();
+            rec.insert(rec_typ, rec_typ);
+            drop(rec);
+
+            problematic(rec_typ, rec_typ);
+        })
     }
 }
