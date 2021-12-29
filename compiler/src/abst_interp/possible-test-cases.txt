@@ -101,3 +101,15 @@ f(x):
 modify(x):
     Record(x)[0] <- "new value"
 ---
+# ran into weird copy issues with this
+f():
+    realm = {}
+    Record(realm)[Realm] <- realm
+    value <- g(realm)
+    Record(realm)[Value] <- value
+
+g(realm):
+    obj = {}
+    Record(obj)[Realm] <- realm
+    return obj
+---

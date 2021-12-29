@@ -513,7 +513,10 @@ mod tests {
     #![allow(clippy::eq_op)]
 
     use super::*;
-    use jssat_ir::id::{Counter, RegisterId};
+    use jssat_ir::{
+        id::{Counter, RegisterId},
+        isa::AtomDealer,
+    };
 
     #[test]
     fn ref_eq_wrapper_works() {
@@ -842,5 +845,87 @@ mod tests {
             assert_eq!(rec.get(&key1).copied(), Some(Type::Int(12)));
             assert_eq!(rec.get(&key2).copied(), Some(Type::Int(5)));
         })
+    }
+
+    /// Simulates the following abstract interpreter test case:
+    ///
+    /// ```text
+    /// # ran into weird copy issues with this
+    /// f():
+    ///     realm = {}
+    ///     Record(realm)[Realm] <- realm
+    ///     value <- g(realm)
+    ///     Record(realm)[Value] <- value
+    ///
+    /// g(realm):
+    ///     obj = {}
+    ///     Record(obj)[Realm] <- realm
+    ///     return obj
+    /// ```
+    #[test]
+    fn cyclical_record_copy() {
+        #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+        enum Key {
+            Realm,
+            Value,
+            Obj,
+        }
+
+        let mut ctx1 = TypeCtx::<LiftedCtx, Key>::new();
+        let counter = Counter::new();
+        let mut dealer = AtomDealer::new();
+
+        ctx1.borrow_mut(|mut ctx| {
+            // realm = {}
+            let realm = ctx.make_type_record(Record::new(counter.next()));
+            ctx.insert(Key::Realm, realm);
+
+            // Record(realm)[Realm] <- realm
+            let key = dealer.deal("Realm");
+            let mut record = realm.unwrap_record().borrow_mut();
+            record.insert(Type::Atom(key), realm);
+            drop(record);
+        });
+
+        // prepare call
+        let mut ctx2 = TypeCtx::new();
+        ctx1.borrow(|ctx1| ctx2.copy_from(&ctx1, std::iter::once(Key::Realm)));
+
+        // perform g(realm):
+        ctx2.borrow_mut(|mut ctx| {
+            // obj = {}
+            let obj = ctx.make_type_record(Record::new(counter.next()));
+            ctx.insert(Key::Obj, obj);
+
+            // Record(obj)[Realm] <- realm
+            let key = dealer.deal("Realm");
+            let realm = ctx.get(&Key::Realm).unwrap();
+            let mut record = obj.unwrap_record().borrow_mut();
+            record.insert(Type::Atom(key), realm);
+
+            // return `obj`, a.k.a., copy back state
+            let ret_typ = ctx.get(&Key::Obj).unwrap();
+
+            let mut ctx2 = ctx;
+            ctx1.borrow_mut(|mut ctx1| {
+                let mut dup = TypeDuplication::new(&mut ctx1);
+
+                let ret_typ = dup.duplicate_type(ret_typ);
+                let params = dup.duplicate_type(ctx2.get(&Key::Realm).unwrap());
+
+                ctx1.overwrite(Key::Realm, params);
+                // value <- g(realm)
+                ctx1.insert(Key::Value, ret_typ);
+            })
+        });
+
+        // Record(realm)[Value] <- value
+        ctx1.borrow_mut(|mut ctx| {
+            let key = dealer.deal("Value");
+            let value = ctx.get(&Key::Value).unwrap();
+            let record = ctx.get(&Key::Realm).unwrap();
+            let mut record = record.unwrap_record().borrow_mut();
+            record.insert(Type::Atom(key), value);
+        });
     }
 }
