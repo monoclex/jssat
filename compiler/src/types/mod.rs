@@ -400,8 +400,8 @@ impl<'ctx, T> DoublyPtrHandle<'ctx, T> {
     }
 
     pub fn ptr_eq(lhs: &Self, rhs: &Self) -> bool {
-        let lhs_ptr = lhs.0.as_ptr();
-        let rhs_ptr = rhs.0.as_ptr();
+        let lhs_ptr = unsafe { &*lhs.0.as_ptr() }.as_ptr();
+        let rhs_ptr = unsafe { &*rhs.0.as_ptr() }.as_ptr();
         std::ptr::eq(lhs_ptr, rhs_ptr)
     }
 
@@ -521,17 +521,38 @@ mod tests {
     #[test]
     fn ref_eq_wrapper_works() {
         let mut a = TypeCtx::<LiftedCtx, RegisterId<LiftedCtx>>::new();
+        let counter = Counter::new();
 
         a.borrow_mut(|mut a| {
-            let rec1 = TypeRefEq(a.make_type_record(Record::new(Default::default())));
-            let rec2 = TypeRefEq(a.make_type_record(Record::new(Default::default())));
+            let id = counter.next();
+            let rec1 = TypeRefEq(a.make_type_record(Record::new(id)));
+
+            // upon making the second record with the same id, the first record pointer
+            // should get replaced
+            let rec2 = TypeRefEq(a.make_type_record(Record::new(id)));
 
             assert_eq!(rec1, rec1);
             assert_eq!(rec2, rec2);
+            assert_eq!(rec1, rec2);
+            assert_eq!(rec2, rec1);
 
-            assert_ne!(rec1, rec2);
-            assert_ne!(rec2, rec1);
-        })
+            // creating a record with a new id should properly return false (prevent against
+            // a `return true` implementation of equality)
+            let id = counter.next();
+            let rec3 = TypeRefEq(a.make_type_record(Record::new(id)));
+
+            assert_ne!(rec1, rec3);
+            assert_ne!(rec2, rec3);
+            assert_ne!(rec3, rec1);
+            assert_ne!(rec3, rec2);
+
+            // make sure that our original assumptions still hold
+
+            assert_eq!(rec1, rec1);
+            assert_eq!(rec2, rec2);
+            assert_eq!(rec1, rec2);
+            assert_eq!(rec2, rec1);
+        });
     }
 
     #[test]
