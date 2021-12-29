@@ -10,14 +10,8 @@
 #![allow(warnings)]
 
 use core::slice::SlicePattern;
-use std::{
-    cell::{RefCell, RefMut},
-    fmt::Debug,
-    hash::Hash,
-    num::NonZeroU16,
-    ops::DerefMut,
-    pin::Pin,
-};
+use std::cell::{Ref, RefCell, RefMut};
+use std::{fmt::Debug, hash::Hash, num::NonZeroU16, ops::DerefMut, pin::Pin};
 
 use bumpalo::{boxed::Box, Bump};
 use derivative::Derivative;
@@ -70,7 +64,7 @@ pub use type_ctx::{TypeCtx, TypeCtxImmut, TypeCtxMut, TypeDuplication};
 /// same [`TypeCtx`], this equality comparison will fail. Use the
 // TODO: make `Type::deep_eq`
 /// [`Type::deep_eq`] method to check for deep equality.
-#[derive(Clone, Copy, Debug, EnumKind, Hash, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, EnumKind, Hash, Eq)]
 #[enum_kind(TypeKind)]
 pub enum Type<'ctx, T: Tag> {
     /// [`Type::Any`] represents any possible value in JSSAT, as a catch-all.
@@ -193,6 +187,54 @@ pub enum Type<'ctx, T: Tag> {
     /// [`TypeCtx`], call the `borrow` method to borrow it immutably, then call
     /// `make_union`. See `make_type_union` on [`type_ctx::TypeCtxImmut`].
     Union(UnionHandle<'ctx, T>),
+}
+
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Hash, Eq)]
+pub struct TypeRefEq<'ctx, T: Tag>(pub Type<'ctx, T>);
+
+impl<'ctx, T: Tag> PartialEq for TypeRefEq<'ctx, T> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self.0, other.0) {
+            (Type::Any, Type::Any)
+            | (Type::Nothing, Type::Nothing)
+            | (Type::Bytes, Type::Bytes)
+            | (Type::Number, Type::Number)
+            | (Type::Boolean, Type::Boolean) => true,
+            (Type::Atom(l0), Type::Atom(r0)) => l0 == r0,
+            (Type::Int(l0), Type::Int(r0)) => l0 == r0,
+            (Type::Float(l0), Type::Float(r0)) => l0 == r0,
+            (Type::Bool(l0), Type::Bool(r0)) => l0 == r0,
+            (Type::FnPtr(l0), Type::FnPtr(r0)) => l0 == r0,
+            (Type::Byts(l0), Type::Byts(r0)) => l0 == r0,
+            (Type::List(l), Type::List(r)) => DoublyPtrHandle::ptr_eq(&l, &r),
+            (Type::Record(l), Type::Record(r)) => DoublyPtrHandle::ptr_eq(&l, &r),
+            (Type::Union(l), Type::Union(r)) => DoublyPtrHandle::ptr_eq(&l, &r),
+            _ => false,
+        }
+    }
+}
+
+impl<'ctx1, 'ctx2, T: Tag> PartialEq<Type<'ctx2, T>> for Type<'ctx1, T> {
+    fn eq(&self, other: &Type<'ctx2, T>) -> bool {
+        match (*self, *other) {
+            (Type::Any, Type::Any)
+            | (Type::Nothing, Type::Nothing)
+            | (Type::Bytes, Type::Bytes)
+            | (Type::Number, Type::Number)
+            | (Type::Boolean, Type::Boolean) => true,
+            (Type::Atom(l0), Type::Atom(r0)) => l0 == r0,
+            (Type::Int(l0), Type::Int(r0)) => l0 == r0,
+            (Type::Float(l0), Type::Float(r0)) => l0 == r0,
+            (Type::Bool(l0), Type::Bool(r0)) => l0 == r0,
+            (Type::FnPtr(l0), Type::FnPtr(r0)) => l0 == r0,
+            (Type::Byts(l0), Type::Byts(r0)) => l0 == r0,
+            (Type::List(l0), Type::List(r0)) => **l0.borrow() == **r0.borrow(),
+            (Type::Record(l0), Type::Record(r0)) => **l0.borrow() == **r0.borrow(),
+            (Type::Union(l0), Type::Union(r0)) => **l0.borrow() == **r0.borrow(),
+            _ => false,
+        }
+    }
 }
 
 impl<'ctx, T: Tag> Type<'ctx, T> {
@@ -338,23 +380,29 @@ pub struct DoublyPtrHandle<'ctx, T>(RefCellHandle<'ctx, RefCellHandle<'ctx, T>>)
 
 #[derive(Deref, DerefMut)]
 pub struct DoublyRef<'a: 'b, 'b, A, B> {
-    hop_ref: std::cell::Ref<'a, A>,
+    hop_ref: Ref<'a, A>,
     #[deref]
     #[deref_mut]
-    primary_ref: std::cell::Ref<'b, B>,
+    primary_ref: Ref<'b, B>,
 }
 
 #[derive(Deref, DerefMut)]
 pub struct DoublyRefMut<'a: 'b, 'b, A, B> {
-    hop_ref: std::cell::Ref<'a, A>,
+    hop_ref: Ref<'a, A>,
     #[deref]
     #[deref_mut]
-    primary_ref: std::cell::RefMut<'b, B>,
+    primary_ref: RefMut<'b, B>,
 }
 
 impl<'ctx, T> DoublyPtrHandle<'ctx, T> {
     pub fn new(arena: &'ctx Bump, value: T) -> Self {
         DoublyPtrHandle(RefCellHandle::new(arena, RefCellHandle::new(arena, value)))
+    }
+
+    pub fn ptr_eq(lhs: &Self, rhs: &Self) -> bool {
+        let lhs_ptr = lhs.0.as_ptr();
+        let rhs_ptr = rhs.0.as_ptr();
+        std::ptr::eq(lhs_ptr, rhs_ptr)
     }
 
     pub fn borrow<'a>(&self) -> DoublyRef<'a, 'a, RefCellHandle<'ctx, T>, T> {
@@ -381,7 +429,7 @@ impl<'ctx, T> DoublyPtrHandle<'ctx, T> {
 
     /// Copies the primary primary from another [`DoublyPtrHandle`] to this one.
     pub fn copy_primary_ptr<'a, 'b>(&'a self, other: &'b Self) {
-        let mut self_hop = self.0.borrow_mut();
+        let mut self_hop = self.0.borrow_mut(); //.(1)
         let other_hop = *other.0.borrow();
 
         *self_hop = other_hop;
@@ -460,137 +508,297 @@ impl<'ctx, T: ?Sized> Hash for CtxBox<'ctx, T> {
     }
 }
 
-#[test]
-fn equality_between_bytes() {
-    use jssat_ir::id::RegisterId;
-    let mut a = TypeCtx::<LiftedCtx, RegisterId<LiftedCtx>>::new();
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::eq_op)]
 
-    a.borrow_mut(|mut a| {
-        let a_asdf1 = a.make_type_byts(b"asdf");
-        let a_asdf2 = a.make_type_byts(b"asdf");
-        let a_ghjk = a.make_type_byts(b"ghjk");
+    use super::*;
+    use jssat_ir::id::{Counter, RegisterId};
 
-        assert_eq!(a_asdf1, a_asdf2);
-        assert_eq!(a_asdf2, a_asdf1);
+    #[test]
+    fn ref_eq_wrapper_works() {
+        let mut a = TypeCtx::<LiftedCtx, RegisterId<LiftedCtx>>::new();
 
-        assert_ne!(a_asdf1, a_ghjk);
-        assert_ne!(a_asdf2, a_ghjk);
-        assert_ne!(a_ghjk, a_asdf1);
-        assert_ne!(a_ghjk, a_asdf2);
-    })
-}
+        a.borrow_mut(|mut a| {
+            let rec1 = TypeRefEq(a.make_type_record(Record::new(Default::default())));
+            let rec2 = TypeRefEq(a.make_type_record(Record::new(Default::default())));
 
-#[test]
-fn equality_between_bytes_and_atom() {
-    use jssat_ir::id::RegisterId;
-    let mut a = TypeCtx::<LiftedCtx, RegisterId<LiftedCtx>>::new();
+            assert_eq!(rec1, rec1);
+            assert_eq!(rec2, rec2);
 
-    a.borrow_mut(|mut a| {
-        let asdf = a.make_type_byts(b"asdf");
-        let atom = Type::Atom(Atom(NonZeroU16::new(1).unwrap()));
+            assert_ne!(rec1, rec2);
+            assert_ne!(rec2, rec1);
+        })
+    }
 
-        assert_ne!(asdf, atom);
-        assert_ne!(atom, asdf);
-    })
-}
+    #[test]
+    fn equality_between_bytes() {
+        let mut a = TypeCtx::<LiftedCtx, RegisterId<LiftedCtx>>::new();
 
-#[test]
-fn byts_keys_not_overwritten() {
-    use jssat_ir::id::RegisterId;
-    let mut a = TypeCtx::<LiftedCtx, RegisterId<LiftedCtx>>::new();
+        a.borrow_mut(|mut a| {
+            let a_asdf1 = a.make_type_byts(b"asdf");
+            let a_asdf2 = a.make_type_byts(b"asdf");
+            let a_ghjk = a.make_type_byts(b"ghjk");
 
-    a.borrow_mut(|mut a| {
-        let mut rec = Record::new(Default::default());
-        let asdf = a.make_type_byts(b"asdf");
-        rec.insert(asdf, Type::Bool(true));
+            assert_eq!(a_asdf1, a_asdf2);
+            assert_eq!(a_asdf2, a_asdf1);
 
-        let ghjk = a.make_type_byts(b"ghjk");
-        rec.insert(ghjk, Type::Bool(false));
+            assert_ne!(a_asdf1, a_ghjk);
+            assert_ne!(a_asdf2, a_ghjk);
+            assert_ne!(a_ghjk, a_asdf1);
+            assert_ne!(a_ghjk, a_asdf2);
+        })
+    }
 
-        assert_eq!(Some(Type::Bool(true)), rec.get(&asdf).copied());
-        assert_eq!(Some(Type::Bool(false)), rec.get(&ghjk).copied());
-    })
-}
+    #[test]
+    fn equality_between_bytes_and_atom() {
+        let mut a = TypeCtx::<LiftedCtx, RegisterId<LiftedCtx>>::new();
 
-#[test]
-fn duplicating_record_keeps_keys() {
-    use jssat_ir::id::RegisterId;
-    let mut a = TypeCtx::<LiftedCtx, ()>::new();
+        a.borrow_mut(|mut a| {
+            let asdf = a.make_type_byts(b"asdf");
+            let atom = Type::Atom(Atom(NonZeroU16::new(1).unwrap()));
 
-    a.borrow_mut(|mut a| {
-        let mut rec = Record::new(Default::default());
-        let asdf = a.make_type_byts(b"asdf");
-        rec.insert(asdf, Type::Bool(true));
+            assert_ne!(asdf, atom);
+            assert_ne!(atom, asdf);
+        })
+    }
 
-        let ghjk = a.make_type_byts(b"ghjk");
-        rec.insert(ghjk, Type::Bool(false));
+    #[test]
+    fn byts_keys_not_overwritten() {
+        let mut a = TypeCtx::<LiftedCtx, RegisterId<LiftedCtx>>::new();
 
-        a.insert((), a.make_type_record(rec));
-    });
+        a.borrow_mut(|mut a| {
+            let mut rec = Record::new(Default::default());
+            let asdf = a.make_type_byts(b"asdf");
+            rec.insert(asdf, Type::Bool(true));
 
-    let mut b = TypeCtx::<LiftedCtx, ()>::new();
-
-    a.borrow(|a| {
-        b.borrow_mut(|mut b| {
-            let typ = b.duplicate_type(a.get(&()).unwrap());
-            let rec = typ.unwrap_record().borrow();
-
-            let asdf = b.make_type_byts(b"asdf");
-            let ghjk = b.make_type_byts(b"ghjk");
+            let ghjk = a.make_type_byts(b"ghjk");
+            rec.insert(ghjk, Type::Bool(false));
 
             assert_eq!(Some(Type::Bool(true)), rec.get(&asdf).copied());
             assert_eq!(Some(Type::Bool(false)), rec.get(&ghjk).copied());
+        })
+    }
+
+    #[test]
+    fn duplicating_record_keeps_keys() {
+        let mut a = TypeCtx::<LiftedCtx, ()>::new();
+
+        a.borrow_mut(|mut a| {
+            let mut rec = Record::new(Default::default());
+            let asdf = a.make_type_byts(b"asdf");
+            rec.insert(asdf, Type::Bool(true));
+
+            let ghjk = a.make_type_byts(b"ghjk");
+            rec.insert(ghjk, Type::Bool(false));
+
+            let rec_typ = a.make_type_record(rec);
+            a.insert((), rec_typ);
         });
-    });
-}
 
-#[test]
-fn record_info_globally_updated() {
-    use jssat_ir::id::Counter;
-    let mut ctx1 = TypeCtx::<LiftedCtx, u8>::new();
-    let mut unique_id_counter = Counter::new();
+        let mut b = TypeCtx::<LiftedCtx, ()>::new();
 
-    // ctx1 : { 0 |-> Record(id = 1){ Any |-> Nothing } }
-    ctx1.borrow_mut(|mut ctx| {
-        let mut record = Record::new(unique_id_counter.next());
-        record.insert(Type::Any, Type::Nothing);
-        let record = ctx.make_type_record(record);
+        a.borrow(|a| {
+            b.borrow_mut(|mut b| {
+                let typ = b.duplicate_type(a.get(&()).unwrap());
+                let rec = typ.unwrap_record().borrow();
 
-        ctx.insert(0, record);
-    });
+                let asdf = b.make_type_byts(b"asdf");
+                let ghjk = b.make_type_byts(b"ghjk");
 
-    // copy the record in `ctx1` to `ctx2`
-    let mut ctx2 = TypeCtx::new();
-    ctx1.borrow(|ctx| {
-        ctx2.copy_from(&ctx, std::iter::once(0));
-    });
+                assert_eq!(Some(Type::Bool(true)), rec.get(&asdf).copied());
+                assert_eq!(Some(Type::Bool(false)), rec.get(&ghjk).copied());
+            });
+        });
+    }
 
-    // modify the record in `ctx2`
-    ctx2.borrow_mut(|mut ctx| {
-        let record_ty = ctx.get(&0).unwrap();
-        let mut record = record_ty.unwrap_record().borrow_mut();
+    #[test]
+    fn record_info_globally_updated() {
+        let mut ctx1 = TypeCtx::<LiftedCtx, u8>::new();
+        let mut unique_id_counter = Counter::new();
 
-        record.insert(Type::Any, Type::Number);
-    });
+        // ctx1 : { 0 |-> Record(id = 1){ Any |-> Nothing } }
+        ctx1.borrow_mut(|mut ctx| {
+            let mut record = Record::new(unique_id_counter.next());
+            record.insert(Type::Any, Type::Nothing);
+            let record = ctx.make_type_record(record);
 
-    // copy back the modified record in `ctx1` to a different register in `ctx2`
-    ctx2.borrow(|mut ctx| {
-        ctx1.copy_from_map(&ctx, std::iter::once(0), |k| k + 1);
-    });
+            ctx.insert(0, record);
+        });
 
-    // assert that the record in `ctx1` at register `0` was updated
-    ctx1.borrow_mut(|mut ctx| {
-        let original_rec = ctx.get(&0).unwrap().unwrap_record().borrow();
-        let copied_rec = ctx.get(&1).unwrap().unwrap_record().borrow();
+        // copy the record in `ctx1` to `ctx2`
+        let mut ctx2 = TypeCtx::new();
+        ctx1.borrow(|ctx| {
+            ctx2.copy_from(&ctx, std::iter::once(0));
+        });
 
-        assert!(
-            matches!(copied_rec.get(&Type::Any), Some(Type::Number)),
-            "newly copied record should match"
-        );
+        // modify the record in `ctx2`
+        ctx2.borrow_mut(|mut ctx| {
+            let record_ty = ctx.get(&0).unwrap();
+            let mut record = record_ty.unwrap_record().borrow_mut();
 
-        assert!(
-            matches!(original_rec.get(&Type::Any), Some(Type::Number)),
-            "old record should be updated"
-        );
-    });
+            record.insert(Type::Any, Type::Number);
+        });
+
+        // copy back the modified record in `ctx1` to a different register in `ctx2`
+        ctx2.borrow(|mut ctx| {
+            ctx1.copy_from_map(&ctx, std::iter::once(0), |k| k + 1);
+        });
+
+        // assert that the record in `ctx1` at register `0` was updated
+        ctx1.borrow_mut(|mut ctx| {
+            let original_rec = ctx.get(&0).unwrap().unwrap_record().borrow();
+            let copied_rec = ctx.get(&1).unwrap().unwrap_record().borrow();
+
+            assert!(
+                matches!(copied_rec.get(&Type::Any), Some(Type::Number)),
+                "newly copied record should match"
+            );
+
+            assert!(
+                matches!(original_rec.get(&Type::Any), Some(Type::Number)),
+                "old record should be updated"
+            );
+        });
+    }
+
+    #[test]
+    fn self_referential_record_copy() {
+        let mut ctx = TypeCtx::<LiftedCtx, ()>::new();
+
+        ctx.borrow_mut(|mut ctx| {
+            let rec = Record::new(Default::default());
+            let rec_typ = ctx.make_type_record(rec);
+
+            let mut rec = rec_typ.unwrap_record().borrow_mut();
+            rec.insert(ctx.make_type_byts(b"key"), rec_typ);
+
+            ctx.insert((), rec_typ);
+        });
+
+        let mut ctx2 = TypeCtx::new();
+
+        ctx.borrow(|ctx| {
+            ctx2.copy_from(&ctx, std::iter::once(()));
+        });
+    }
+
+    #[test]
+    fn self_referential_record_eq() {
+        let mut ctx = TypeCtx::<LiftedCtx, ()>::new();
+
+        ctx.borrow_mut(|mut ctx| {
+            let rec = Record::new(Default::default());
+            let rec_typ = ctx.make_type_record(rec);
+
+            let mut rec = rec_typ.unwrap_record().borrow_mut();
+            rec.insert(ctx.make_type_byts(b"key"), rec_typ);
+            drop(rec);
+
+            assert_eq!(rec_typ, rec_typ);
+        });
+    }
+
+    #[test]
+    fn self_referential_record_2ctx_eq() {
+        let mut ctx = TypeCtx::<LiftedCtx, ()>::new();
+
+        ctx.borrow_mut(|mut ctx| {
+            let rec = Record::new(Default::default());
+            let rec_typ = ctx.make_type_record(rec);
+
+            let mut rec = rec_typ.unwrap_record().borrow_mut();
+            rec.insert(ctx.make_type_byts(b"key"), rec_typ);
+
+            ctx.insert((), rec_typ);
+        });
+
+        let mut ctx2 = TypeCtx::new();
+
+        ctx.borrow(|ctx| {
+            ctx2.copy_from(&ctx, std::iter::once(()));
+        });
+
+        ctx.borrow(|ctx| {
+            ctx2.borrow(|ctx2| {
+                let ctx_rec = ctx.get(&()).unwrap();
+                let ctx2_rec = ctx2.get(&()).unwrap();
+
+                assert_eq!(ctx_rec, ctx_rec);
+                assert_eq!(ctx_rec, ctx2_rec);
+                assert_eq!(ctx2_rec, ctx_rec);
+                assert_eq!(ctx2_rec, ctx2_rec);
+            })
+        })
+    }
+
+    #[test]
+    fn self_key_referential_record_copy() {
+        let mut ctx = TypeCtx::<LiftedCtx, ()>::new();
+
+        ctx.borrow_mut(|mut ctx| {
+            let rec = Record::new(Default::default());
+            let rec_typ = ctx.make_type_record(rec);
+
+            let mut rec = rec_typ.unwrap_record().borrow_mut();
+            rec.insert(rec_typ, Type::Any);
+
+            ctx.insert((), rec_typ);
+        });
+
+        let mut ctx2 = TypeCtx::new();
+
+        ctx.borrow(|ctx| {
+            ctx2.copy_from(&ctx, std::iter::once(()));
+        });
+    }
+
+    #[test]
+    fn self_key_referential_record_eq() {
+        let mut ctx = TypeCtx::<LiftedCtx, ()>::new();
+
+        ctx.borrow_mut(|mut ctx| {
+            let rec = Record::new(Default::default());
+            let rec_typ = ctx.make_type_record(rec);
+
+            let mut rec = rec_typ.unwrap_record().borrow_mut();
+            rec.insert(rec_typ, Type::Any);
+            drop(rec);
+
+            assert_eq!(rec_typ, rec_typ);
+        });
+    }
+
+    #[test]
+    fn self_key_referential_record_2ctx_eq() {
+        let mut ctx = TypeCtx::<LiftedCtx, ()>::new();
+
+        ctx.borrow_mut(|mut ctx| {
+            let rec = Record::new(Default::default());
+            let rec_typ = ctx.make_type_record(rec);
+
+            let mut rec = rec_typ.unwrap_record().borrow_mut();
+            rec.insert(rec_typ, Type::Any);
+
+            ctx.insert((), rec_typ);
+        });
+
+        let mut ctx2 = TypeCtx::new();
+
+        ctx.borrow(|ctx| {
+            ctx2.copy_from(&ctx, std::iter::once(()));
+        });
+
+        ctx.borrow(|ctx| {
+            ctx2.borrow(|ctx2| {
+                let ctx_rec = ctx.get(&()).unwrap();
+                let ctx2_rec = ctx2.get(&()).unwrap();
+
+                assert_eq!(ctx_rec, ctx_rec);
+                assert_eq!(ctx_rec, ctx2_rec);
+                assert_eq!(ctx2_rec, ctx_rec);
+                assert_eq!(ctx2_rec, ctx2_rec);
+            })
+        })
+    }
 }

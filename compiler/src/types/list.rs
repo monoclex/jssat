@@ -6,7 +6,7 @@ use super::Type;
 // TODO: use an enum
 // pub enum List { KnownSize, VariableLength }
 
-#[derive(Clone, Default, Deref, DerefMut)]
+#[derive(Clone, Default, Deref, DerefMut, Eq)]
 pub struct List<'ctx, T: Tag> {
     unique_id: UniqueListId<T>,
     #[deref]
@@ -27,9 +27,8 @@ impl<'ctx, T: Tag> List<'ctx, T> {
     }
 }
 
-impl<'ctx, T: Tag> Eq for List<'ctx, T> {}
-impl<'ctx, T: Tag> PartialEq for List<'ctx, T> {
-    fn eq(&self, other: &Self) -> bool {
+impl<'ctx1, 'ctx2, T: Tag> PartialEq<List<'ctx2, T>> for List<'ctx1, T> {
+    fn eq(&self, other: &List<'ctx2, T>) -> bool {
         self.unique_id == other.unique_id && self.items == other.items
     }
 }

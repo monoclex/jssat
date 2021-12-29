@@ -8,7 +8,9 @@ use rustc_hash::FxHashSet;
 
 use crate::id::{RecordId, Tag, UnionId};
 
-use super::{type_ctx::TypeCtxImmut, CtxBox, Record, RecordHandle, Type, TypeCtx, UnionHandle};
+use super::{
+    type_ctx::TypeCtxImmut, CtxBox, Record, RecordHandle, Type, TypeCtx, TypeRefEq, UnionHandle,
+};
 
 impl<'ctx, T: Tag> Type<'ctx, T> {
     pub fn deep_eq(&self, other: &Self) -> bool {
@@ -50,8 +52,7 @@ impl From<bool> for MaybeEqual {
 /// Datastructure that maintains state during equality comparisons between
 /// types.
 pub struct EqualityResolver<'ctx1, 'ctx2, T: Tag> {
-    record_constraints: Constraints<RecordHandle<'ctx1, T>, RecordHandle<'ctx2, T>>,
-    union_constraints: Constraints<UnionHandle<'ctx1, T>, UnionHandle<'ctx2, T>>,
+    constraints: Constraints<TypeRefEq<'ctx1, T>, TypeRefEq<'ctx2, T>>,
     #[cfg(debug_assertions)]
     solve_constraints_called: bool,
     #[cfg(debug_assertions)]
@@ -61,8 +62,7 @@ pub struct EqualityResolver<'ctx1, 'ctx2, T: Tag> {
 impl<'ctx1, 'ctx2, T: Tag> EqualityResolver<'ctx1, 'ctx2, T> {
     pub fn new() -> Self {
         Self {
-            record_constraints: Default::default(),
-            union_constraints: Default::default(),
+            constraints: Default::default(),
             #[cfg(debug_assertions)]
             solve_constraints_called: false,
             #[cfg(debug_assertions)]
@@ -83,7 +83,14 @@ impl<'ctx1, 'ctx2, T: Tag> EqualityResolver<'ctx1, 'ctx2, T> {
         }
 
         while self.has_constraints_to_verify() {
-            while let Some((a, b)) = self.record_constraints.next() {
+            while let Some((a, b)) = self.constraints.next() {
+                let (a, b) = match (a.0, b.0) {
+                    (Type::Record(a), Type::Record(b)) => (a, b),
+                    (Type::List(a), Type::List(b)) => todo!(),
+                    (Type::Union(a), Type::Union(b)) => todo!(),
+                    _ => unreachable!(),
+                };
+
                 let a = a.borrow();
                 let b = b.borrow();
 
@@ -91,17 +98,13 @@ impl<'ctx1, 'ctx2, T: Tag> EqualityResolver<'ctx1, 'ctx2, T> {
                     return false;
                 }
             }
-
-            while let Some((a, b)) = self.union_constraints.next() {
-                todo!()
-            }
         }
 
         false
     }
 
     pub fn has_constraints_to_verify(&self) -> bool {
-        self.record_constraints.any() || self.union_constraints.any()
+        self.constraints.any()
     }
 
     /// Tries to determine if two types are definitely not equal.
@@ -110,15 +113,14 @@ impl<'ctx1, 'ctx2, T: Tag> EqualityResolver<'ctx1, 'ctx2, T> {
     /// equal.
     pub fn are_not_equal(&mut self, a: &Type<'ctx1, T>, b: &Type<'ctx2, T>) -> bool {
         use Type::*;
-
         let maybe_equal = match (a, b) {
             // records and unions need more comparisons
             (Record(r1), Record(r2)) => {
-                self.record_constraints.assume_equal(*r1, *r2);
+                self.constraints.assume_equal(TypeRefEq(*a), TypeRefEq(*b));
                 MaybeEqual::Maybe
             }
             (Union(u1), Union(u2)) => {
-                self.union_constraints.assume_equal(*u1, *u2);
+                self.constraints.assume_equal(TypeRefEq(*a), TypeRefEq(*b));
                 MaybeEqual::Maybe
             }
             (Any, Any) | (Bytes, Bytes) | (Number, Number) | (Boolean, Boolean) => MaybeEqual::Yes,
@@ -216,7 +218,7 @@ impl<'ctx1, 'ctx2, T: Tag> EqualityResolver<'ctx1, 'ctx2, T> {
                             continue;
                         }
 
-                        matches.push(*key);
+                        matches.push(*value);
                         // TODO(future): if this algo is actually sane, `break`
                         // early
                     }

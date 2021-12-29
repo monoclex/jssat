@@ -10,7 +10,7 @@ use tinyvec::{Array, ArrayVec, TinyVec};
 use super::{EqualityResolver, Type, TypeCtx};
 use crate::id::{RecordId, Tag, UniqueRecordId};
 
-#[derive(Clone, Default, Deref, DerefMut)]
+#[derive(Clone, Default, Deref, DerefMut, Eq)]
 pub struct Record<'ctx, T: Tag> {
     unique_id: UniqueRecordId<T>,
     #[deref]
@@ -31,9 +31,8 @@ impl<'ctx, T: Tag> Record<'ctx, T> {
     }
 }
 
-impl<'ctx, T: Tag> Eq for Record<'ctx, T> {}
-impl<'ctx, T: Tag> PartialEq for Record<'ctx, T> {
-    fn eq(&self, other: &Self) -> bool {
+impl<'ctx1, 'ctx2, T: Tag> PartialEq<Record<'ctx2, T>> for Record<'ctx1, T> {
+    fn eq(&self, other: &Record<'ctx2, T>) -> bool {
         let mut eq = EqualityResolver::new();
 
         if eq.records_not_equal(self, other) {

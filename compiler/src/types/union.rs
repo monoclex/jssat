@@ -3,7 +3,7 @@ use jssat_ir::id::{Tag, UnionId};
 
 use super::Type;
 
-#[derive(Deref, DerefMut)]
+#[derive(Deref, DerefMut, Eq)]
 pub struct Union<'ctx, T: Tag> {
     unique_id: UnionId<T>,
     #[deref]
@@ -32,9 +32,8 @@ impl<'ctx, T: Tag> Union<'ctx, T> {
     // }
 }
 
-impl<'ctx, T: Tag> Eq for Union<'ctx, T> {}
-impl<'ctx, T: Tag> PartialEq for Union<'ctx, T> {
-    fn eq(&self, other: &Self) -> bool {
+impl<'ctx1, 'ctx2, T: Tag> PartialEq<Union<'ctx2, T>> for Union<'ctx1, T> {
+    fn eq(&self, other: &Union<'ctx2, T>) -> bool {
         self.unique_id == other.unique_id && self.variants == other.variants
     }
 }

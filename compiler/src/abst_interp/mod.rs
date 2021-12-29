@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use domino::moment::MomentApi;
 use jssat_ir::collections::StrictZip;
-use jssat_ir::id::{Counter, LiftedCtx, RegisterId, Tag, UnionId, UniqueListId, UniqueRecordId, IdCompat};
+use jssat_ir::id::{Counter, LiftedCtx, RegisterId, Tag, UnionId, UniqueListId, UniqueRecordId};
 use jssat_ir::isa::BlockJump;
 use jssat_ir::value_snapshot::{ValueSnapshotArena, SnapshotValue, SnapshotList};
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -187,6 +187,8 @@ impl<'ctx, T: Tag> SnapshotVisitor<Type<'ctx, T>, RegisterId<LiftedCtx>> {
                 let id = self.list_id;
                 self.list_id += 1;
 
+                self.seen.insert(typ, SnapshotValue::List(id));
+
                 let snapshot_types = x.borrow().iter()
                     .map(|typ| self.visit(*typ))
                     .collect::<Vec<_>>();
@@ -205,6 +207,8 @@ impl<'ctx, T: Tag> SnapshotVisitor<Type<'ctx, T>, RegisterId<LiftedCtx>> {
 
                 let id = self.rec_id;
                 self.rec_id += 1;
+
+                self.seen.insert(typ, SnapshotValue::Record(id));
 
                 let record = x.borrow().iter()
                     .map(|(key_typ, value_typ)| (self.visit(*key_typ), self.visit(*value_typ)))

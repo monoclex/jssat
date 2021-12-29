@@ -10,10 +10,11 @@ use ouroboros::self_referencing;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::{
-    CtxBox, EqualityResolver, Record, RecordHandle, RefCellHandle, Type, Union, UnionHandle,
+    CtxBox, DoublyPtrHandle, EqualityResolver, Record, RecordHandle, RefCellHandle, Type,
+    TypeRefEq, Union, UnionHandle,
 };
 use crate::{
-    id::{Counter, RegisterId, Tag, UniqueRecordId},
+    id::{Counter, RegisterId, Tag, UnionId, UniqueListId, UniqueRecordId},
     types::{BytsHandle, List},
 };
 
@@ -164,9 +165,13 @@ impl<T: Tag, K> TypeCtx<T, K> {
     /// ```
     pub fn new() -> Self {
         let ctx_impl = TypeCtxImplBuilder {
+            does_unique_mapping: true,
             arena: Default::default(),
             lookup_builder: |_| Default::default(),
             handle_types_builder: |_| Default::default(),
+            record_unique_map_builder: |_| Default::default(),
+            list_unique_map_builder: |_| Default::default(),
+            union_unique_map_builder: |_| Default::default(),
         }
         .build();
 
@@ -227,6 +232,7 @@ impl<T: Tag, K> Default for TypeCtx<T, K> {
 #[self_referencing]
 pub struct TypeCtxImpl<T: Tag, K> {
     arena: Bump,
+    does_unique_mapping: bool,
     #[borrows(arena)]
     #[not_covariant]
     lookup: FxHashMap<K, Type<'this, T>>,
@@ -234,6 +240,15 @@ pub struct TypeCtxImpl<T: Tag, K> {
     #[not_covariant]
     /// Records only the types that require the use of handles
     handle_types: Vec<Type<'this, T>>,
+    #[borrows(arena)]
+    #[not_covariant]
+    record_unique_map: FxHashMap<UniqueRecordId<T>, DoublyPtrHandle<'this, Record<'this, T>>>,
+    #[borrows(arena)]
+    #[not_covariant]
+    list_unique_map: FxHashMap<UniqueListId<T>, DoublyPtrHandle<'this, List<'this, T>>>,
+    #[borrows(arena)]
+    #[not_covariant]
+    union_unique_map: FxHashMap<UnionId<T>, DoublyPtrHandle<'this, Union<'this, T>>>,
 }
 
 impl<T: Tag, K> TypeCtx<T, K> {
@@ -267,6 +282,10 @@ impl<T: Tag, K> TypeCtx<T, K> {
                 lookup: it.lookup,
                 handle_types: it.handle_types,
                 arena: it.arena,
+                record_unique_map: it.record_unique_map,
+                list_unique_map: it.list_unique_map,
+                union_unique_map: it.union_unique_map,
+                does_unique_mapping: *it.does_unique_mapping,
             })
         })
     }
@@ -302,6 +321,10 @@ impl<T: Tag, K> TypeCtx<T, K> {
                 lookup: it.lookup,
                 handle_types: it.handle_types,
                 arena: it.arena,
+                record_unique_map: it.record_unique_map,
+                list_unique_map: it.list_unique_map,
+                union_unique_map: it.union_unique_map,
+                does_unique_mapping: *it.does_unique_mapping,
             })
         })
     }
@@ -394,6 +417,11 @@ pub struct TypeCtxImmut<'borrow, 'arena, T: Tag, K> {
     lookup: &'borrow FxHashMap<K, Type<'arena, T>>,
     handle_types: &'borrow Vec<Type<'arena, T>>,
     arena: &'arena Bump,
+    record_unique_map:
+        &'borrow FxHashMap<UniqueRecordId<T>, DoublyPtrHandle<'arena, Record<'arena, T>>>,
+    list_unique_map: &'borrow FxHashMap<UniqueListId<T>, DoublyPtrHandle<'arena, List<'arena, T>>>,
+    union_unique_map: &'borrow FxHashMap<UnionId<T>, DoublyPtrHandle<'arena, Union<'arena, T>>>,
+    does_unique_mapping: bool,
 }
 
 // SAFETY: the layout of this must be the same as [`TypeCtxImmut`]
@@ -402,6 +430,12 @@ pub struct TypeCtxMut<'borrow, 'arena, T: Tag, K> {
     lookup: &'borrow mut FxHashMap<K, Type<'arena, T>>,
     handle_types: &'borrow mut Vec<Type<'arena, T>>,
     arena: &'arena Bump,
+    record_unique_map:
+        &'borrow mut FxHashMap<UniqueRecordId<T>, DoublyPtrHandle<'arena, Record<'arena, T>>>,
+    list_unique_map:
+        &'borrow mut FxHashMap<UniqueListId<T>, DoublyPtrHandle<'arena, List<'arena, T>>>,
+    union_unique_map: &'borrow mut FxHashMap<UnionId<T>, DoublyPtrHandle<'arena, Union<'arena, T>>>,
+    does_unique_mapping: bool,
 }
 
 impl<'borrow, 'arena, T: Tag, K> Deref for TypeCtxMut<'borrow, 'arena, T, K> {
@@ -546,7 +580,15 @@ pub struct TypeDuplication<'borrow, 'arena, 'distant_arena, 'type_ctx, T: Tag, K
     /// Using the [`Eq`] trait of [`Type`]s, this checks for referential level
     /// equality between types before deciding to clone them. This is cheap and
     /// effective.
-    duplications: FxHashMap<Type<'distant_arena, T>, Type<'arena, T>>,
+    duplications: FxHashMap<TypeRefEq<'distant_arena, T>, TypeRefEq<'arena, T>>,
+    /// If `true`, this will mutate the hop pointers of [`DoublyPtrHandle`]s to
+    /// match the unique id of types, essentially updating any records to new
+    /// values if possible.
+    ///
+    /// This behavior may not always be desired, for example, in the case when
+    /// attempting to union up all the potential values of a single record. We
+    /// would want to know and keep the old values in those cases.
+    mutate_hop_ptr: bool,
 }
 
 impl<'b, 'a, 'd, 't, T: Tag, K: Hash + Eq> TypeDuplication<'b, 'a, 'd, 't, T, K> {
@@ -565,6 +607,7 @@ impl<'b, 'a, 'd, 't, T: Tag, K: Hash + Eq> TypeDuplication<'b, 'a, 'd, 't, T, K>
         Self {
             type_ctx,
             duplications: Default::default(),
+            mutate_hop_ptr: true,
         }
     }
 
@@ -574,8 +617,8 @@ impl<'b, 'a, 'd, 't, T: Tag, K: Hash + Eq> TypeDuplication<'b, 'a, 'd, 't, T, K>
     pub fn duplicate_type(&mut self, typ: Type<'d, T>) -> Type<'a, T> {
         macro_rules! cache {
             ($x:expr) => {
-                if let Some(result) = self.duplications.get(&$x) {
-                    return *result;
+                if let Some(result) = self.duplications.get(&TypeRefEq($x)) {
+                    return result.0;
                 }
             };
         }
@@ -596,20 +639,26 @@ impl<'b, 'a, 'd, 't, T: Tag, K: Hash + Eq> TypeDuplication<'b, 'a, 'd, 't, T, K>
                 cache!(typ);
 
                 let dest = self.type_ctx.make_type_byts(&handle);
-                self.duplications.insert(typ, dest);
+                self.duplications.insert(TypeRefEq(typ), TypeRefEq(dest));
+
                 dest
             }
             Type::List(handle) => {
                 cache!(typ);
 
                 let src_list = handle.borrow();
-
                 let list_typ = (self.type_ctx).make_type_list(List::new(src_list.unique_id()));
-                self.duplications.insert(typ, list_typ);
+                self.duplications
+                    .insert(TypeRefEq(typ), TypeRefEq(list_typ));
 
+                let items = src_list
+                    .iter()
+                    .map(|t| self.duplicate_type(*t))
+                    .collect::<Vec<_>>();
+
+                drop(src_list);
                 let mut list = list_typ.unwrap_list().borrow_mut();
-
-                list.extend(src_list.iter().map(|t| self.duplicate_type(*t)));
+                list.extend(items);
                 list_typ
             }
             Type::Record(handle) => {
@@ -620,18 +669,26 @@ impl<'b, 'a, 'd, 't, T: Tag, K: Hash + Eq> TypeDuplication<'b, 'a, 'd, 't, T, K>
                 // create the type and insert it early
                 // this makes the recursive case fetch the type
                 let record_typ =
-                    (self.type_ctx).make_type_record(Record::new(src_record.unique_id()));
-                self.duplications.insert(typ, record_typ);
+                    (self.type_ctx).make_type_record(Record::new(src_record.unique_id())); //.(3)
+                self.duplications
+                    .insert(TypeRefEq(typ), TypeRefEq(record_typ));
 
                 // duplicate the kvps of the record
-                let mut dest_record = record_typ.unwrap_record().borrow_mut();
+                // let mut dest_record = record_typ.unwrap_record().borrow_mut();
 
+                let mut cache = Vec::new();
                 for (key, value) in src_record.iter() {
                     let dest_key = self.duplicate_type(*key);
-                    let dest_value = self.duplicate_type(*value);
+                    let dest_value = self.duplicate_type(*value); //.(4) //.(5) //.(6)
 
-                    dest_record.insert(dest_key, dest_value);
+                    cache.push((dest_key, dest_value));
+                    // dest_record.insert(dest_key, dest_value);
                 }
+
+                drop(src_record);
+
+                let mut dest_record = record_typ.unwrap_record().borrow_mut();
+                dest_record.extend(cache);
 
                 record_typ
             }
@@ -643,7 +700,8 @@ impl<'b, 'a, 'd, 't, T: Tag, K: Hash + Eq> TypeDuplication<'b, 'a, 'd, 't, T, K>
                 // create the type and insert it early
                 // this makes the recursive case fetch the type
                 let union_typ = (self.type_ctx).make_type_union(Union::new(src_union.unique_id()));
-                self.duplications.insert(typ, union_typ);
+                self.duplications
+                    .insert(TypeRefEq(typ), TypeRefEq(union_typ));
 
                 // duplicate the elements of the union
                 let mut dest_union = union_typ.unwrap_union().borrow_mut();
@@ -707,6 +765,12 @@ impl<'borrow, 'arena, T: Tag, K> TypeCtxImmut<'borrow, 'arena, T, K> {
         Type::Byts(BytsHandle(CtxBox::new_unsized(self.arena, payload)))
     }
 
+    pub fn iter(&self) -> impl Iterator<Item = (&K, &Type<'arena, T>)> {
+        self.lookup.iter()
+    }
+}
+
+impl<'borrow, 'arena, T: Tag, K> TypeCtxMut<'borrow, 'arena, T, K> {
     /// Constructs an instance of [`Type::Union`] for this [`TypeCtx`]
     ///
     /// # Examples
@@ -722,7 +786,19 @@ impl<'borrow, 'arena, T: Tag, K> TypeCtxImmut<'borrow, 'arena, T, K> {
     ///
     /// assert!(is_union)
     /// ```
-    pub fn make_type_list(&self, list: List<'arena, T>) -> Type<'arena, T> {
+    pub fn make_type_list(&mut self, list: List<'arena, T>) -> Type<'arena, T> {
+        let id = list.unique_id();
+
+        let handle = DoublyPtrHandle::new(self.arena, list);
+
+        if self.does_unique_mapping {
+            let old = self.list_unique_map.insert(id, handle);
+
+            if let Some(old) = old {
+                old.copy_primary_ptr(&handle);
+            }
+        }
+
         Type::List(handle)
     }
 
@@ -741,8 +817,19 @@ impl<'borrow, 'arena, T: Tag, K> TypeCtxImmut<'borrow, 'arena, T, K> {
     ///
     /// assert!(is_record)
     /// ```
-    pub fn make_type_record(&self, record: Record<'arena, T>) -> Type<'arena, T> {
+    pub fn make_type_record(&mut self, record: Record<'arena, T>) -> Type<'arena, T> {
+        let id = record.unique_id();
+
         let handle = DoublyPtrHandle::new(self.arena, record);
+
+        if self.does_unique_mapping {
+            let old = self.record_unique_map.insert(id, handle);
+
+            if let Some(old) = old {
+                old.copy_primary_ptr(&handle); //.(2)
+            }
+        }
+
         Type::Record(handle)
     }
 
@@ -761,13 +848,20 @@ impl<'borrow, 'arena, T: Tag, K> TypeCtxImmut<'borrow, 'arena, T, K> {
     ///
     /// assert!(is_union)
     /// ```
-    pub fn make_type_union(&self, union: Union<'arena, T>) -> Type<'arena, T> {
-        let handle = DoublyPtrHandle::new(self.arena, union);
-        Type::Union(handle)
-    }
+    pub fn make_type_union(&mut self, union: Union<'arena, T>) -> Type<'arena, T> {
+        let id = union.unique_id();
 
-    pub fn iter(&self) -> impl Iterator<Item = (&K, &Type<'arena, T>)> {
-        self.lookup.iter()
+        let handle = DoublyPtrHandle::new(self.arena, union);
+
+        if self.does_unique_mapping {
+            let old = self.union_unique_map.insert(id, handle);
+
+            if let Some(old) = old {
+                old.copy_primary_ptr(&handle);
+            }
+        }
+
+        Type::Union(handle)
     }
 }
 
