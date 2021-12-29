@@ -11,15 +11,19 @@ export function JssatIRAdaptor([moment, setMoment]: [
     const now = moment();
     if (!now) return undefined;
 
+    const source = now.code.lines.map(({ display }) => display);
+    const PREAMBLE = [now.code.header];
+    source.splice(0, 0, ...PREAMBLE);
+
     const sourceInfo = {
-      source: now.code.lines.map(({ display }) => display),
+      source: source,
       highlight: {
         start: {
-          line: now.code.highlighted + 1,
+          line: now.code.highlighted + 1 + PREAMBLE.length,
           column: 0,
         },
         end: {
-          line: now.code.highlighted + 1,
+          line: now.code.highlighted + 1 + PREAMBLE.length,
           column: now.code.lines[now.code.highlighted].display.length,
         },
       },

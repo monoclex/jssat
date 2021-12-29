@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use domino::moment::MomentApi;
 use jssat_ir::collections::StrictZip;
-use jssat_ir::id::{Counter, LiftedCtx, RegisterId, Tag, UnionId, UniqueListId, UniqueRecordId};
+use jssat_ir::id::{Counter, LiftedCtx, RegisterId, Tag, UnionId, UniqueListId, UniqueRecordId, IdCompat};
 use jssat_ir::isa::BlockJump;
 use jssat_ir::value_snapshot::{ValueSnapshotArena, SnapshotValue, SnapshotList};
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -142,8 +142,6 @@ struct SnapshotVisitor<T, P> {
     arena: ValueSnapshotArena,
     seen: FxHashMap<T, SnapshotValue>,
     primary: Option<P>,
-    rec_id: usize,
-    list_id: usize,
 }
 
 impl<T, P> SnapshotVisitor<T, P> {
@@ -152,8 +150,6 @@ impl<T, P> SnapshotVisitor<T, P> {
             arena: Default::default(),
             seen: Default::default(),
             primary: None,
-            rec_id: 0,
-            list_id: 0,
         }
     }
 }
@@ -184,8 +180,7 @@ impl<'ctx, T: Tag> SnapshotVisitor<Type<'ctx, T>, RegisterId<LiftedCtx>> {
                     return seen.clone();
                 }
 
-                let id = self.list_id;
-                self.list_id += 1;
+                let id = x.borrow().unique_id().value();
 
                 self.seen.insert(typ, SnapshotValue::List(id));
 
@@ -205,8 +200,7 @@ impl<'ctx, T: Tag> SnapshotVisitor<Type<'ctx, T>, RegisterId<LiftedCtx>> {
                     return seen.clone();
                 }
 
-                let id = self.rec_id;
-                self.rec_id += 1;
+                let id = x.borrow().unique_id().value();
 
                 self.seen.insert(typ, SnapshotValue::Record(id));
 
@@ -753,7 +747,14 @@ impl<'p, C: AbsIntCollector<LiftedCtx>> AbsIntEngine<'p, C> {
         function: FunctionId,
         calling_args: &[RegisterId<LiftedCtx>],
     ) -> Result<Arc<EvalResultInner>, AbsIntError> {
-        // 1. prepare for calling function
+        // 1. record registers before call
+        for register in calling_args.iter().copied() {
+            let typ = state.rget(register)?;
+            self.collector.record(register, typ);
+        }
+        self.collector.commit_changes();
+
+        // 2. prepare for calling function
         let mut args = TypeCtx::new();
 
         let target_fn_regs = &self.program.functions.get(&function).unwrap().parameters;
@@ -766,7 +767,7 @@ impl<'p, C: AbsIntCollector<LiftedCtx>> AbsIntEngine<'p, C> {
         let map_reg = |_| target_fn_args_iter.next().unwrap();
         args.copy_from_map(state, src_regs, map_reg);
 
-        // 2. call function
+        // 3. call function
         let result = self.call(function, args)?;
 
         let result = match result {
@@ -776,7 +777,7 @@ impl<'p, C: AbsIntCollector<LiftedCtx>> AbsIntEngine<'p, C> {
             EvalResult::Present(result) => result,
         };
 
-        // 3. copy state back
+        // 4. copy state back
         let dest_arg_to_src = (target_fn_regs.iter().cloned())
             .strict_zip(calling_args.iter().cloned())
             .collect::<FxHashMap<_, _>>();
@@ -810,6 +811,17 @@ impl<'p, C: AbsIntCollector<LiftedCtx>> AbsIntEngine<'p, C> {
             (Some(_), None) => panic!("invalid program"),
             (None, _) => {}
         };
+
+        // 5. record registers after call
+        if let Some(reg_result) = reg_result {
+            self.collector.record(reg_result, state.rget(reg_result)?);
+        }
+
+        for register in calling_args.iter().copied() {
+            let typ = state.rget(register)?;
+            self.collector.record(register, typ);
+        }
+        self.collector.commit_changes();
 
         Ok(result)
     }

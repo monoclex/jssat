@@ -4,6 +4,7 @@ use std::{rc::Rc, sync::Arc};
 
 use jssat_ir::{
     frontend::source_map::{SourceMap, SourceMapIdx, SourceMapImpl},
+    id::IdCompat,
     isa::AtomDealer,
     lifted::{Function, FunctionId, LiftedProgram},
     pyramid_api::{LayerPtr, PyramidApi},
@@ -28,6 +29,7 @@ impl MomentApi {
                     Rc::new(RawFrameCode {
                         fn_name: v.fn_name,
                         lines: v.lines,
+                        header: v.header,
                     })
                 })
             })
@@ -57,6 +59,7 @@ impl MomentApi {
                     Rc::new(RawFrameCode {
                         fn_name: v.fn_name,
                         lines: v.lines,
+                        header: v.header,
                     })
                 })
             })
@@ -102,10 +105,11 @@ fn into_raw_frame(
 pub struct CodeInfo {
     fn_name: Option<String>,
     lines: Vec<String>,
+    header: String,
 }
 
 impl CodeInfo {
-    pub fn new(function: &Function) -> Self {
+    pub fn new(id: FunctionId, function: &Function) -> Self {
         let mut lines = vec![];
 
         for line in function.instructions.iter() {
@@ -121,6 +125,14 @@ impl CodeInfo {
         Self {
             fn_name: function.name.clone(),
             lines,
+            header: format!(
+                "fn @{}({})",
+                id,
+                (function.parameters.iter())
+                    .map(|r| format!("%{}", r.value()))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
         }
     }
 }
@@ -137,7 +149,7 @@ impl MomentApi {
     pub fn new(code: &LiftedProgram) -> Self {
         MomentApi {
             functions: (code.functions.iter())
-                .map(|(id, f)| (*id, CodeInfo::new(f)))
+                .map(|(id, f)| (*id, CodeInfo::new(*id, f)))
                 .collect(),
             pyramid_api: PyramidApi::new(),
         }

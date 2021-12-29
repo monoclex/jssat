@@ -45,6 +45,7 @@ export interface Frame {
 export interface FrameCode {
   lines: CodeLine[];
   highlighted: number;
+  header: string;
 }
 
 export interface CodeLine {

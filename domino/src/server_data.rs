@@ -70,6 +70,8 @@ pub struct FrameCode {
     pub lines: Vec<CodeLine>,
     /// The index of the highlighted line of code in `lines`.
     pub highlighted: usize,
+    /// The header of the function being viewed
+    pub header: String,
 }
 
 #[derive(Serialize)]

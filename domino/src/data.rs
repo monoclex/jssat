@@ -24,6 +24,7 @@ pub struct Snapshot {
 }
 
 pub struct RawFrameCode {
+    pub header: String,
     pub fn_name: Option<String>,
     pub lines: Vec<String>,
 }
@@ -81,6 +82,7 @@ impl Data {
         let code = FrameCode {
             lines,
             highlighted: snapshot.frame.inst_idx,
+            header: snapshot.code.header.clone(),
         };
 
         let source = snapshot.frame.source_idx.map(|s| {

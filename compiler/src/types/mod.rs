@@ -540,8 +540,10 @@ mod tests {
             let a_asdf2 = a.make_type_byts(b"asdf");
             let a_ghjk = a.make_type_byts(b"ghjk");
 
+            assert_eq!(a_asdf1, a_asdf1);
             assert_eq!(a_asdf1, a_asdf2);
             assert_eq!(a_asdf2, a_asdf1);
+            assert_eq!(a_asdf2, a_asdf2);
 
             assert_ne!(a_asdf1, a_ghjk);
             assert_ne!(a_asdf2, a_ghjk);
@@ -557,6 +559,9 @@ mod tests {
         a.borrow_mut(|mut a| {
             let asdf = a.make_type_byts(b"asdf");
             let atom = Type::Atom(Atom(NonZeroU16::new(1).unwrap()));
+
+            assert_eq!(asdf, asdf);
+            assert_eq!(atom, atom);
 
             assert_ne!(asdf, atom);
             assert_ne!(atom, asdf);
@@ -755,6 +760,8 @@ mod tests {
 
     #[test]
     fn self_key_referential_record_eq() {
+        todo!("stack overflow");
+
         let mut ctx = TypeCtx::<LiftedCtx, ()>::new();
 
         ctx.borrow_mut(|mut ctx| {
@@ -771,6 +778,8 @@ mod tests {
 
     #[test]
     fn self_key_referential_record_2ctx_eq() {
+        todo!("stack overflow");
+
         let mut ctx = TypeCtx::<LiftedCtx, ()>::new();
 
         ctx.borrow_mut(|mut ctx| {
@@ -799,6 +808,39 @@ mod tests {
                 assert_eq!(ctx2_rec, ctx_rec);
                 assert_eq!(ctx2_rec, ctx2_rec);
             })
+        })
+    }
+
+    #[test]
+    fn copies_rec_with_two_byte_keys() {
+        let mut ctx = TypeCtx::<LiftedCtx, ()>::new();
+
+        ctx.borrow_mut(|mut ctx| {
+            let rec = Record::new(Default::default());
+            let rec_typ = ctx.make_type_record(rec);
+
+            let mut rec = rec_typ.unwrap_record().borrow_mut();
+            rec.insert(ctx.make_type_byts(b"key1"), Type::Int(12));
+            rec.insert(ctx.make_type_byts(b"key2"), Type::Int(5));
+
+            ctx.insert((), rec_typ);
+        });
+
+        let mut ctx2 = TypeCtx::new();
+
+        ctx.borrow(|ctx| {
+            ctx2.copy_from(&ctx, std::iter::once(()));
+        });
+
+        ctx2.borrow(|ctx2| {
+            let ctx2_rec = ctx2.get(&()).unwrap();
+            let rec = ctx2_rec.unwrap_record().borrow();
+
+            let key1 = ctx2.make_type_byts(b"key1");
+            let key2 = ctx2.make_type_byts(b"key2");
+
+            assert_eq!(rec.get(&key1).copied(), Some(Type::Int(12)));
+            assert_eq!(rec.get(&key2).copied(), Some(Type::Int(5)));
         })
     }
 }

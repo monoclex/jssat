@@ -189,9 +189,9 @@ impl<'ctx1, 'ctx2, T: Tag> EqualityResolver<'ctx1, 'ctx2, T> {
                 Type::Bool(x) => EitherKey::Naive(Type::Bool(*x)),
                 Type::FnPtr(x) => EitherKey::Naive(Type::FnPtr(*x)),
                 Type::Byts(_) => EitherKey::Awful(*k),
-                Type::List(_) => todo!(),
-                Type::Record(_) => todo!(),
-                Type::Union(_) => todo!(),
+                Type::List(_) => EitherKey::Awful(*k),
+                Type::Record(_) => EitherKey::Awful(*k),
+                Type::Union(_) => EitherKey::Awful(*k),
             };
 
             let value_b = match b_key {
@@ -199,18 +199,18 @@ impl<'ctx1, 'ctx2, T: Tag> EqualityResolver<'ctx1, 'ctx2, T> {
                     Some(v) => *v,
                     None => ret!(),
                 },
-                EitherKey::Awful(typ) => {
+                EitherKey::Awful(a_key) => {
                     // now we have to perform a linear search to find the type
                     // that matches this type as the key of the other object
                     //
                     // i fear that this is unstable
                     let mut matches = Vec::new();
-                    for (key, value) in b.iter() {
+                    for (b_key, value) in b.iter() {
                         // NOTE: this instantiates a new `EqualityResolver` for each key...
                         // yeeeah...
                         let mut eq = EqualityResolver::new();
 
-                        if eq.are_not_equal(&typ, key) {
+                        if eq.are_not_equal(&a_key, b_key) {
                             continue;
                         }
 
@@ -220,7 +220,10 @@ impl<'ctx1, 'ctx2, T: Tag> EqualityResolver<'ctx1, 'ctx2, T> {
 
                         matches.push(*value);
                         // TODO(future): if this algo is actually sane, `break`
-                        // early
+                        //   early in debug mode
+
+                        #[cfg(not(debug_assertions))]
+                        break;
                     }
 
                     assert!(
