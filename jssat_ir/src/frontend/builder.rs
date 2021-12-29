@@ -516,11 +516,13 @@ impl DynBlockBuilder {
         }));
     }
 
+    #[track_caller]
     pub fn assert(&mut self, condition: RegisterId, message: &'static str) {
         self.instructions
             .push(Instruction::Assert(Assert { condition, message }))
     }
 
+    #[track_caller]
     pub fn is_type_of(&mut self, value: RegisterId, kind: ValueType) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions.push(Instruction::IsType(IsType {
@@ -531,6 +533,7 @@ impl DynBlockBuilder {
         result
     }
 
+    #[track_caller]
     pub fn is_type_as(&mut self, value: RegisterId, other: RegisterId) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions.push(Instruction::IsType(IsType {
@@ -541,6 +544,7 @@ impl DynBlockBuilder {
         result
     }
 
+    #[track_caller]
     pub fn get_runtime(&mut self) -> RegisterId {
         let result = self.gen_register_id.next();
 
@@ -550,6 +554,7 @@ impl DynBlockBuilder {
         result
     }
 
+    #[track_caller]
     pub fn make_string(&mut self, constant: ConstantId) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions.push(Instruction::MakeBytes(Make {
@@ -559,6 +564,7 @@ impl DynBlockBuilder {
         result
     }
 
+    #[track_caller]
     pub fn make_number_decimal(&mut self, value: i64) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions.push(Instruction::MakeInteger(Make {
@@ -568,6 +574,7 @@ impl DynBlockBuilder {
         result
     }
 
+    #[track_caller]
     pub fn make_bool(&mut self, value: bool) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions.push(Instruction::MakeBoolean(Make {
@@ -577,10 +584,12 @@ impl DynBlockBuilder {
         result
     }
 
+    #[track_caller]
     pub fn make_atom(&mut self, atom: Atom) -> RegisterId {
         self.push_inst(|result| Instruction::MakeAtom(Make { result, item: atom }))
     }
 
+    #[track_caller]
     pub fn make_fnptr(&mut self, function: FunctionId) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions.push(Instruction::GetFnPtr(Make {
@@ -590,6 +599,7 @@ impl DynBlockBuilder {
         result
     }
 
+    #[track_caller]
     pub fn generalize(&mut self, value: RegisterId) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions
@@ -597,6 +607,7 @@ impl DynBlockBuilder {
         result
     }
 
+    #[track_caller]
     pub fn record_new(&mut self) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions
@@ -604,6 +615,7 @@ impl DynBlockBuilder {
         result
     }
 
+    #[track_caller]
     pub fn record_get_prop(&mut self, record: RegisterId, property: RegisterId) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions.push(Instruction::RecordGet(RecordGet {
@@ -614,6 +626,7 @@ impl DynBlockBuilder {
         result
     }
 
+    #[track_caller]
     pub fn record_get_atom(&mut self, record: RegisterId, atom: Atom) -> RegisterId {
         self.push_inst(|result| {
             Instruction::RecordGet(RecordGet {
@@ -624,6 +637,7 @@ impl DynBlockBuilder {
         })
     }
 
+    #[track_caller]
     pub fn record_set_prop(&mut self, record: RegisterId, property: RegisterId, value: RegisterId) {
         self.instructions.push(Instruction::RecordSet(RecordSet {
             record,
@@ -632,6 +646,7 @@ impl DynBlockBuilder {
         }));
     }
 
+    #[track_caller]
     pub fn record_set_atom(&mut self, record: RegisterId, atom: Atom, value: RegisterId) {
         self.instructions.push(Instruction::RecordSet(RecordSet {
             record,
@@ -640,6 +655,7 @@ impl DynBlockBuilder {
         }));
     }
 
+    #[track_caller]
     pub fn record_del_prop(&mut self, record: RegisterId, property: RegisterId) {
         self.instructions.push(Instruction::RecordSet(RecordSet {
             record,
@@ -648,6 +664,7 @@ impl DynBlockBuilder {
         }))
     }
 
+    #[track_caller]
     pub fn record_del_atom(&mut self, record: RegisterId, atom: Atom) {
         self.instructions.push(Instruction::RecordSet(RecordSet {
             record,
@@ -656,6 +673,7 @@ impl DynBlockBuilder {
         }));
     }
 
+    #[track_caller]
     pub fn record_has_prop(&mut self, record: RegisterId, property: RegisterId) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions
@@ -667,6 +685,7 @@ impl DynBlockBuilder {
         result
     }
 
+    #[track_caller]
     pub fn record_has_atom(&mut self, record: RegisterId, atom: Atom) -> RegisterId {
         self.push_inst(|result| {
             Instruction::RecordHasKey(RecordHasKey {
@@ -677,6 +696,7 @@ impl DynBlockBuilder {
         })
     }
 
+    #[track_caller]
     pub fn record_has_atom_dyn(&mut self, record: RegisterId, atom: RegisterId) -> RegisterId {
         self.push_inst(|result| {
             Instruction::RecordHasKey(RecordHasKey {
@@ -687,6 +707,7 @@ impl DynBlockBuilder {
         })
     }
 
+    #[track_caller]
     pub fn list_new(&mut self) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions
@@ -694,6 +715,7 @@ impl DynBlockBuilder {
         result
     }
 
+    #[track_caller]
     pub fn list_get(&mut self, list: RegisterId, key: RegisterId) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions.push(Instruction::ListGet(ListGet {
@@ -704,6 +726,7 @@ impl DynBlockBuilder {
         result
     }
 
+    #[track_caller]
     pub fn list_set(&mut self, list: RegisterId, key: RegisterId, value: RegisterId) {
         self.instructions.push(Instruction::ListSet(ListSet {
             list,
@@ -712,6 +735,7 @@ impl DynBlockBuilder {
         }));
     }
 
+    #[track_caller]
     pub fn list_del(&mut self, list: RegisterId, key: RegisterId) {
         self.instructions.push(Instruction::ListSet(ListSet {
             list,
@@ -720,6 +744,7 @@ impl DynBlockBuilder {
         }))
     }
 
+    #[track_caller]
     pub fn list_has(&mut self, list: RegisterId, key: RegisterId) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions.push(Instruction::ListHasKey(ListHasKey {
@@ -730,6 +755,7 @@ impl DynBlockBuilder {
         result
     }
 
+    #[track_caller]
     pub fn list_len(&mut self, list: RegisterId) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions
@@ -737,6 +763,7 @@ impl DynBlockBuilder {
         result
     }
 
+    #[track_caller]
     fn binop(
         result: RegisterId,
         lhs: RegisterId,
@@ -751,6 +778,7 @@ impl DynBlockBuilder {
         })
     }
 
+    #[track_caller]
     pub fn add(&mut self, lhs: RegisterId, rhs: RegisterId) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions
@@ -758,6 +786,7 @@ impl DynBlockBuilder {
         result
     }
 
+    #[track_caller]
     pub fn compare_equal(&mut self, lhs: RegisterId, rhs: RegisterId) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions
@@ -765,6 +794,7 @@ impl DynBlockBuilder {
         result
     }
 
+    #[track_caller]
     pub fn compare_less_than(&mut self, lhs: RegisterId, rhs: RegisterId) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions
@@ -772,6 +802,7 @@ impl DynBlockBuilder {
         result
     }
 
+    #[track_caller]
     pub fn or(&mut self, lhs: RegisterId, rhs: RegisterId) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions
@@ -779,6 +810,7 @@ impl DynBlockBuilder {
         result
     }
 
+    #[track_caller]
     pub fn and(&mut self, lhs: RegisterId, rhs: RegisterId) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions
@@ -786,6 +818,7 @@ impl DynBlockBuilder {
         result
     }
 
+    #[track_caller]
     pub fn negate(&mut self, operand: RegisterId) -> RegisterId {
         let result = self.gen_register_id.next();
         self.instructions
@@ -793,6 +826,7 @@ impl DynBlockBuilder {
         result
     }
 
+    #[track_caller]
     pub fn call<const PARAMETERS: usize>(
         &mut self,
         function_signature: FnSignature<PARAMETERS>,
@@ -801,6 +835,7 @@ impl DynBlockBuilder {
         self.call_dynargs(function_signature.id, values.to_vec())
     }
 
+    #[track_caller]
     pub fn call_dynargs(&mut self, fn_id: FunctionId, args: Vec<RegisterId>) {
         self.instructions.push(Instruction::CallStatic(Call {
             result: None,
@@ -809,6 +844,7 @@ impl DynBlockBuilder {
         }));
     }
 
+    #[track_caller]
     pub fn call_virt<const PARAMETERS: usize>(
         &mut self,
         fn_ptr: RegisterId,
@@ -817,6 +853,7 @@ impl DynBlockBuilder {
         self.call_virt_dynargs(fn_ptr, values.to_vec())
     }
 
+    #[track_caller]
     pub fn call_virt_dynargs(&mut self, fn_ptr: RegisterId, args: Vec<RegisterId>) {
         self.instructions.push(Instruction::CallVirt(Call {
             result: None,
@@ -825,6 +862,7 @@ impl DynBlockBuilder {
         }));
     }
 
+    #[track_caller]
     pub fn call_virt_with_result<const PARAMETERS: usize>(
         &mut self,
         fn_ptr: RegisterId,
@@ -833,6 +871,7 @@ impl DynBlockBuilder {
         self.call_virt_dynargs_with_result(fn_ptr, values.to_vec())
     }
 
+    #[track_caller]
     pub fn call_virt_dynargs_with_result(
         &mut self,
         fn_ptr: RegisterId,
@@ -847,6 +886,7 @@ impl DynBlockBuilder {
         result
     }
 
+    #[track_caller]
     pub fn call_with_result<const PARAMETERS: usize>(
         &mut self,
         function_signature: FnSignature<PARAMETERS>,
@@ -855,6 +895,7 @@ impl DynBlockBuilder {
         self.call_dynargs_with_result(function_signature.id, values.to_vec())
     }
 
+    #[track_caller]
     pub fn call_dynargs_with_result(
         &mut self,
         fn_id: FunctionId,
@@ -871,6 +912,7 @@ impl DynBlockBuilder {
         result
     }
 
+    #[track_caller]
     pub fn call_external_function<const PARAMETERS: usize>(
         &mut self,
         external_function: ExtFnIdTyped<PARAMETERS>,
@@ -879,6 +921,7 @@ impl DynBlockBuilder {
         self.call_external_function_dynargs(external_function.0, values.to_vec())
     }
 
+    #[track_caller]
     pub fn call_external_function_dynargs(
         &mut self,
         fn_id: ExternalFunctionId,
@@ -891,6 +934,7 @@ impl DynBlockBuilder {
         }));
     }
 
+    #[track_caller]
     pub fn call_external_function_with_result<const PARAMETERS: usize>(
         &mut self,
         external_function: ExtFnIdTyped<PARAMETERS>,
@@ -899,6 +943,7 @@ impl DynBlockBuilder {
         self.call_external_function_dynargs_with_result(external_function.0, values.to_vec())
     }
 
+    #[track_caller]
     pub fn call_external_function_dynargs_with_result(
         &mut self,
         fn_id: ExternalFunctionId,
