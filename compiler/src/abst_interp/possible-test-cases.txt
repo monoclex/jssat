@@ -124,3 +124,37 @@ g():
     obj = {}
     return obj
 ---
+# this bug had to do with how we maintained/updated pointers
+#
+# we have a bunch of doubly pointed pointers. we will now add 3 records:
+#
+# 1: [ ptr ] -> [ ptr ] -> rec
+#
+# 1: [ ptr ] \   [ ptr ] -> rec
+# 2: [ ptr ] -\> [ ptr ] -> rec
+#
+# 1: [ ptr ] \   [ ptr ] -> rec
+#             \
+# 2: [ ptr ] \ > [ ptr ] -> rec
+#             \
+# 3: [ ptr ] --> [ ptr ] -> rec
+#
+# that is the essence of the bug - we didn't properly update our doubly pointed pointers
+main():
+    state = {}
+    init(state)
+
+    carry = Record(state)[CarryKey]
+    nothing(state)
+    nothing(state)
+    nothing(carry)
+
+init(state):
+    carry = {}
+    Record(state)[CarryKey] <- carry
+    Record(carry)[Itself] <- carry
+    return
+
+nothing(state):
+    return
+---

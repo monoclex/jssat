@@ -395,8 +395,8 @@ pub struct DoublyRefMut<'a: 'b, 'b, A, B> {
 }
 
 impl<'ctx, T> DoublyPtrHandle<'ctx, T> {
-    pub fn new(arena: &'ctx Bump, value: T) -> Self {
-        DoublyPtrHandle(RefCellHandle::new(arena, RefCellHandle::new(arena, value)))
+    pub fn new(arena: &'ctx Bump, value: RefCellHandle<'ctx, T>) -> Self {
+        DoublyPtrHandle(RefCellHandle::new(arena, value))
     }
 
     pub fn ptr_eq(lhs: &Self, rhs: &Self) -> bool {
@@ -428,11 +428,14 @@ impl<'ctx, T> DoublyPtrHandle<'ctx, T> {
     }
 
     /// Copies the primary primary from another [`DoublyPtrHandle`] to this one.
-    pub fn copy_primary_ptr<'a, 'b>(&'a self, other: &'b Self) {
+    pub fn copy_primary_ptr<'a, 'b>(&'a self, other: RefCellHandle<'ctx, T>) {
+        println!("copy_primary_ptr {{");
         let mut self_hop = self.0.borrow_mut(); //.(1)
-        let other_hop = *other.0.borrow();
 
-        *self_hop = other_hop;
+        *self_hop = other;
+
+        drop(self_hop);
+        println!("}}");
     }
 }
 
@@ -923,6 +926,7 @@ mod tests {
             let realm = ctx.get(&Key::Realm).unwrap();
             let mut record = obj.unwrap_record().borrow_mut();
             record.insert(Type::Atom(key), realm);
+            drop(record);
 
             // return `obj`, a.k.a., copy back state
             let ret_typ = ctx.get(&Key::Obj).unwrap();
@@ -947,6 +951,7 @@ mod tests {
             let record = ctx.get(&Key::Realm).unwrap();
             let mut record = record.unwrap_record().borrow_mut();
             record.insert(Type::Atom(key), value);
+            drop(record);
         });
     }
 }

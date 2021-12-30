@@ -543,6 +543,10 @@ impl<'p, C: AbsIntCollector<LiftedCtx>> AbsIntEngine<'p, C> {
                                     (Bool(_), Boolean) |
                                     (Boolean, Bool(_)) |
                                     (Boolean, Boolean) => Boolean,
+                                    (Int(a), Int(b)) => Bool(a == b),
+                                    (Int(_), Number) |
+                                    (Number, Int(_)) |
+                                    (Number, Number) => Boolean,
                                     (a, b) => panic!("2op eq: {:?} vs {:?}", a, b)
                                 }
                             },

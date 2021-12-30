@@ -789,15 +789,15 @@ impl<'borrow, 'arena, T: Tag, K> TypeCtxMut<'borrow, 'arena, T, K> {
     pub fn make_type_list(&mut self, list: List<'arena, T>) -> Type<'arena, T> {
         let id = list.unique_id();
 
-        let handle = DoublyPtrHandle::new(self.arena, list);
+        let lst_ptr = RefCellHandle::new(self.arena, list);
 
-        if self.does_unique_mapping {
-            let old = self.list_unique_map.insert(id, handle);
-
-            if let Some(old) = old {
-                old.copy_primary_ptr(&handle);
-            }
-        }
+        let handle = *self
+            .list_unique_map
+            .entry(id)
+            .and_modify(|handle| {
+                handle.copy_primary_ptr(lst_ptr);
+            })
+            .or_insert_with(|| DoublyPtrHandle::new(self.arena, lst_ptr));
 
         Type::List(handle)
     }
