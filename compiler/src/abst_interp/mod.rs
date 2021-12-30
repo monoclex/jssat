@@ -911,6 +911,13 @@ impl FunctionCache {
             }
         });
 
+        // TODO: only cache functions *if* their objects never "escape"
+        //   currently if we cache a function which allocates an object and returns it,
+        //   it will keep the id of the record the same and then keep giving it back out
+        //
+        //   this is invalid behavior
+        index = None;
+
         let index = match index {
             Some(i) => i,
             None => {

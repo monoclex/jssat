@@ -113,3 +113,14 @@ g(realm):
     Record(obj)[Realm] <- realm
     return obj
 ---
+# ran into this when doing caching stuff
+f():
+    a = g()
+    Record(a)[Key] <- "asdf"
+    b = g()
+    assert(Record(b).hasKey(Key) == false)
+
+g():
+    obj = {}
+    return obj
+---
