@@ -1,5 +1,5 @@
 {
-    "rust-analyzer.cargo.features": ["moment"],
+    // "rust-analyzer.cargo.features": ["moment"],
     "rust-analyzer.cargo.unsetTest": ["core", "derivative"],
     "prettier.proseWrap": "always",
     "files.exclude": {

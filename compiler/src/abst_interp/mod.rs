@@ -464,7 +464,22 @@ impl<'p, C: AbsIntCollector<LiftedCtx>> AbsIntEngine<'p, C> {
                         drop(list);
                         self.collector.record(i.list, list_typ);
                     }
-                    ListHasKey(_) => todo!(),
+                    ListHasKey(i) => {
+                        let list = state.get(&i.list).unwrap();
+                        let list = list.unwrap_list().borrow();
+
+                        let key = match i.key {
+                            jssat_ir::isa::ListKey::Index(i) => state.rget(i)?,
+                        };
+
+                        let index = match key {
+                            Type::Int(i) => i,
+                            _ => todo!()
+                        };
+
+                        let has_key = index >= 0 && index < list.len() as i64;
+                        state.insert(i.result, Type::Bool(has_key));
+                    },
                     ListLen(i) => {
                         let list = state.get(&i.list).unwrap();
                         let list = list.unwrap_list().borrow();
@@ -537,8 +552,12 @@ impl<'p, C: AbsIntCollector<LiftedCtx>> AbsIntEngine<'p, C> {
                                     (Atom(_), Record(_)) => Bool(false),
                                     (Record(_), Atom(_)) => Bool(false),
                                     (Record(a), Record(b)) => {
-                                        todo!("uhm")
+                                        Bool(a == b)
                                     }
+                                    (Byts(a), Byts(b)) => Bool(a == b),
+                                    (Bytes, Byts(_)) |
+                                    (Byts(_), Bytes) |
+                                    (Bytes, Bytes) => Boolean,
                                     (Bool(a), Bool(b)) => Bool(a == b),
                                     (Bool(_), Boolean) |
                                     (Boolean, Bool(_)) |
@@ -954,7 +973,7 @@ impl IndexMut<InvocationIndex> for FunctionCache {
 /// The number of times for a function to be called within itself to be
 /// considered recursion. This will need some fine tuning as JSSAT grows and
 /// experiences a wider variety of programs.
-const ARBITRARY_RECURSION_THRESHOLD: usize = 10;
+const ARBITRARY_RECURSION_THRESHOLD: usize = 1000;
 
 #[derive(Clone, Default)]
 struct RecursionDetector {

@@ -651,14 +651,8 @@ impl<'b, 'a, 'd, 't, T: Tag, K: Hash + Eq> TypeDuplication<'b, 'a, 'd, 't, T, K>
                 self.duplications
                     .insert(TypeRefEq(typ), TypeRefEq(list_typ));
 
-                let items = src_list
-                    .iter()
-                    .map(|t| self.duplicate_type(*t))
-                    .collect::<Vec<_>>();
-
-                drop(src_list);
                 let mut list = list_typ.unwrap_list().borrow_mut();
-                list.extend(items);
+                list.extend(src_list.iter().map(|t| self.duplicate_type(*t)));
                 list_typ
             }
             Type::Record(handle) => {
@@ -674,22 +668,17 @@ impl<'b, 'a, 'd, 't, T: Tag, K: Hash + Eq> TypeDuplication<'b, 'a, 'd, 't, T, K>
                     .insert(TypeRefEq(typ), TypeRefEq(record_typ));
 
                 // duplicate the kvps of the record
-                // let mut dest_record = record_typ.unwrap_record().borrow_mut();
+                let mut dest_record = record_typ.unwrap_record().borrow_mut();
 
-                let mut cache = Vec::new();
                 for (key, value) in src_record.iter() {
                     let dest_key = self.duplicate_type(*key);
                     let dest_value = self.duplicate_type(*value); //.(4) //.(5) //.(6)
 
-                    cache.push((dest_key, dest_value));
-                    // dest_record.insert(dest_key, dest_value);
+                    // cache.push((dest_key, dest_value));
+                    dest_record.insert(dest_key, dest_value);
                 }
 
-                drop(src_record);
-
-                let mut dest_record = record_typ.unwrap_record().borrow_mut();
-                dest_record.extend(cache);
-
+                drop(dest_record);
                 record_typ
             }
             Type::Union(handle) => {
@@ -820,15 +809,15 @@ impl<'borrow, 'arena, T: Tag, K> TypeCtxMut<'borrow, 'arena, T, K> {
     pub fn make_type_record(&mut self, record: Record<'arena, T>) -> Type<'arena, T> {
         let id = record.unique_id();
 
-        let handle = DoublyPtrHandle::new(self.arena, record);
+        let rec_ptr = RefCellHandle::new(self.arena, record);
 
-        if self.does_unique_mapping {
-            let old = self.record_unique_map.insert(id, handle);
-
-            if let Some(old) = old {
-                old.copy_primary_ptr(&handle); //.(2)
-            }
-        }
+        let handle = *self
+            .record_unique_map
+            .entry(id)
+            .and_modify(|handle| {
+                handle.copy_primary_ptr(rec_ptr);
+            })
+            .or_insert_with(|| DoublyPtrHandle::new(self.arena, rec_ptr));
 
         Type::Record(handle)
     }
@@ -851,15 +840,15 @@ impl<'borrow, 'arena, T: Tag, K> TypeCtxMut<'borrow, 'arena, T, K> {
     pub fn make_type_union(&mut self, union: Union<'arena, T>) -> Type<'arena, T> {
         let id = union.unique_id();
 
-        let handle = DoublyPtrHandle::new(self.arena, union);
+        let union_ptr = RefCellHandle::new(self.arena, union);
 
-        if self.does_unique_mapping {
-            let old = self.union_unique_map.insert(id, handle);
-
-            if let Some(old) = old {
-                old.copy_primary_ptr(&handle);
-            }
-        }
+        let handle = *self
+            .union_unique_map
+            .entry(id)
+            .and_modify(|handle| {
+                handle.copy_primary_ptr(union_ptr);
+            })
+            .or_insert_with(|| DoublyPtrHandle::new(self.arena, union_ptr));
 
         Type::Union(handle)
     }

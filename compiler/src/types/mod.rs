@@ -429,13 +429,8 @@ impl<'ctx, T> DoublyPtrHandle<'ctx, T> {
 
     /// Copies the primary primary from another [`DoublyPtrHandle`] to this one.
     pub fn copy_primary_ptr<'a, 'b>(&'a self, other: RefCellHandle<'ctx, T>) {
-        println!("copy_primary_ptr {{");
         let mut self_hop = self.0.borrow_mut(); //.(1)
-
         *self_hop = other;
-
-        drop(self_hop);
-        println!("}}");
     }
 }
 
